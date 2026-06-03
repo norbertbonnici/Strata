@@ -1,0 +1,5 @@
+.DS_Store
+.build-tsk/
+Vendor/tsk/
+xcuserdata/
+*.xcuserstate

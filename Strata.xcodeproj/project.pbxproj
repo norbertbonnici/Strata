@@ -6,6 +6,21 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		096404342FCFE8E900C40621 /* tsk_loaddb in CopyFiles */ = {isa = PBXBuildFile; fileRef = 0964042B2FCFE8E800C40621 /* tsk_loaddb */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		096404352FCFE8E900C40621 /* fls in CopyFiles */ = {isa = PBXBuildFile; fileRef = 0964042C2FCFE8E800C40621 /* fls */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		096404362FCFE8E900C40621 /* blkstat in CopyFiles */ = {isa = PBXBuildFile; fileRef = 0964042D2FCFE8E800C40621 /* blkstat */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		096404372FCFE8E900C40621 /* evtxinfo in CopyFiles */ = {isa = PBXBuildFile; fileRef = 0964042E2FCFE8E800C40621 /* evtxinfo */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		096404382FCFE8E900C40621 /* fsstat in CopyFiles */ = {isa = PBXBuildFile; fileRef = 0964042F2FCFE8E800C40621 /* fsstat */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		096404392FCFE8E900C40621 /* istat in CopyFiles */ = {isa = PBXBuildFile; fileRef = 096404302FCFE8E800C40621 /* istat */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		0964043A2FCFE8E900C40621 /* icat in CopyFiles */ = {isa = PBXBuildFile; fileRef = 096404312FCFE8E900C40621 /* icat */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		0964043B2FCFE8E900C40621 /* evtxexport in CopyFiles */ = {isa = PBXBuildFile; fileRef = 096404322FCFE8E900C40621 /* evtxexport */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		0964043C2FCFE8E900C40621 /* mmls in CopyFiles */ = {isa = PBXBuildFile; fileRef = 096404332FCFE8E900C40621 /* mmls */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		096404652FD09E2100C40621 /* regfexport in CopyFiles */ = {isa = PBXBuildFile; fileRef = 096404642FD09E2100C40621 /* regfexport */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		096404772FD0AF9500C40621 /* regfinfo in CopyFiles */ = {isa = PBXBuildFile; fileRef = 096404732FD0AF9500C40621 /* regfinfo */; };
+		099DBE0B2FCF60530042FE85 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 099DBE0A2FCF60530042FE85 /* GRDB */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		099DBDC12FCF54B90042FE85 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -23,10 +38,61 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		099DBE0D2FCF68040042FE85 /* CopyFiles */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = tsk/bin;
+			dstSubfolderSpec = 7;
+			files = (
+				096404362FCFE8E900C40621 /* blkstat in CopyFiles */,
+				096404652FD09E2100C40621 /* regfexport in CopyFiles */,
+				096404382FCFE8E900C40621 /* fsstat in CopyFiles */,
+				096404342FCFE8E900C40621 /* tsk_loaddb in CopyFiles */,
+				0964043B2FCFE8E900C40621 /* evtxexport in CopyFiles */,
+				0964043A2FCFE8E900C40621 /* icat in CopyFiles */,
+				096404352FCFE8E900C40621 /* fls in CopyFiles */,
+				096404772FD0AF9500C40621 /* regfinfo in CopyFiles */,
+				0964043C2FCFE8E900C40621 /* mmls in CopyFiles */,
+				096404392FCFE8E900C40621 /* istat in CopyFiles */,
+				096404372FCFE8E900C40621 /* evtxinfo in CopyFiles */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		0964042B2FCFE8E800C40621 /* tsk_loaddb */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = tsk_loaddb; path = Vendor/tsk/bin/arm64/tsk_loaddb; sourceTree = "<group>"; };
+		0964042C2FCFE8E800C40621 /* fls */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = fls; path = Vendor/tsk/bin/arm64/fls; sourceTree = "<group>"; };
+		0964042D2FCFE8E800C40621 /* blkstat */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = blkstat; path = Vendor/tsk/bin/arm64/blkstat; sourceTree = "<group>"; };
+		0964042E2FCFE8E800C40621 /* evtxinfo */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = evtxinfo; path = Vendor/tsk/bin/arm64/evtxinfo; sourceTree = "<group>"; };
+		0964042F2FCFE8E800C40621 /* fsstat */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = fsstat; path = Vendor/tsk/bin/arm64/fsstat; sourceTree = "<group>"; };
+		096404302FCFE8E800C40621 /* istat */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = istat; path = Vendor/tsk/bin/arm64/istat; sourceTree = "<group>"; };
+		096404312FCFE8E900C40621 /* icat */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = icat; path = Vendor/tsk/bin/arm64/icat; sourceTree = "<group>"; };
+		096404322FCFE8E900C40621 /* evtxexport */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = evtxexport; path = Vendor/tsk/bin/arm64/evtxexport; sourceTree = "<group>"; };
+		096404332FCFE8E900C40621 /* mmls */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = mmls; path = Vendor/tsk/bin/arm64/mmls; sourceTree = "<group>"; };
+		096404642FD09E2100C40621 /* regfexport */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = regfexport; path = Vendor/tsk/bin/arm64/regfexport; sourceTree = "<group>"; };
+		0964046C2FD0AF9500C40621 /* blkstat */ = {isa = PBXFileReference; lastKnownFileType = text; name = blkstat; path = Vendor/tsk/bin/arm64/blkstat; sourceTree = "<group>"; };
+		0964046D2FD0AF9500C40621 /* regfexport */ = {isa = PBXFileReference; lastKnownFileType = text; name = regfexport; path = Vendor/tsk/bin/arm64/regfexport; sourceTree = "<group>"; };
+		0964046E2FD0AF9500C40621 /* fsstat */ = {isa = PBXFileReference; lastKnownFileType = text; name = fsstat; path = Vendor/tsk/bin/arm64/fsstat; sourceTree = "<group>"; };
+		0964046F2FD0AF9500C40621 /* tsk_loaddb */ = {isa = PBXFileReference; lastKnownFileType = text; name = tsk_loaddb; path = Vendor/tsk/bin/arm64/tsk_loaddb; sourceTree = "<group>"; };
+		096404702FD0AF9500C40621 /* evtxexport */ = {isa = PBXFileReference; lastKnownFileType = text; name = evtxexport; path = Vendor/tsk/bin/arm64/evtxexport; sourceTree = "<group>"; };
+		096404712FD0AF9500C40621 /* icat */ = {isa = PBXFileReference; lastKnownFileType = text; name = icat; path = Vendor/tsk/bin/arm64/icat; sourceTree = "<group>"; };
+		096404722FD0AF9500C40621 /* fls */ = {isa = PBXFileReference; lastKnownFileType = text; name = fls; path = Vendor/tsk/bin/arm64/fls; sourceTree = "<group>"; };
+		096404732FD0AF9500C40621 /* regfinfo */ = {isa = PBXFileReference; lastKnownFileType = text; name = regfinfo; path = Vendor/tsk/bin/arm64/regfinfo; sourceTree = "<group>"; };
+		096404742FD0AF9500C40621 /* mmls */ = {isa = PBXFileReference; lastKnownFileType = text; name = mmls; path = Vendor/tsk/bin/arm64/mmls; sourceTree = "<group>"; };
+		096404752FD0AF9500C40621 /* istat */ = {isa = PBXFileReference; lastKnownFileType = text; name = istat; path = Vendor/tsk/bin/arm64/istat; sourceTree = "<group>"; };
+		096404762FD0AF9500C40621 /* evtxinfo */ = {isa = PBXFileReference; lastKnownFileType = text; name = evtxinfo; path = Vendor/tsk/bin/arm64/evtxinfo; sourceTree = "<group>"; };
 		099DBDAF2FCF54B80042FE85 /* Strata.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Strata.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		099DBDC02FCF54B90042FE85 /* StrataTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = StrataTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		099DBDCA2FCF54B90042FE85 /* StrataUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = StrataUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		099DBE0C2FCF67870042FE85 /* tsk_loaddb */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = tsk_loaddb; path = Vendor/tsk/bin/arm64/tsk_loaddb; sourceTree = "<group>"; };
+		099DBE0F2FCF684C0042FE85 /* icat */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = icat; path = Vendor/tsk/bin/arm64/icat; sourceTree = "<group>"; };
+		099DBE102FCF684C0042FE85 /* istat */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = istat; path = Vendor/tsk/bin/arm64/istat; sourceTree = "<group>"; };
+		099DBE112FCF684C0042FE85 /* blkstat */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = blkstat; path = Vendor/tsk/bin/arm64/blkstat; sourceTree = "<group>"; };
+		099DBE122FCF684C0042FE85 /* mmls */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = mmls; path = Vendor/tsk/bin/arm64/mmls; sourceTree = "<group>"; };
+		099DBE132FCF684C0042FE85 /* fsstat */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = fsstat; path = Vendor/tsk/bin/arm64/fsstat; sourceTree = "<group>"; };
+		099DBE142FCF684C0042FE85 /* fls */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = fls; path = Vendor/tsk/bin/arm64/fls; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -65,6 +131,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				099DBE0B2FCF60530042FE85 /* GRDB in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -88,9 +155,37 @@
 		099DBDA62FCF54B80042FE85 = {
 			isa = PBXGroup;
 			children = (
+				096404702FD0AF9500C40621 /* evtxexport */,
+				096404762FD0AF9500C40621 /* evtxinfo */,
+				096404722FD0AF9500C40621 /* fls */,
+				0964046E2FD0AF9500C40621 /* fsstat */,
+				096404712FD0AF9500C40621 /* icat */,
+				096404752FD0AF9500C40621 /* istat */,
+				096404742FD0AF9500C40621 /* mmls */,
+				096404642FD09E2100C40621 /* regfexport */,
+				099DBE112FCF684C0042FE85 /* blkstat */,
+				0964042D2FCFE8E800C40621 /* blkstat */,
+				096404322FCFE8E900C40621 /* evtxexport */,
+				0964042E2FCFE8E800C40621 /* evtxinfo */,
+				099DBE142FCF684C0042FE85 /* fls */,
+				099DBE132FCF684C0042FE85 /* fsstat */,
+				099DBE0F2FCF684C0042FE85 /* icat */,
+				096404312FCFE8E900C40621 /* icat */,
+				099DBE102FCF684C0042FE85 /* istat */,
+				099DBE122FCF684C0042FE85 /* mmls */,
+				0964042C2FCFE8E800C40621 /* fls */,
+				0964042F2FCFE8E800C40621 /* fsstat */,
+				096404302FCFE8E800C40621 /* istat */,
+				096404332FCFE8E900C40621 /* mmls */,
+				096404732FD0AF9500C40621 /* regfinfo */,
+				0964042B2FCFE8E800C40621 /* tsk_loaddb */,
+				0964046C2FD0AF9500C40621 /* blkstat */,
+				0964046D2FD0AF9500C40621 /* regfexport */,
+				0964046F2FD0AF9500C40621 /* tsk_loaddb */,
 				099DBDB12FCF54B80042FE85 /* Strata */,
 				099DBDC32FCF54B90042FE85 /* StrataTests */,
 				099DBDCD2FCF54B90042FE85 /* StrataUITests */,
+				099DBE092FCF60530042FE85 /* Frameworks */,
 				099DBDB02FCF54B80042FE85 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -105,6 +200,14 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		099DBE092FCF60530042FE85 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				099DBE0C2FCF67870042FE85 /* tsk_loaddb */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -115,6 +218,7 @@
 				099DBDAB2FCF54B80042FE85 /* Sources */,
 				099DBDAC2FCF54B80042FE85 /* Frameworks */,
 				099DBDAD2FCF54B80042FE85 /* Resources */,
+				099DBE0D2FCF68040042FE85 /* CopyFiles */,
 			);
 			buildRules = (
 			);
@@ -125,6 +229,7 @@
 			);
 			name = Strata;
 			packageProductDependencies = (
+				099DBE0A2FCF60530042FE85 /* GRDB */,
 			);
 			productName = Strata;
 			productReference = 099DBDAF2FCF54B80042FE85 /* Strata.app */;
@@ -208,6 +313,9 @@
 			);
 			mainGroup = 099DBDA62FCF54B80042FE85;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				099DBE082FCF5E6B0042FE85 /* XCRemoteSwiftPackageReference "GRDB" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 099DBDB02FCF54B80042FE85 /* Products */;
 			projectDirPath = "";
@@ -287,15 +395,17 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 96ZD8RMB92;
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Strata/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Strata;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -316,13 +426,14 @@
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TARGETED_DEVICE_FAMILY = "1,2";
 				XROS_DEPLOYMENT_TARGET = 26.5;
 			};
 			name = Debug;
@@ -332,15 +443,17 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 96ZD8RMB92;
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Strata/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Strata;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -361,13 +474,14 @@
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TARGETED_DEVICE_FAMILY = "1,2";
 				XROS_DEPLOYMENT_TARGET = 26.5;
 			};
 			name = Release;
@@ -630,6 +744,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		099DBE082FCF5E6B0042FE85 /* XCRemoteSwiftPackageReference "GRDB" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/groue/GRDB.swift";
+			requirement = {
+				branch = master;
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		099DBE0A2FCF60530042FE85 /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 099DBE082FCF5E6B0042FE85 /* XCRemoteSwiftPackageReference "GRDB" */;
+			productName = GRDB;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 099DBDA72FCF54B80042FE85 /* Project object */;
 }

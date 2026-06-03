@@ -1,0 +1,171 @@
+import Foundation
+
+/// On-disk layout for a Strata case bundle. The bundle is a plain directory
+/// with a `.strata` extension - no zip, no top-level SQLite - so a curious
+/// user can poke around with Finder if they want.
+///
+/// MyCase.strata/
+///   case.json                metadata { id, name, examiner, createdAt }
+///   hosts.json               [{ id, displayName, sourceURL, kind }, ...]
+///   hosts/<host-uuid>/
+///     tsk.db                 SQLite produced by tsk_loaddb
+///     events/                scratch dir for extracted .evtx files
+///     registry/              scratch dir for extracted hives
+public enum CaseStore {
+    public static let bundleExtension = "strata"
+
+    private static let caseFilename     = "case.json"
+    private static let hostsFilename    = "hosts.json"
+    private static let hostsDirname     = "hosts"
+    private static let tskFilename      = "tsk.db"
+    private static let eventsFilename   = "events.json"
+    private static let registryFilename = "registry.json"
+    private static let findingsFilename = "findings.json"
+
+    // MARK: - URLs
+
+    public static func caseFile(in bundle: URL) -> URL {
+        bundle.appendingPathComponent(caseFilename)
+    }
+
+    public static func hostsFile(in bundle: URL) -> URL {
+        bundle.appendingPathComponent(hostsFilename)
+    }
+
+    public static func hostDirectory(forHostID id: UUID, in bundle: URL) -> URL {
+        bundle.appendingPathComponent(hostsDirname, isDirectory: true)
+              .appendingPathComponent(id.uuidString, isDirectory: true)
+    }
+
+    public static func tskDatabaseURL(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle).appendingPathComponent(tskFilename)
+    }
+
+    public static func eventScratchDirectory(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent("events", isDirectory: true)
+    }
+
+    public static func registryScratchDirectory(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent("registry", isDirectory: true)
+    }
+
+    // MARK: - Create / load
+
+    public static func createBundle(at bundle: URL, case theCase: ForensicCase) throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: bundle, withIntermediateDirectories: true)
+        try fm.createDirectory(
+            at: bundle.appendingPathComponent(hostsDirname, isDirectory: true),
+            withIntermediateDirectories: true)
+        try writeCase(theCase, in: bundle)
+        try writeHosts([], in: bundle)
+    }
+
+    public static func readCase(in bundle: URL) throws -> ForensicCase {
+        let data = try Data(contentsOf: caseFile(in: bundle))
+        return try jsonDecoder.decode(ForensicCase.self, from: data)
+    }
+
+    public static func writeCase(_ theCase: ForensicCase, in bundle: URL) throws {
+        let data = try jsonEncoder.encode(theCase)
+        try data.write(to: caseFile(in: bundle), options: .atomic)
+    }
+
+    public static func readHosts(in bundle: URL) throws -> [Evidence] {
+        let url = hostsFile(in: bundle)
+        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        let data = try Data(contentsOf: url)
+        var hosts = try jsonDecoder.decode([Evidence].self, from: data)
+        // tskDatabaseURL is bundle-relative; rebuild on load so the bundle
+        // can move on disk without orphaning host references.
+        for i in hosts.indices {
+            hosts[i].tskDatabaseURL = tskDatabaseURL(forHostID: hosts[i].id, in: bundle)
+        }
+        return hosts
+    }
+
+    public static func writeHosts(_ hosts: [Evidence], in bundle: URL) throws {
+        let data = try jsonEncoder.encode(hosts)
+        try data.write(to: hostsFile(in: bundle), options: .atomic)
+    }
+
+    public static func removeHostDirectory(forHostID id: UUID, in bundle: URL) {
+        try? FileManager.default.removeItem(at: hostDirectory(forHostID: id, in: bundle))
+    }
+
+    // MARK: - Parsed artifacts (per host)
+    //
+    // Events, registry values, and findings are written after the
+    // corresponding parse stage so reopening a case doesn't require
+    // re-parsing. Encoded compactly (no pretty-print) because event arrays
+    // get large and pretty-printing roughly doubles their size on disk.
+
+    public static func eventsFileURL(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle).appendingPathComponent(eventsFilename)
+    }
+    public static func registryFileURL(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle).appendingPathComponent(registryFilename)
+    }
+    public static func findingsFileURL(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle).appendingPathComponent(findingsFilename)
+    }
+
+    public static func readEvents(forHostID id: UUID, in bundle: URL) throws -> [EventLogRecord]? {
+        try readArrayIfPresent(at: eventsFileURL(forHostID: id, in: bundle))
+    }
+    public static func writeEvents(_ events: [EventLogRecord],
+                                   forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(events, at: eventsFileURL(forHostID: id, in: bundle))
+    }
+    public static func readRegistry(forHostID id: UUID, in bundle: URL) throws -> [RegistryValue]? {
+        try readArrayIfPresent(at: registryFileURL(forHostID: id, in: bundle))
+    }
+    public static func writeRegistry(_ values: [RegistryValue],
+                                     forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(values, at: registryFileURL(forHostID: id, in: bundle))
+    }
+    public static func readFindings(forHostID id: UUID, in bundle: URL) throws -> [Finding]? {
+        try readArrayIfPresent(at: findingsFileURL(forHostID: id, in: bundle))
+    }
+    public static func writeFindings(_ findings: [Finding],
+                                     forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(findings, at: findingsFileURL(forHostID: id, in: bundle))
+    }
+
+    private static func readArrayIfPresent<T: Decodable>(at url: URL) throws -> [T]? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let data = try Data(contentsOf: url)
+        return try jsonDecoder.decode([T].self, from: data)
+    }
+
+    private static func writeArray<T: Encodable>(_ array: [T], at url: URL) throws {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        let data = try compactEncoder.encode(array)
+        try data.write(to: url, options: .atomic)
+    }
+
+    private static var compactEncoder: JSONEncoder {
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = .iso8601
+        // No .prettyPrinted - these files can be very large.
+        return enc
+    }
+
+    // MARK: - JSON
+
+    private static var jsonEncoder: JSONEncoder {
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        enc.dateEncodingStrategy = .iso8601
+        return enc
+    }
+    private static var jsonDecoder: JSONDecoder {
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = .iso8601
+        return dec
+    }
+}
