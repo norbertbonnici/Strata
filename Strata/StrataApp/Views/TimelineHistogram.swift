@@ -1,63 +1,55 @@
 import SwiftUI
 import Charts
 
-/// Per-day bar chart over a flat list of TimelineEvents, stacked by MACB kind.
-/// Click-drag on the chart sets `selection` to a date range; the parent view
-/// is expected to filter its table down to that range.
+/// Adaptive bar chart over a flat list of TimelineEvents - one bar per bucket
+/// representing total file activity. Bucket size scales with the visible span
+/// (day / week / month / year) so multi-year datasets still draw visible bars.
+/// `selection` doubles as a zoom window: when set, the chart's x-axis clamps
+/// to it and bins are recomputed against the narrower range.
+/// Heavy binning runs on a background task via `.task(id:)` so drag updates
+/// don't restart the work each frame.
 struct TimelineHistogram: View {
     let events: [TimelineEvent]
+    let fullExtent: ClosedRange<Date>?
     @Binding var selection: ClosedRange<Date>?
 
-    private struct DayBin: Identifiable {
-        let day: Date
-        let kind: MACBKind
+    struct Bin: Identifiable, Sendable {
+        let bucket: Date
         let count: Int
-        var id: String { "\(day.timeIntervalSinceReferenceDate)-\(kind.rawValue)" }
+        var id: TimeInterval { bucket.timeIntervalSinceReferenceDate }
     }
 
-    private var bins: [DayBin] {
-        var grouped: [Date: [MACBKind: Int]] = [:]
-        let calendar = Calendar.current
-        for event in events {
-            let day = calendar.startOfDay(for: event.date)
-            grouped[day, default: [:]][event.kind, default: 0] += 1
-        }
-        return grouped.flatMap { day, kinds in
-            kinds.map { DayBin(day: day, kind: $0.key, count: $0.value) }
-        }.sorted { $0.day < $1.day }
+    @State private var bins: [Bin] = []
+    @State private var binUnit: Calendar.Component = .day
+
+    /// Recompute key - the binning depends on which events are visible and
+    /// the span (which drives bucket size). Using count as a cheap fingerprint
+    /// is safe because the parent rebuilds the array whenever filters change.
+    private struct BinKey: Equatable {
+        let eventCount: Int
+        let lower: Date?
+        let upper: Date?
+    }
+
+    private var visibleSpan: ClosedRange<Date>? {
+        selection ?? fullExtent
     }
 
     var body: some View {
         Chart {
             ForEach(bins) { bin in
                 BarMark(
-                    x: .value("Day", bin.day, unit: .day),
+                    x: .value("Bucket", bin.bucket, unit: binUnit),
                     y: .value("Count", bin.count)
                 )
-                .foregroundStyle(by: .value("Kind", bin.kind.rawValue))
-            }
-            // Translucent band rendered as part of the chart so it scales with
-            // the x-axis automatically.
-            if let range = selection {
-                RectangleMark(
-                    xStart: .value("Start", range.lowerBound),
-                    xEnd: .value("End", range.upperBound)
-                )
-                .foregroundStyle(Color.accentColor.opacity(0.18))
+                .foregroundStyle(Color.accentColor)
             }
         }
-        // Match the badge colors used by the table so kinds read the same in
-        // both places.
-        .chartForegroundStyleScale([
-            "M": Color.blue,
-            "A": Color.green,
-            "C": Color.orange,
-            "B": Color.purple,
-        ])
+        .chartXScale(domain: scaleDomain)
         .chartXAxis {
-            AxisMarks(values: .stride(by: .day, count: max(1, autoStrideDays))) { _ in
+            AxisMarks(values: .automatic(desiredCount: 8)) { _ in
                 AxisGridLine()
-                AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                AxisValueLabel(format: axisFormat(for: binUnit))
             }
         }
         .chartLegend(.hidden)
@@ -72,7 +64,7 @@ struct TimelineHistogram: View {
                     .contentShape(Rectangle())
                     .gesture(
                         DragGesture(minimumDistance: 4)
-                            .onChanged { drag in
+                            .onEnded { drag in
                                 let width = geo.size.width
                                 let xStart = clamp(min(drag.startLocation.x, drag.location.x),
                                                    to: 0...width)
@@ -83,23 +75,69 @@ struct TimelineHistogram: View {
                                 selection = dStart...dEnd
                             }
                     )
-                    .onTapGesture { selection = nil }
             }
         }
         .frame(maxWidth: .infinity)
+        .task(id: BinKey(eventCount: events.count,
+                         lower: visibleSpan?.lowerBound,
+                         upper: visibleSpan?.upperBound)) {
+            await recomputeBins()
+        }
+    }
+
+    private var scaleDomain: ClosedRange<Date> {
+        if let span = visibleSpan { return span }
+        let now = Date()
+        return now...now.addingTimeInterval(1)
     }
 
     private func clamp(_ value: CGFloat, to range: ClosedRange<CGFloat>) -> CGFloat {
         min(max(value, range.lowerBound), range.upperBound)
     }
 
-    /// Pick a sane label stride so the x-axis stays readable on a multi-year
-    /// window. ~12 labels max.
-    private var autoStrideDays: Int {
-        guard let first = bins.first?.day, let last = bins.last?.day else { return 1 }
-        let totalDays = max(1, Calendar.current.dateComponents([.day],
-                                                                from: first,
-                                                                to: last).day ?? 1)
-        return max(1, totalDays / 12)
+    private func axisFormat(for unit: Calendar.Component) -> Date.FormatStyle {
+        switch unit {
+        case .day, .weekOfYear: return .dateTime.month(.abbreviated).day()
+        case .month:            return .dateTime.month(.abbreviated).year(.twoDigits)
+        case .year:             return .dateTime.year()
+        default:                return .dateTime.month(.abbreviated).day()
+        }
+    }
+
+    private func recomputeBins() async {
+        let eventsCopy = events
+        let span = visibleSpan
+        let result: ([Bin], Calendar.Component) = await Task.detached(priority: .userInitiated) {
+            let calendar = Calendar.current
+            // Bucket size from the span itself (O(1)) rather than from event
+            // min/max (O(n)).
+            let unit: Calendar.Component
+            if let span {
+                let totalDays = max(1, calendar.dateComponents([.day],
+                                                                from: span.lowerBound,
+                                                                to: span.upperBound).day ?? 1)
+                switch totalDays {
+                case ..<120:  unit = .day
+                case ..<800:  unit = .weekOfYear
+                case ..<8000: unit = .month
+                default:      unit = .year
+                }
+            } else {
+                unit = .day
+            }
+            var grouped: [Date: Int] = [:]
+            for event in eventsCopy {
+                if let span, !span.contains(event.date) { continue }
+                if let bucket = calendar.dateInterval(of: unit, for: event.date)?.start {
+                    grouped[bucket, default: 0] += 1
+                }
+            }
+            let bins = grouped.map { Bin(bucket: $0.key, count: $0.value) }
+                .sorted { $0.bucket < $1.bucket }
+            return (bins, unit)
+        }.value
+        if Task.isCancelled { return }
+        bins = result.0
+        binUnit = result.1
     }
 }

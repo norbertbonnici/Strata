@@ -1,0 +1,206 @@
+import Foundation
+
+/// Snapshot of a host's identity and configuration, derived from registry
+/// values that `parseRegistry()` already extracted. Nothing is persisted -
+/// the registry is the source of truth, this struct is just a typed
+/// projection over it.
+public struct HostProfile: Sendable {
+    public var hostname: String?
+    public var domain: String?
+    public var osProductName: String?     // "Windows 10 Pro"
+    public var osDisplayVersion: String?  // "22H2"
+    public var osBuild: String?           // "19045.4291"
+    public var installDate: Date?
+    public var lastShutdown: Date?
+    public var primaryUser: String?
+    public var timeZone: String?
+    public var ipAddresses: [String] = []
+
+    public init() {}
+
+    public var hasAnyData: Bool {
+        hostname != nil || domain != nil || osProductName != nil ||
+        osBuild != nil || installDate != nil || lastShutdown != nil ||
+        primaryUser != nil || timeZone != nil || !ipAddresses.isEmpty
+    }
+
+    /// Single-line OS string for header rendering. Returns nil when none of
+    /// the OS fields are populated.
+    public var osSummary: String? {
+        var parts: [String] = []
+        if let osProductName { parts.append(osProductName) }
+        if let osDisplayVersion { parts.append(osDisplayVersion) }
+        if let osBuild { parts.append("Build \(osBuild)") }
+        let joined = parts.joined(separator: " ")
+        return joined.isEmpty ? nil : joined
+    }
+
+    /// Walk a registry-value list and pull the well-known identity / config
+    /// values. Missing values stay nil - we never invent defaults.
+    public static func derive(from values: [RegistryValue]) -> HostProfile {
+        var profile = HostProfile()
+        var ipSeen = Set<String>()
+
+        for value in values {
+            let hive = value.hive.uppercased()
+            let path = value.path
+            let name = value.name
+
+            if hive.contains("SYSTEM") {
+                deriveSystem(value: value, path: path, name: name,
+                             profile: &profile, ipSeen: &ipSeen)
+            } else if hive.contains("SOFTWARE") {
+                deriveSoftware(value: value, path: path, name: name,
+                               profile: &profile)
+            }
+        }
+        return profile
+    }
+
+    private static func deriveSystem(value: RegistryValue, path: String,
+                                     name: String, profile: inout HostProfile,
+                                     ipSeen: inout Set<String>) {
+        if path.localizedCaseInsensitiveContains("Control\\ComputerName\\ComputerName"),
+           name.caseInsensitiveCompare("ComputerName") == .orderedSame {
+            profile.hostname = nonEmpty(value.data) ?? profile.hostname
+            return
+        }
+        if path.localizedCaseInsensitiveContains("Control\\ComputerName\\ActiveComputerName"),
+           name.caseInsensitiveCompare("ComputerName") == .orderedSame,
+           profile.hostname == nil {
+            profile.hostname = nonEmpty(value.data)
+            return
+        }
+        if path.localizedCaseInsensitiveContains("Services\\Tcpip\\Parameters"),
+           !path.localizedCaseInsensitiveContains("Interfaces\\") {
+            if name.caseInsensitiveCompare("Domain") == .orderedSame {
+                profile.domain = nonEmpty(value.data) ?? profile.domain
+            } else if name.caseInsensitiveCompare("NV Domain") == .orderedSame,
+                      profile.domain == nil {
+                profile.domain = nonEmpty(value.data)
+            }
+            return
+        }
+        if path.localizedCaseInsensitiveContains("Services\\Tcpip\\Parameters\\Interfaces\\") {
+            // Walk every interface; IPAddress (static) and DhcpIPAddress
+            // (DHCP-assigned) are the two we care about. Both can be
+            // REG_MULTI_SZ - splitIPs handles multi-value strings.
+            if ["IPAddress", "DhcpIPAddress"].contains(where: {
+                name.caseInsensitiveCompare($0) == .orderedSame
+            }) {
+                for ip in splitIPs(value.data) where !ip.isEmpty && ip != "0.0.0.0" {
+                    if ipSeen.insert(ip).inserted {
+                        profile.ipAddresses.append(ip)
+                    }
+                }
+            }
+            return
+        }
+        if path.localizedCaseInsensitiveContains("Control\\TimeZoneInformation"),
+           name.caseInsensitiveCompare("TimeZoneKeyName") == .orderedSame {
+            profile.timeZone = nonEmpty(value.data)
+            return
+        }
+        if path.localizedCaseInsensitiveContains("Control\\Windows"),
+           name.caseInsensitiveCompare("ShutdownTime") == .orderedSame {
+            profile.lastShutdown = parseFiletime(hex: value.data)
+            return
+        }
+    }
+
+    private static func deriveSoftware(value: RegistryValue, path: String,
+                                       name: String, profile: inout HostProfile) {
+        let isCurrentVersion = path.localizedCaseInsensitiveContains("Microsoft\\Windows NT\\CurrentVersion")
+        if isCurrentVersion,
+           path.localizedCaseInsensitiveContains("Authentication\\LogonUI") {
+            if name.caseInsensitiveCompare("LastLoggedOnUser") == .orderedSame {
+                profile.primaryUser = nonEmpty(value.data) ?? profile.primaryUser
+            } else if name.caseInsensitiveCompare("LastLoggedOnSAMUser") == .orderedSame,
+                      profile.primaryUser == nil {
+                profile.primaryUser = nonEmpty(value.data)
+            }
+            return
+        }
+        guard isCurrentVersion else { return }
+        switch name {
+        case "ProductName":
+            profile.osProductName = nonEmpty(value.data)
+        case "DisplayVersion":
+            profile.osDisplayVersion = nonEmpty(value.data)
+        case "ReleaseId":
+            if profile.osDisplayVersion == nil {
+                profile.osDisplayVersion = nonEmpty(value.data)
+            }
+        case "CurrentBuild", "CurrentBuildNumber":
+            if profile.osBuild == nil || !profile.osBuild!.contains(".") {
+                let trimmed = value.data.trimmingCharacters(in: .whitespaces)
+                if !trimmed.isEmpty {
+                    if let ubr = profile.osBuild?.split(separator: ".").last, profile.osBuild?.contains(".") == false {
+                        profile.osBuild = "\(trimmed).\(ubr)"
+                    } else {
+                        profile.osBuild = trimmed
+                    }
+                }
+            }
+        case "UBR":
+            let trimmed = value.data.trimmingCharacters(in: .whitespaces)
+            if let build = profile.osBuild, !build.contains("."), !trimmed.isEmpty {
+                profile.osBuild = "\(build).\(trimmed)"
+            } else if profile.osBuild == nil, !trimmed.isEmpty {
+                profile.osBuild = trimmed
+            }
+        case "InstallDate":
+            // REG_DWORD seconds since the Unix epoch.
+            let trimmed = value.data.trimmingCharacters(in: .whitespaces)
+            if let seconds = UInt32(trimmed) {
+                profile.installDate = Date(timeIntervalSince1970: TimeInterval(seconds))
+            }
+        default:
+            break
+        }
+    }
+
+    private static func nonEmpty(_ s: String) -> String? {
+        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? nil : t
+    }
+
+    private static func splitIPs(_ data: String) -> [String] {
+        data.components(separatedBy: CharacterSet(charactersIn: " ,\n\t"))
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// Decode a Windows FILETIME (100-nanosecond intervals since 1601-01-01
+    /// UTC, little-endian 64-bit) from a hex string. regfexport renders
+    /// REG_BINARY as ASCII hex; we strip non-hex characters, take the first
+    /// 16 chars (8 bytes), and treat the result as little-endian.
+    /// Returns nil if the decoded date isn't plausibly recent, since that
+    /// usually means we mis-parsed an offset-prefixed dump line.
+    private static func parseFiletime(hex: String) -> Date? {
+        let allowed = CharacterSet(charactersIn: "0123456789abcdefABCDEF")
+        let hexOnly = hex.unicodeScalars.filter { allowed.contains($0) }
+        let chars = Array(String(String.UnicodeScalarView(hexOnly)))
+        guard chars.count >= 16 else { return nil }
+        var bytes: [UInt8] = []
+        var i = 0
+        while i < 16 {
+            guard let byte = UInt8(String(chars[i..<i+2]), radix: 16) else { return nil }
+            bytes.append(byte)
+            i += 2
+        }
+        var filetime: UInt64 = 0
+        for index in 0..<8 {
+            filetime |= UInt64(bytes[index]) << (8 * index)
+        }
+        let secondsSince1601 = Double(filetime) / 10_000_000.0
+        let secondsSince1970 = secondsSince1601 - 11_644_473_600
+        let date = Date(timeIntervalSince1970: secondsSince1970)
+        // Sanity gate: anything outside [2000, 2200] is almost certainly a
+        // mis-parsed offset prefix, not a real shutdown timestamp.
+        let lower = Date(timeIntervalSince1970: 946_684_800)   // 2000-01-01
+        let upper = Date(timeIntervalSince1970: 7_258_118_400) // 2200-01-01
+        guard date > lower && date < upper else { return nil }
+        return date
+    }
+}
