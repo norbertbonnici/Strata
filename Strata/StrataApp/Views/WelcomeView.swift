@@ -20,7 +20,7 @@ struct WelcomeView: View {
 
             HStack(spacing: 12) {
                 Button {
-                    model.showingNewCaseSheet = true
+                    model.activeSheet = .newCase
                 } label: {
                     Label("New Case...", systemImage: "plus.square")
                         .frame(minWidth: 140)

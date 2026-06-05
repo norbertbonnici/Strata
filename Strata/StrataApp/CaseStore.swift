@@ -18,9 +18,11 @@ public enum CaseStore {
     private static let hostsFilename    = "hosts.json"
     private static let hostsDirname     = "hosts"
     private static let tskFilename      = "tsk.db"
-    private static let eventsFilename   = "events.json"
-    private static let registryFilename = "registry.json"
-    private static let findingsFilename = "findings.json"
+    private static let eventsFilename     = "events.json"
+    private static let registryFilename   = "registry.json"
+    private static let findingsFilename   = "findings.json"
+    private static let iocsFilename       = "iocs.json"
+    private static let iocMatchesFilename = "iocmatches.json"
 
     // MARK: - URLs
 
@@ -132,6 +134,33 @@ public enum CaseStore {
     public static func writeFindings(_ findings: [Finding],
                                      forHostID id: UUID, in bundle: URL) throws {
         try writeArray(findings, at: findingsFileURL(forHostID: id, in: bundle))
+    }
+
+    // MARK: - IOCs (case-wide) and IOC matches (per host)
+
+    public static func iocsFileURL(in bundle: URL) -> URL {
+        bundle.appendingPathComponent(iocsFilename)
+    }
+
+    public static func iocMatchesFileURL(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle).appendingPathComponent(iocMatchesFilename)
+    }
+
+    public static func readIOCs(in bundle: URL) throws -> [IOC] {
+        try readArrayIfPresent(at: iocsFileURL(in: bundle)) ?? []
+    }
+
+    public static func writeIOCs(_ iocs: [IOC], in bundle: URL) throws {
+        try writeArray(iocs, at: iocsFileURL(in: bundle))
+    }
+
+    public static func readIOCMatches(forHostID id: UUID, in bundle: URL) throws -> [IOCMatch]? {
+        try readArrayIfPresent(at: iocMatchesFileURL(forHostID: id, in: bundle))
+    }
+
+    public static func writeIOCMatches(_ matches: [IOCMatch],
+                                       forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(matches, at: iocMatchesFileURL(forHostID: id, in: bundle))
     }
 
     private static func readArrayIfPresent<T: Decodable>(at url: URL) throws -> [T]? {

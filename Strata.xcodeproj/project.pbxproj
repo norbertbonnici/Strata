@@ -7,18 +7,18 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		096404342FCFE8E900C40621 /* tsk_loaddb in CopyFiles */ = {isa = PBXBuildFile; fileRef = 0964042B2FCFE8E800C40621 /* tsk_loaddb */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		096404352FCFE8E900C40621 /* fls in CopyFiles */ = {isa = PBXBuildFile; fileRef = 0964042C2FCFE8E800C40621 /* fls */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		096404362FCFE8E900C40621 /* blkstat in CopyFiles */ = {isa = PBXBuildFile; fileRef = 0964042D2FCFE8E800C40621 /* blkstat */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		096404372FCFE8E900C40621 /* evtxinfo in CopyFiles */ = {isa = PBXBuildFile; fileRef = 0964042E2FCFE8E800C40621 /* evtxinfo */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		096404382FCFE8E900C40621 /* fsstat in CopyFiles */ = {isa = PBXBuildFile; fileRef = 0964042F2FCFE8E800C40621 /* fsstat */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		096404392FCFE8E900C40621 /* istat in CopyFiles */ = {isa = PBXBuildFile; fileRef = 096404302FCFE8E800C40621 /* istat */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		0964043A2FCFE8E900C40621 /* icat in CopyFiles */ = {isa = PBXBuildFile; fileRef = 096404312FCFE8E900C40621 /* icat */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		0964043B2FCFE8E900C40621 /* evtxexport in CopyFiles */ = {isa = PBXBuildFile; fileRef = 096404322FCFE8E900C40621 /* evtxexport */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		0964043C2FCFE8E900C40621 /* mmls in CopyFiles */ = {isa = PBXBuildFile; fileRef = 096404332FCFE8E900C40621 /* mmls */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		096404652FD09E2100C40621 /* regfexport in CopyFiles */ = {isa = PBXBuildFile; fileRef = 096404642FD09E2100C40621 /* regfexport */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		096404772FD0AF9500C40621 /* regfinfo in CopyFiles */ = {isa = PBXBuildFile; fileRef = 096404732FD0AF9500C40621 /* regfinfo */; };
 		099DBE0B2FCF60530042FE85 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 099DBE0A2FCF60530042FE85 /* GRDB */; };
+		09A474812FD1466C009D5CCA /* fls in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A474762FD1466C009D5CCA /* fls */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09A474822FD1466C009D5CCA /* fsstat in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A474772FD1466C009D5CCA /* fsstat */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09A474832FD1466C009D5CCA /* istat in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A474782FD1466C009D5CCA /* istat */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09A474842FD1466C009D5CCA /* mmls in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A474792FD1466C009D5CCA /* mmls */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09A474852FD1466C009D5CCA /* evtxexport in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A4747A2FD1466C009D5CCA /* evtxexport */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09A474862FD1466C009D5CCA /* evtxinfo in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A4747B2FD1466C009D5CCA /* evtxinfo */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09A474872FD1466C009D5CCA /* regfexport in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A4747C2FD1466C009D5CCA /* regfexport */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09A474882FD1466C009D5CCA /* icat in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A4747D2FD1466C009D5CCA /* icat */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09A474892FD1466C009D5CCA /* regfinfo in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A4747E2FD1466C009D5CCA /* regfinfo */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09A4748A2FD1466C009D5CCA /* tsk_loaddb in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A4747F2FD1466C009D5CCA /* tsk_loaddb */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09A4748B2FD1466C009D5CCA /* blkstat in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A474802FD1466C009D5CCA /* blkstat */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -45,54 +45,38 @@
 			dstPath = tsk/bin;
 			dstSubfolderSpec = 7;
 			files = (
-				096404362FCFE8E900C40621 /* blkstat in CopyFiles */,
-				096404652FD09E2100C40621 /* regfexport in CopyFiles */,
-				096404382FCFE8E900C40621 /* fsstat in CopyFiles */,
-				096404342FCFE8E900C40621 /* tsk_loaddb in CopyFiles */,
-				0964043B2FCFE8E900C40621 /* evtxexport in CopyFiles */,
-				0964043A2FCFE8E900C40621 /* icat in CopyFiles */,
-				096404352FCFE8E900C40621 /* fls in CopyFiles */,
-				096404772FD0AF9500C40621 /* regfinfo in CopyFiles */,
-				0964043C2FCFE8E900C40621 /* mmls in CopyFiles */,
-				096404392FCFE8E900C40621 /* istat in CopyFiles */,
-				096404372FCFE8E900C40621 /* evtxinfo in CopyFiles */,
+				09A474812FD1466C009D5CCA /* fls in CopyFiles */,
+				09A474822FD1466C009D5CCA /* fsstat in CopyFiles */,
+				09A474832FD1466C009D5CCA /* istat in CopyFiles */,
+				09A474842FD1466C009D5CCA /* mmls in CopyFiles */,
+				09A474852FD1466C009D5CCA /* evtxexport in CopyFiles */,
+				09A474862FD1466C009D5CCA /* evtxinfo in CopyFiles */,
+				09A474872FD1466C009D5CCA /* regfexport in CopyFiles */,
+				09A474882FD1466C009D5CCA /* icat in CopyFiles */,
+				09A474892FD1466C009D5CCA /* regfinfo in CopyFiles */,
+				09A4748A2FD1466C009D5CCA /* tsk_loaddb in CopyFiles */,
+				09A4748B2FD1466C009D5CCA /* blkstat in CopyFiles */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		0964042B2FCFE8E800C40621 /* tsk_loaddb */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = tsk_loaddb; path = Vendor/tsk/bin/arm64/tsk_loaddb; sourceTree = "<group>"; };
-		0964042C2FCFE8E800C40621 /* fls */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = fls; path = Vendor/tsk/bin/arm64/fls; sourceTree = "<group>"; };
-		0964042D2FCFE8E800C40621 /* blkstat */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = blkstat; path = Vendor/tsk/bin/arm64/blkstat; sourceTree = "<group>"; };
-		0964042E2FCFE8E800C40621 /* evtxinfo */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = evtxinfo; path = Vendor/tsk/bin/arm64/evtxinfo; sourceTree = "<group>"; };
-		0964042F2FCFE8E800C40621 /* fsstat */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = fsstat; path = Vendor/tsk/bin/arm64/fsstat; sourceTree = "<group>"; };
-		096404302FCFE8E800C40621 /* istat */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = istat; path = Vendor/tsk/bin/arm64/istat; sourceTree = "<group>"; };
-		096404312FCFE8E900C40621 /* icat */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = icat; path = Vendor/tsk/bin/arm64/icat; sourceTree = "<group>"; };
-		096404322FCFE8E900C40621 /* evtxexport */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = evtxexport; path = Vendor/tsk/bin/arm64/evtxexport; sourceTree = "<group>"; };
-		096404332FCFE8E900C40621 /* mmls */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = mmls; path = Vendor/tsk/bin/arm64/mmls; sourceTree = "<group>"; };
-		096404642FD09E2100C40621 /* regfexport */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = regfexport; path = Vendor/tsk/bin/arm64/regfexport; sourceTree = "<group>"; };
-		0964046C2FD0AF9500C40621 /* blkstat */ = {isa = PBXFileReference; lastKnownFileType = text; name = blkstat; path = Vendor/tsk/bin/arm64/blkstat; sourceTree = "<group>"; };
-		0964046D2FD0AF9500C40621 /* regfexport */ = {isa = PBXFileReference; lastKnownFileType = text; name = regfexport; path = Vendor/tsk/bin/arm64/regfexport; sourceTree = "<group>"; };
-		0964046E2FD0AF9500C40621 /* fsstat */ = {isa = PBXFileReference; lastKnownFileType = text; name = fsstat; path = Vendor/tsk/bin/arm64/fsstat; sourceTree = "<group>"; };
-		0964046F2FD0AF9500C40621 /* tsk_loaddb */ = {isa = PBXFileReference; lastKnownFileType = text; name = tsk_loaddb; path = Vendor/tsk/bin/arm64/tsk_loaddb; sourceTree = "<group>"; };
-		096404702FD0AF9500C40621 /* evtxexport */ = {isa = PBXFileReference; lastKnownFileType = text; name = evtxexport; path = Vendor/tsk/bin/arm64/evtxexport; sourceTree = "<group>"; };
-		096404712FD0AF9500C40621 /* icat */ = {isa = PBXFileReference; lastKnownFileType = text; name = icat; path = Vendor/tsk/bin/arm64/icat; sourceTree = "<group>"; };
-		096404722FD0AF9500C40621 /* fls */ = {isa = PBXFileReference; lastKnownFileType = text; name = fls; path = Vendor/tsk/bin/arm64/fls; sourceTree = "<group>"; };
-		096404732FD0AF9500C40621 /* regfinfo */ = {isa = PBXFileReference; lastKnownFileType = text; name = regfinfo; path = Vendor/tsk/bin/arm64/regfinfo; sourceTree = "<group>"; };
-		096404742FD0AF9500C40621 /* mmls */ = {isa = PBXFileReference; lastKnownFileType = text; name = mmls; path = Vendor/tsk/bin/arm64/mmls; sourceTree = "<group>"; };
-		096404752FD0AF9500C40621 /* istat */ = {isa = PBXFileReference; lastKnownFileType = text; name = istat; path = Vendor/tsk/bin/arm64/istat; sourceTree = "<group>"; };
-		096404762FD0AF9500C40621 /* evtxinfo */ = {isa = PBXFileReference; lastKnownFileType = text; name = evtxinfo; path = Vendor/tsk/bin/arm64/evtxinfo; sourceTree = "<group>"; };
 		099DBDAF2FCF54B80042FE85 /* Strata.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Strata.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		099DBDC02FCF54B90042FE85 /* StrataTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = StrataTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		099DBDCA2FCF54B90042FE85 /* StrataUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = StrataUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		099DBE0C2FCF67870042FE85 /* tsk_loaddb */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = tsk_loaddb; path = Vendor/tsk/bin/arm64/tsk_loaddb; sourceTree = "<group>"; };
-		099DBE0F2FCF684C0042FE85 /* icat */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = icat; path = Vendor/tsk/bin/arm64/icat; sourceTree = "<group>"; };
-		099DBE102FCF684C0042FE85 /* istat */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = istat; path = Vendor/tsk/bin/arm64/istat; sourceTree = "<group>"; };
-		099DBE112FCF684C0042FE85 /* blkstat */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = blkstat; path = Vendor/tsk/bin/arm64/blkstat; sourceTree = "<group>"; };
-		099DBE122FCF684C0042FE85 /* mmls */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = mmls; path = Vendor/tsk/bin/arm64/mmls; sourceTree = "<group>"; };
-		099DBE132FCF684C0042FE85 /* fsstat */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = fsstat; path = Vendor/tsk/bin/arm64/fsstat; sourceTree = "<group>"; };
-		099DBE142FCF684C0042FE85 /* fls */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = fls; path = Vendor/tsk/bin/arm64/fls; sourceTree = "<group>"; };
+		09A474762FD1466C009D5CCA /* fls */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = fls; path = Vendor/tsk/bin/arm64/fls; sourceTree = "<group>"; };
+		09A474772FD1466C009D5CCA /* fsstat */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = fsstat; path = Vendor/tsk/bin/arm64/fsstat; sourceTree = "<group>"; };
+		09A474782FD1466C009D5CCA /* istat */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = istat; path = Vendor/tsk/bin/arm64/istat; sourceTree = "<group>"; };
+		09A474792FD1466C009D5CCA /* mmls */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = mmls; path = Vendor/tsk/bin/arm64/mmls; sourceTree = "<group>"; };
+		09A4747A2FD1466C009D5CCA /* evtxexport */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = evtxexport; path = Vendor/tsk/bin/arm64/evtxexport; sourceTree = "<group>"; };
+		09A4747B2FD1466C009D5CCA /* evtxinfo */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = evtxinfo; path = Vendor/tsk/bin/arm64/evtxinfo; sourceTree = "<group>"; };
+		09A4747C2FD1466C009D5CCA /* regfexport */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = regfexport; path = Vendor/tsk/bin/arm64/regfexport; sourceTree = "<group>"; };
+		09A4747D2FD1466C009D5CCA /* icat */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = icat; path = Vendor/tsk/bin/arm64/icat; sourceTree = "<group>"; };
+		09A4747E2FD1466C009D5CCA /* regfinfo */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = regfinfo; path = Vendor/tsk/bin/arm64/regfinfo; sourceTree = "<group>"; };
+		09A4747F2FD1466C009D5CCA /* tsk_loaddb */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = tsk_loaddb; path = Vendor/tsk/bin/arm64/tsk_loaddb; sourceTree = "<group>"; };
+		09A474802FD1466C009D5CCA /* blkstat */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = blkstat; path = Vendor/tsk/bin/arm64/blkstat; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -155,33 +139,17 @@
 		099DBDA62FCF54B80042FE85 = {
 			isa = PBXGroup;
 			children = (
-				096404702FD0AF9500C40621 /* evtxexport */,
-				096404762FD0AF9500C40621 /* evtxinfo */,
-				096404722FD0AF9500C40621 /* fls */,
-				0964046E2FD0AF9500C40621 /* fsstat */,
-				096404712FD0AF9500C40621 /* icat */,
-				096404752FD0AF9500C40621 /* istat */,
-				096404742FD0AF9500C40621 /* mmls */,
-				096404642FD09E2100C40621 /* regfexport */,
-				099DBE112FCF684C0042FE85 /* blkstat */,
-				0964042D2FCFE8E800C40621 /* blkstat */,
-				096404322FCFE8E900C40621 /* evtxexport */,
-				0964042E2FCFE8E800C40621 /* evtxinfo */,
-				099DBE142FCF684C0042FE85 /* fls */,
-				099DBE132FCF684C0042FE85 /* fsstat */,
-				099DBE0F2FCF684C0042FE85 /* icat */,
-				096404312FCFE8E900C40621 /* icat */,
-				099DBE102FCF684C0042FE85 /* istat */,
-				099DBE122FCF684C0042FE85 /* mmls */,
-				0964042C2FCFE8E800C40621 /* fls */,
-				0964042F2FCFE8E800C40621 /* fsstat */,
-				096404302FCFE8E800C40621 /* istat */,
-				096404332FCFE8E900C40621 /* mmls */,
-				096404732FD0AF9500C40621 /* regfinfo */,
-				0964042B2FCFE8E800C40621 /* tsk_loaddb */,
-				0964046C2FD0AF9500C40621 /* blkstat */,
-				0964046D2FD0AF9500C40621 /* regfexport */,
-				0964046F2FD0AF9500C40621 /* tsk_loaddb */,
+				09A474802FD1466C009D5CCA /* blkstat */,
+				09A4747A2FD1466C009D5CCA /* evtxexport */,
+				09A4747B2FD1466C009D5CCA /* evtxinfo */,
+				09A474762FD1466C009D5CCA /* fls */,
+				09A474772FD1466C009D5CCA /* fsstat */,
+				09A4747D2FD1466C009D5CCA /* icat */,
+				09A474782FD1466C009D5CCA /* istat */,
+				09A474792FD1466C009D5CCA /* mmls */,
+				09A4747C2FD1466C009D5CCA /* regfexport */,
+				09A4747E2FD1466C009D5CCA /* regfinfo */,
+				09A4747F2FD1466C009D5CCA /* tsk_loaddb */,
 				099DBDB12FCF54B80042FE85 /* Strata */,
 				099DBDC32FCF54B90042FE85 /* StrataTests */,
 				099DBDCD2FCF54B90042FE85 /* StrataUITests */,

@@ -3,7 +3,7 @@ import Foundation
 /// Kind of indicator the analyst has loaded. Drives both display (badge,
 /// colour) and which matching strategy applies - IPs get an exact-match
 /// fast path against structured logon fields, the rest are substring scans.
-public enum IOCKind: String, CaseIterable, Codable, Sendable, Hashable {
+public nonisolated enum IOCKind: String, CaseIterable, Codable, Sendable, Hashable {
     case ip
     case domain
     case url
@@ -54,7 +54,7 @@ public enum IOCKind: String, CaseIterable, Codable, Sendable, Hashable {
     }
 }
 
-public struct IOC: Identifiable, Hashable, Sendable, Codable {
+public nonisolated struct IOC: Identifiable, Hashable, Sendable, Codable {
     public let id: UUID
     public var kind: IOCKind
     public var value: String
@@ -67,7 +67,7 @@ public struct IOC: Identifiable, Hashable, Sendable, Codable {
 
 /// Where in the case an IOC was found. Holds enough back-reference to let
 /// the UI link the user to the originating event / registry value / file.
-public struct IOCMatch: Identifiable, Hashable, Sendable, Codable {
+public nonisolated struct IOCMatch: Identifiable, Hashable, Sendable, Codable {
     public let id: UUID
     public let iocValue: String
     public let iocKind: IOCKind

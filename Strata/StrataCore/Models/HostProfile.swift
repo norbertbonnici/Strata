@@ -60,19 +60,18 @@ public struct HostProfile: Sendable {
     private static func deriveSystem(value: RegistryValue, path: String,
                                      name: String, profile: inout HostProfile,
                                      ipSeen: inout Set<String>) {
-        if path.localizedCaseInsensitiveContains("Control\\ComputerName\\ComputerName"),
+        if pathMatches(path, key: "Control\\ComputerName\\ComputerName"),
            name.caseInsensitiveCompare("ComputerName") == .orderedSame {
             profile.hostname = nonEmpty(value.data) ?? profile.hostname
             return
         }
-        if path.localizedCaseInsensitiveContains("Control\\ComputerName\\ActiveComputerName"),
+        if pathMatches(path, key: "Control\\ComputerName\\ActiveComputerName"),
            name.caseInsensitiveCompare("ComputerName") == .orderedSame,
            profile.hostname == nil {
             profile.hostname = nonEmpty(value.data)
             return
         }
-        if path.localizedCaseInsensitiveContains("Services\\Tcpip\\Parameters"),
-           !path.localizedCaseInsensitiveContains("Interfaces\\") {
+        if pathMatches(path, key: "Services\\Tcpip\\Parameters") {
             if name.caseInsensitiveCompare("Domain") == .orderedSame {
                 profile.domain = nonEmpty(value.data) ?? profile.domain
             } else if name.caseInsensitiveCompare("NV Domain") == .orderedSame,
@@ -96,12 +95,12 @@ public struct HostProfile: Sendable {
             }
             return
         }
-        if path.localizedCaseInsensitiveContains("Control\\TimeZoneInformation"),
+        if pathMatches(path, key: "Control\\TimeZoneInformation"),
            name.caseInsensitiveCompare("TimeZoneKeyName") == .orderedSame {
             profile.timeZone = nonEmpty(value.data)
             return
         }
-        if path.localizedCaseInsensitiveContains("Control\\Windows"),
+        if pathMatches(path, key: "Control\\Windows"),
            name.caseInsensitiveCompare("ShutdownTime") == .orderedSame {
             profile.lastShutdown = parseFiletime(hex: value.data)
             return
@@ -110,9 +109,7 @@ public struct HostProfile: Sendable {
 
     private static func deriveSoftware(value: RegistryValue, path: String,
                                        name: String, profile: inout HostProfile) {
-        let isCurrentVersion = path.localizedCaseInsensitiveContains("Microsoft\\Windows NT\\CurrentVersion")
-        if isCurrentVersion,
-           path.localizedCaseInsensitiveContains("Authentication\\LogonUI") {
+        if pathMatches(path, key: "Microsoft\\Windows NT\\CurrentVersion\\Authentication\\LogonUI") {
             if name.caseInsensitiveCompare("LastLoggedOnUser") == .orderedSame {
                 profile.primaryUser = nonEmpty(value.data) ?? profile.primaryUser
             } else if name.caseInsensitiveCompare("LastLoggedOnSAMUser") == .orderedSame,
@@ -121,7 +118,11 @@ public struct HostProfile: Sendable {
             }
             return
         }
-        guard isCurrentVersion else { return }
+        // Restrict to the exact CurrentVersion key. Many third-party packages
+        // (InstallShield, AppCompatFlags subkeys, etc.) plant their own
+        // ProductName under deeper paths; a contains-match would let those
+        // overwrite the real Windows values.
+        guard pathMatches(path, key: "Microsoft\\Windows NT\\CurrentVersion") else { return }
         switch name {
         case "ProductName":
             profile.osProductName = nonEmpty(value.data)
@@ -132,22 +133,14 @@ public struct HostProfile: Sendable {
                 profile.osDisplayVersion = nonEmpty(value.data)
             }
         case "CurrentBuild", "CurrentBuildNumber":
-            if profile.osBuild == nil || !profile.osBuild!.contains(".") {
-                let trimmed = value.data.trimmingCharacters(in: .whitespaces)
-                if !trimmed.isEmpty {
-                    if let ubr = profile.osBuild?.split(separator: ".").last, profile.osBuild?.contains(".") == false {
-                        profile.osBuild = "\(trimmed).\(ubr)"
-                    } else {
-                        profile.osBuild = trimmed
-                    }
-                }
+            let trimmed = value.data.trimmingCharacters(in: .whitespaces)
+            if !trimmed.isEmpty, profile.osBuild == nil {
+                profile.osBuild = trimmed
             }
         case "UBR":
             let trimmed = value.data.trimmingCharacters(in: .whitespaces)
-            if let build = profile.osBuild, !build.contains("."), !trimmed.isEmpty {
-                profile.osBuild = "\(build).\(trimmed)"
-            } else if profile.osBuild == nil, !trimmed.isEmpty {
-                profile.osBuild = trimmed
+            if !trimmed.isEmpty, let existing = profile.osBuild, !existing.contains(".") {
+                profile.osBuild = "\(existing).\(trimmed)"
             }
         case "InstallDate":
             // REG_DWORD seconds since the Unix epoch.
@@ -158,6 +151,19 @@ public struct HostProfile: Sendable {
         default:
             break
         }
+    }
+
+    /// True when `path` is exactly `key` or ends with `\key` (or `/key`).
+    /// We need an end-anchored match because regfexport renders keys with a
+    /// hive-relative prefix (e.g. "ControlSet001\..." or "\Microsoft\...")
+    /// and we don't want subkey paths to slip through a contains-style match.
+    private static func pathMatches(_ path: String, key: String) -> Bool {
+        let lower = path.lowercased()
+        let target = key.lowercased()
+        if lower == target { return true }
+        if lower.hasSuffix("\\" + target) { return true }
+        if lower.hasSuffix("/" + target) { return true }
+        return false
     }
 
     private static func nonEmpty(_ s: String) -> String? {

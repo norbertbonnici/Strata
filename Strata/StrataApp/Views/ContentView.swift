@@ -7,6 +7,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case events = "Events"
     case lateral = "Lateral"
     case killChain = "Kill Chain"
+    case iocs = "IOCs"
 
     var id: String { rawValue }
     var symbol: String {
@@ -17,6 +18,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .events:    return "doc.text.magnifyingglass"
         case .lateral:   return "point.3.connected.trianglepath.dotted"
         case .killChain: return "link"
+        case .iocs:      return "scope"
         }
     }
 }
@@ -34,9 +36,15 @@ struct ContentView: View {
             }
         }
         .overlay(alignment: .bottom) { statusBar }
-        // Hosted at the top level so File > New Case from the menu can show
-        // the sheet whether the welcome screen or the case UI is on screen.
-        .sheet(isPresented: $model.showingNewCaseSheet) { NewCaseSheet() }
+        // Single sheet binding (see AppModel.ActiveSheet) so two top-level
+        // modals never compete - stacking .sheet(isPresented:) modifiers on
+        // the same view can SIGABRT in SwiftUI.
+        .sheet(item: $model.activeSheet) { sheet in
+            switch sheet {
+            case .newCase:    NewCaseSheet().environmentObject(model)
+            case .enrichment: EnrichmentSheet().environmentObject(model)
+            }
+        }
     }
 
     private var caseBody: some View {
@@ -55,6 +63,7 @@ struct ContentView: View {
                 case .events:    EventsView()
                 case .lateral:   LateralMovementView()
                 case .killChain: KillChainView()
+                case .iocs:      IOCView()
                 }
             }
             .toolbar {

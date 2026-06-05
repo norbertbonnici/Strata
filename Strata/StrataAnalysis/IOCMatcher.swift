@@ -10,7 +10,7 @@ import Foundation
 ///   - Every kind additionally gets a case-insensitive substring scan over
 ///     event payload XML, registry value data, and file paths. This catches
 ///     IOCs that appear free-form (eg. command-line args, registry blobs).
-public struct IOCMatcher: Sendable {
+public nonisolated struct IOCMatcher: Sendable {
     public let iocs: [IOC]
 
     private struct Needle: Sendable {

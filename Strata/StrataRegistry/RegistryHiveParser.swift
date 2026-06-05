@@ -61,15 +61,26 @@ public actor RegistryHiveParser {
 
     /// regfexport prints blocks like:
     ///
-    ///     Key: Software\Microsoft\Windows\CurrentVersion\Run
+    ///     Key path: \Software\Microsoft\Windows\CurrentVersion\Run
     ///     Last written time: Apr 01, 2024 12:34:56.789 UTC
-    ///         Value: Sysmon
-    ///             Type: 1 REG_SZ
-    ///             Data: C:\Windows\system32\Sysmon.exe
+    ///
+    ///     Value: 0 Sysmon
+    ///     Type: string (REG_SZ)
+    ///     Data size: 26
+    ///     Data: C:\Windows\system32\Sysmon.exe
+    ///
+    /// For REG_BINARY / mismatched-size values the "Data:" line is empty and
+    /// the bytes follow as a hex dump:
+    ///
+    ///     Data:
+    ///     00000000: 12 34 56 78 9a bc de f0  ........
     ///
     /// Format differs slightly across libregf versions. We parse defensively:
-    /// any line starting with "Key:" opens a key, any "Value:" opens a value,
-    /// and Type / Data / Last written time lines are matched by prefix.
+    /// any line starting with "Key:"/"Key path:"/"Key name:" opens a key, any
+    /// "Value:" opens a value (libregf prefixes the value name with an index
+    /// we strip), and Type / Data / Last written time lines are matched by
+    /// prefix. Continuation hex-dump lines are folded into the current value's
+    /// data field as a single hex string.
     nonisolated static func records(from text: String,
                                     hiveLabel: String,
                                     sourceFile: String) -> [RegistryValue] {
@@ -79,6 +90,8 @@ public actor RegistryHiveParser {
         var pendingName: String?
         var pendingType: String?
         var pendingData: String?
+        var inBinaryDump = false
+        var binaryHex = ""
 
         func flushValue() {
             guard let name = pendingName else { return }
@@ -95,9 +108,28 @@ public actor RegistryHiveParser {
             pendingName = nil; pendingType = nil; pendingData = nil
         }
 
+        func endBinaryDump() {
+            if inBinaryDump {
+                pendingData = binaryHex
+                binaryHex = ""
+                inBinaryDump = false
+            }
+        }
+
         for rawLine in text.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = String(rawLine)
             let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            // Continuation of a binary "Data:" block from a previous line.
+            // The dump ends as soon as we see a recognised non-dump line.
+            if inBinaryDump {
+                if let hex = parseHexDumpLine(line) {
+                    binaryHex += hex
+                    continue
+                }
+                endBinaryDump()
+                // fall through to normal parsing
+            }
 
             if let keyPath = extractPrefix("Key:", from: trimmed)
                 ?? extractPrefix("Key name:", from: trimmed)
@@ -111,25 +143,78 @@ public actor RegistryHiveParser {
                 currentLastWritten = parseLibyalDate(written)
                 continue
             }
-            if let valueName = extractPrefix("Value:", from: trimmed)
+            if let raw = extractPrefix("Value:", from: trimmed)
                 ?? extractPrefix("Value name:", from: trimmed) {
                 flushValue()
-                pendingName = valueName
+                pendingName = parseValueName(raw)
                 continue
             }
             if let typeLine = extractPrefix("Type:", from: trimmed) {
-                // "Type: 1 REG_SZ" - take the REG_ token (or last whitespace-separated word).
-                let parts = typeLine.split(separator: " ").map(String.init)
-                pendingType = parts.first(where: { $0.hasPrefix("REG_") }) ?? parts.last ?? typeLine
+                pendingType = parseTypeLabel(typeLine)
                 continue
             }
             if let dataLine = extractPrefix("Data:", from: trimmed) {
-                pendingData = dataLine
+                if dataLine.isEmpty {
+                    // Multi-line dump follows; accumulate hex until we hit
+                    // the next record.
+                    inBinaryDump = true
+                    binaryHex = ""
+                } else {
+                    pendingData = dataLine
+                }
                 continue
             }
         }
+        endBinaryDump()
         flushValue()
         return out
+    }
+
+    /// libregf renders "Value: <index> <name>" or "Value: <index> (default)".
+    /// We strip the numeric index and translate the default sentinel into
+    /// the empty string. Older builds may emit just "<name>"; in that case
+    /// the input passes through unchanged.
+    private nonisolated static func parseValueName(_ raw: String) -> String {
+        let parts = raw.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
+        if parts.count == 2, Int(parts[0]) != nil {
+            let tail = String(parts[1]).trimmingCharacters(in: .whitespaces)
+            return tail == "(default)" ? "" : tail
+        }
+        return raw == "(default)" ? "" : raw
+    }
+
+    /// libregf renders the type as "<description> (REG_*)" e.g.
+    /// "string (REG_SZ)". Older builds may use "1 REG_SZ". Both shapes
+    /// surface a REG_* token after splitting on whitespace and stripping
+    /// parens.
+    private nonisolated static func parseTypeLabel(_ line: String) -> String {
+        let cleaned = line.replacingOccurrences(of: "(", with: " ")
+                          .replacingOccurrences(of: ")", with: " ")
+        let parts = cleaned.split(separator: " ").map(String.init)
+        return parts.first(where: { $0.hasPrefix("REG_") }) ?? parts.last ?? line
+    }
+
+    /// Match libregf hex-dump lines such as
+    /// "00000000: 12 34 56 78  9a bc de f0  ........" and return the
+    /// concatenated hex bytes ("123456789abcdef0"). Returns nil for any
+    /// line that doesn't look like a dump row.
+    private nonisolated static func parseHexDumpLine(_ line: String) -> String? {
+        let trimmed = String(line.drop(while: { $0 == " " || $0 == "\t" }))
+        guard trimmed.count > 10 else { return nil }
+        let offsetEnd = trimmed.index(trimmed.startIndex, offsetBy: 8)
+        let offset = trimmed[..<offsetEnd]
+        guard offset.allSatisfy({ $0.isHexDigit }), trimmed[offsetEnd] == ":" else {
+            return nil
+        }
+        var hex = ""
+        let afterColon = trimmed[trimmed.index(offsetEnd, offsetBy: 1)...]
+        for token in afterColon.split(separator: " ") {
+            guard token.count == 2, token.allSatisfy({ $0.isHexDigit }) else {
+                break   // hit the ASCII gutter or a non-hex column
+            }
+            hex += token
+        }
+        return hex.isEmpty ? nil : hex
     }
 
     /// "Foo: bar" -> "bar"; nil if the prefix doesn't match.

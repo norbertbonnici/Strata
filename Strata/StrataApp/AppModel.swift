@@ -12,6 +12,7 @@ struct EvidenceState {
     var timeline: [TimelineEvent] = []
     var registryValues: [RegistryValue] = []
     var findings: [Finding] = []
+    var iocMatches: [IOCMatch] = []
 }
 
 @MainActor
@@ -22,9 +23,21 @@ final class AppModel: ObservableObject {
     @Published var currentCaseBundleURL: URL?
     /// Recently opened case bundles - powers the welcome screen list.
     @Published var recentCases: [URL] = RecentCases.load()
-    /// Drives the New Case sheet. Settable from menu commands and the
-    /// welcome screen's New Case button.
-    @Published var showingNewCaseSheet = false
+    /// Single sheet binding for the top-level modal stack. Two adjacent
+    /// .sheet(isPresented:) modifiers on the same view can SIGABRT in
+    /// SwiftUI when their bindings transition in the same render pass; one
+    /// .sheet(item:) is the safe pattern.
+    @Published var activeSheet: ActiveSheet?
+    /// IOCs the analyst has loaded for the current case. Persisted to
+    /// iocs.json inside the bundle. Empty by default - IOC matching never
+    /// runs unless the user has loaded at least one.
+    @Published var iocs: [IOC] = []
+
+    enum ActiveSheet: Identifiable {
+        case newCase
+        case enrichment
+        var id: Int { hashValue }
+    }
 
     /// Ingested evidence in the order it was added. Drives the toolbar picker.
     @Published private(set) var evidenceList: [Evidence] = []
@@ -76,6 +89,7 @@ final class AppModel: ObservableObject {
             currentCaseBundleURL = bundleURL
             evidenceList = []
             states = [:]
+            iocs = []
             activeEvidenceID = nil
             statusMessage = "Created case '\(name)'."
         } catch {
@@ -118,6 +132,8 @@ final class AppModel: ObservableObject {
                                                                         in: bundleURL)) ?? []
                     state.findings = (try? CaseStore.readFindings(forHostID: evidence.id,
                                                                   in: bundleURL)) ?? []
+                    state.iocMatches = (try? CaseStore.readIOCMatches(forHostID: evidence.id,
+                                                                      in: bundleURL)) ?? []
                     states[evidence.id] = state
                 } catch {
                     // Skip this host but keep going so a single corrupted DB
@@ -125,6 +141,7 @@ final class AppModel: ObservableObject {
                     statusMessage = "Failed to load \(evidence.displayName): \(error.localizedDescription)"
                 }
             }
+            iocs = (try? CaseStore.readIOCs(in: bundleURL)) ?? []
             activeEvidenceID = hosts.first?.id
             RecentCases.record(bundleURL)
             recentCases = RecentCases.load()
@@ -141,6 +158,7 @@ final class AppModel: ObservableObject {
         currentCaseBundleURL = nil
         evidenceList = []
         states = [:]
+        iocs = []
         activeEvidenceID = nil
         progress = nil
         statusMessage = ""
@@ -156,13 +174,102 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // MARK: - IOC management
+
+    /// Parse a free-form paste, classify each token, dedupe against the
+    /// existing list, and persist. Tokens separated by any whitespace,
+    /// comma, or semicolon; lines starting with # are dropped as comments.
+    func addIOCs(from pasted: String) {
+        let separators = CharacterSet(charactersIn: ",;\n\r\t ")
+        let cleaned = pasted
+            .components(separatedBy: "\n")
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("#") }
+            .joined(separator: "\n")
+        let tokens = cleaned
+            .components(separatedBy: separators)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                     .trimmingCharacters(in: CharacterSet(charactersIn: "\"'<>")) }
+            .filter { !$0.isEmpty }
+
+        var seen = Set(iocs.map { $0.value.lowercased() })
+        var added: [IOC] = []
+        for token in tokens {
+            let key = token.lowercased()
+            if seen.contains(key) { continue }
+            seen.insert(key)
+            added.append(IOC(kind: IOCKind.classify(token), value: token))
+        }
+        iocs.append(contentsOf: added)
+        saveIOCs()
+        statusMessage = "Added \(added.count) IOC\(added.count == 1 ? "" : "s") (\(iocs.count) total)."
+    }
+
+    func removeIOC(_ id: UUID) {
+        iocs.removeAll { $0.id == id }
+        saveIOCs()
+    }
+
+    private func saveIOCs() {
+        guard let bundleURL = currentCaseBundleURL else { return }
+        do {
+            try CaseStore.writeIOCs(iocs, in: bundleURL)
+        } catch {
+            errorMessage = "Failed to save IOCs: \(error.localizedDescription)"
+        }
+    }
+
+    /// Scan every loaded host for IOC matches. Heavy lifting runs on a
+    /// detached task so the UI keeps responsive on multi-million-event
+    /// corpora.
+    func runIOCMatch() async {
+        guard !iocs.isEmpty else {
+            statusMessage = "No IOCs loaded."
+            return
+        }
+        guard let bundleURL = currentCaseBundleURL else { return }
+        errorMessage = nil
+        isWorking = true
+        defer { isWorking = false }
+
+        statusMessage = "Matching \(iocs.count) IOC(s) across \(evidenceList.count) host(s)..."
+        // Capture as Sendable values up front so the detached Task doesn't
+        // close over main-actor-isolated state (Swift 6 strict isolation).
+        let iocSnapshot = iocs
+        var total = 0
+        for evidence in evidenceList {
+            guard let state = states[evidence.id] else { continue }
+            let events = state.events
+            let registry = state.registryValues
+            let files = state.files
+            let matches = await Task.detached(priority: .userInitiated) {
+                let matcher = IOCMatcher(iocs: iocSnapshot)
+                return matcher.match(events: events, registry: registry, files: files)
+            }.value
+            var updated = state
+            updated.iocMatches = matches
+            states[evidence.id] = updated
+            try? CaseStore.writeIOCMatches(matches, forHostID: evidence.id, in: bundleURL)
+            total += matches.count
+        }
+        statusMessage = total == 0
+            ? "No IOC matches."
+            : "Found \(total) IOC match\(total == 1 ? "" : "es")."
+    }
+
     // MARK: - Menu command entry points
 
     /// Triggered by File > New Case (Cmd-N). Closes any open case so the
     /// New Case sheet binds to a clean state, then shows the sheet.
     func requestNewCase() {
         if currentCase != nil { closeCase() }
-        showingNewCaseSheet = true
+        activeSheet = .newCase
+    }
+
+    /// Triggered by Tools > Run Enrichment (Cmd-E). Reuses the same sheet
+    /// shown after ingest. Only meaningful when a case is open.
+    func requestEnrichment() {
+        guard currentCase != nil else { return }
+        activeSheet = .enrichment
     }
 
     /// Triggered by File > Open Case... (Cmd-O). Closes any open case before
@@ -202,6 +309,8 @@ final class AppModel: ObservableObject {
     }
 
     var registryValues: [RegistryValue] { collect(\.registryValues) }
+
+    var iocMatches: [IOCMatch] { collect(\.iocMatches) }
 
     private func collect<T>(_ kp: KeyPath<EvidenceState, [T]>) -> [T] {
         if let id = activeEvidenceID {
@@ -254,6 +363,12 @@ final class AppModel: ObservableObject {
             self.activeEvidenceID = evidence.id
             saveHosts()
             self.statusMessage = "Loaded \(loaded.count) files from \(evidence.displayName)."
+            // Offer post-ingest enrichments (currently just IOC matching).
+            // Skip the popup when there's nothing to opt into - prompting
+            // about an empty list is just friction.
+            if !iocs.isEmpty {
+                activeSheet = .enrichment
+            }
         } catch {
             self.errorMessage = error.localizedDescription
             self.statusMessage = ""
@@ -376,7 +491,7 @@ final class AppModel: ObservableObject {
     /// system, extract them with icat, and parse with regfexport. Findings
     /// are NOT regenerated here - call `runAnalyzers()` (or `parseArtifacts`)
     /// to surface results.
-    func parseRegistry() async {
+    func parseRegistry(force: Bool = false) async {
         guard !evidenceList.isEmpty else {
             errorMessage = "No evidence loaded."
             return
@@ -388,12 +503,29 @@ final class AppModel: ObservableObject {
             progress = nil
         }
 
-        let totalCandidates = evidenceList.reduce(0) { acc, evidence in
-            guard let state = states[evidence.id], state.registryValues.isEmpty else { return acc }
+        // Pre-flight: an old case re-opened on a different machine often has
+        // an evidence.sourceURL that no longer resolves. icat would just fail
+        // silently per hive; surface it up front instead.
+        let candidates = evidenceList.filter { evidence in
+            guard let state = states[evidence.id] else { return false }
+            return force || state.registryValues.isEmpty
+        }
+        let missingImages = candidates.filter {
+            !FileManager.default.fileExists(atPath: $0.sourceURL.path)
+        }
+        if !missingImages.isEmpty, missingImages.count == candidates.count {
+            errorMessage = "Source image not found: \(missingImages[0].sourceURL.path). Re-add the host or restore the image to its original path."
+            return
+        }
+
+        let totalCandidates = candidates.reduce(0) { acc, evidence in
+            guard let state = states[evidence.id] else { return acc }
             return acc + Self.discoverHives(in: state.files).count
         }
         guard totalCandidates > 0 else {
-            statusMessage = "No new registry hives to parse."
+            statusMessage = force
+                ? "No registry hives discovered in the file system."
+                : "No new registry hives to parse."
             return
         }
         progress = ProgressInfo(current: 0, total: totalCandidates, label: "Parsing registry hives")
@@ -404,12 +536,21 @@ final class AppModel: ObservableObject {
             let regEnv = try RegistryEnvironment.discover()
             let parser = RegistryHiveParser(environment: regEnv)
 
+            var hostsTouched = 0
+            var hostsCollected = 0
             for evidence in evidenceList {
                 guard var state = states[evidence.id] else { continue }
-                if !state.registryValues.isEmpty { continue }
+                if !force, !state.registryValues.isEmpty { continue }
 
                 let candidates = Self.discoverHives(in: state.files)
                 guard !candidates.isEmpty else { continue }
+
+                guard FileManager.default.fileExists(atPath: evidence.sourceURL.path) else {
+                    statusMessage = "\(evidence.displayName): source image missing at \(evidence.sourceURL.path)"
+                    completed += candidates.count
+                    continue
+                }
+                hostsTouched += 1
 
                 let database = try TSKDatabase(path: state.dbURL)
                 let extractor = TSKFileExtractor(
@@ -452,9 +593,15 @@ final class AppModel: ObservableObject {
                 if let bundleURL = currentCaseBundleURL {
                     try? CaseStore.writeRegistry(collected, forHostID: evidence.id, in: bundleURL)
                 }
+                if !collected.isEmpty { hostsCollected += 1 }
             }
             progress = ProgressInfo(current: completed, total: totalCandidates,
                                     label: "Registry parse complete")
+            // If every host we tried extracted nothing, the user's silent-no-op
+            // experience needs a louder signal than the flickering statusMessage.
+            if hostsTouched > 0, hostsCollected == 0 {
+                errorMessage = "Registry parse extracted no values - check that source images are accessible and hives aren't locked."
+            }
         } catch {
             self.errorMessage = error.localizedDescription
             self.statusMessage = ""

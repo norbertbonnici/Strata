@@ -11,7 +11,10 @@ struct StrataApp: App {
                 .frame(minWidth: 1000, minHeight: 640)
         }
         .windowStyle(.titleBar)
-        .commands { CaseCommands(model: model) }
+        .commands {
+            CaseCommands(model: model)
+            ToolsCommands(model: model)
+        }
     }
 }
 
@@ -47,3 +50,27 @@ private struct CaseCommands: Commands {
         }
     }
 }
+/// Tools menu - hosts enrichment passes that are opt-in rather than part of
+/// the standard ingest pipeline (IOC matching today; VT / GeoIP / etc. as
+/// they land).
+private struct ToolsCommands: Commands {
+    @ObservedObject var model: AppModel
+
+    var body: some Commands {
+        CommandMenu("Tools") {
+            Button("Parse Artifacts") {
+                Task { await model.parseArtifacts() }
+            }
+            .keyboardShortcut("r", modifiers: [.command])
+            .disabled(model.currentCase == nil || model.evidenceList.isEmpty || model.isWorking)
+            Button("Run Enrichment...") { model.requestEnrichment() }
+                .keyboardShortcut("e", modifiers: [.command])
+                .disabled(model.currentCase == nil)
+            Button("Run IOC Match") {
+                Task { await model.runIOCMatch() }
+            }
+            .disabled(model.currentCase == nil || model.iocs.isEmpty || model.isWorking)
+        }
+    }
+}
+
