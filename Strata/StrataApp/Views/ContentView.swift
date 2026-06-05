@@ -129,9 +129,9 @@ struct ContentView: View {
     private func openSource() {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = true   // allow loose KAPE folders so we can flag them
+        panel.canChooseDirectories = true   // loose KAPE folders are walked directly
         panel.canChooseFiles = true
-        panel.message = "Select one or more E01 images, KAPE .vhd files, or raw images."
+        panel.message = "Select E01 images, KAPE .vhd files, raw images, or loose KAPE/triage folders."
         guard panel.runModal() == .OK else { return }
         // Ingest sequentially: tsk_loaddb is single-threaded and chewing on a
         // disk image, so doing them in parallel would just thrash I/O.

@@ -6,7 +6,9 @@ import Combine
 /// user has ingested in the current session. AppModel composes views across
 /// any subset.
 struct EvidenceState {
-    var dbURL: URL
+    /// TSK SQLite location, or nil for loose-folder hosts that have no image
+    /// to back a TSK database - their files are read straight off disk.
+    var dbURL: URL?
     var files: [FileEntry] = []
     var events: [EventLogRecord] = []
     var timeline: [TimelineEvent] = []
@@ -114,14 +116,31 @@ final class AppModel: ObservableObject {
             evidenceList = hosts
             states = [:]
             for evidence in hosts {
-                let dbURL = CaseStore.tskDatabaseURL(forHostID: evidence.id, in: bundleURL)
-                guard FileManager.default.fileExists(atPath: dbURL.path) else { continue }
                 do {
-                    let database = try TSKDatabase(path: dbURL)
-                    let files = try database.fetchFiles()
-                    var timeline = TimelineBuilder.build(from: files)
-                    var state = EvidenceState(dbURL: dbURL)
-                    state.files = files
+                    // Rebuild the file listing from the source, mirroring how it
+                    // was first ingested: re-walk a loose folder, or re-read the
+                    // TSK database for an image. Either way the listing is cheap
+                    // and reproducible, so it's never persisted in the bundle.
+                    var state: EvidenceState
+                    var timeline: [TimelineEvent]
+                    if evidence.kind == .kapeLooseFolder {
+                        let root = evidence.sourceURL
+                        guard FileManager.default.fileExists(atPath: root.path) else {
+                            statusMessage = "\(evidence.displayName): source folder missing at \(root.path)"
+                            continue
+                        }
+                        let files = KapeFolderIngestor().ingest(folderAt: root)
+                        state.files = files
+                        timeline = TimelineBuilder.build(from: files)
+                    } else {
+                        let dbURL = CaseStore.tskDatabaseURL(forHostID: evidence.id, in: bundleURL)
+                        guard FileManager.default.fileExists(atPath: dbURL.path) else { continue }
+                        let database = try TSKDatabase(path: dbURL)
+                        let files = try database.fetchFiles()
+                        state = EvidenceState(dbURL: dbURL)
+                        state.files = files
+                        timeline = TimelineBuilder.build(from: files)
+                    }
                     // Rehydrate cached parse output. Missing files mean the
                     // user hasn't run Parse on this host yet (or pre-dates
                     // the caching format) - either way, fall back to empty.
@@ -328,8 +347,9 @@ final class AppModel: ObservableObject {
 
     // MARK: - Ingest
 
-    /// Add a new host to the current case. The TSK SQLite output lands inside
-    /// the case bundle so the case stays self-contained. After ingest the new
+    /// Add a new host to the current case. For an image, `tsk_loaddb` output
+    /// lands inside the case bundle so the case stays self-contained; for a
+    /// loose KAPE folder we walk the directory directly. After ingest the new
     /// host becomes the active scope so the user immediately sees its
     /// contents.
     func ingest(sourceURL: URL) async {
@@ -342,34 +362,49 @@ final class AppModel: ObservableObject {
         defer { isWorking = false }
 
         do {
-            var evidence = try KapeImporter.makeEvidence(from: sourceURL)
+            var evidence = KapeImporter.makeEvidence(from: sourceURL)
             let hostDir = CaseStore.hostDirectory(forHostID: evidence.id, in: bundleURL)
             try FileManager.default.createDirectory(at: hostDir, withIntermediateDirectories: true)
-            let dbURL = CaseStore.tskDatabaseURL(forHostID: evidence.id, in: bundleURL)
-            evidence.tskDatabaseURL = dbURL
 
-            let environment = try TSKEnvironment.discover()
-            let ingestor = TSKImageIngestor(environment: environment)
+            let state: EvidenceState
+            if evidence.kind == .kapeLooseFolder {
+                statusMessage = "Scanning \(evidence.displayName)..."
+                // The folder can hold many thousands of files; walk it off the
+                // main actor so the UI stays responsive.
+                let root = evidence.sourceURL
+                let loaded = await Task.detached(priority: .userInitiated) {
+                    KapeFolderIngestor().ingest(folderAt: root)
+                }.value
+                var s = EvidenceState(dbURL: nil)
+                s.files = loaded
+                s.timeline = TimelineBuilder.build(from: loaded)
+                state = s
+            } else {
+                let dbURL = CaseStore.tskDatabaseURL(forHostID: evidence.id, in: bundleURL)
+                evidence.tskDatabaseURL = dbURL
 
-            statusMessage = "Ingesting \(evidence.displayName) with TSK..."
-            try await ingestor.ingest(imageAt: evidence.sourceURL, into: dbURL) { line in
-                Task { @MainActor in self.statusMessage = line }
+                let environment = try TSKEnvironment.discover()
+                let ingestor = TSKImageIngestor(environment: environment)
+
+                statusMessage = "Ingesting \(evidence.displayName) with TSK..."
+                try await ingestor.ingest(imageAt: evidence.sourceURL, into: dbURL) { line in
+                    Task { @MainActor in self.statusMessage = line }
+                }
+
+                statusMessage = "Reading file system..."
+                let database = try TSKDatabase(path: dbURL)
+                let loaded = try database.fetchFiles()
+                var s = EvidenceState(dbURL: dbURL)
+                s.files = loaded
+                s.timeline = TimelineBuilder.build(from: loaded)
+                state = s
             }
-
-            statusMessage = "Reading file system..."
-            let database = try TSKDatabase(path: dbURL)
-            let loaded = try database.fetchFiles()
-            let timeline = TimelineBuilder.build(from: loaded)
-
-            var state = EvidenceState(dbURL: dbURL)
-            state.files = loaded
-            state.timeline = timeline
 
             self.evidenceList.append(evidence)
             self.states[evidence.id] = state
             self.activeEvidenceID = evidence.id
             saveHosts()
-            self.statusMessage = "Loaded \(loaded.count) files from \(evidence.displayName)."
+            self.statusMessage = "Loaded \(state.files.count) files from \(evidence.displayName)."
             // Offer post-ingest enrichments (currently just IOC matching).
             // Skip the popup when there's nothing to opt into - prompting
             // about an empty list is just friction.
@@ -449,16 +484,24 @@ final class AppModel: ObservableObject {
                 }
                 guard !candidates.isEmpty else { continue }
 
-                let database = try TSKDatabase(path: state.dbURL)
-                let extractor = TSKFileExtractor(
-                    environment: tskEnv,
-                    imageURL: evidence.sourceURL,
-                    imageType: TSKImageIngestor.imageType(for: evidence.sourceURL))
-
-                guard let bundleURL = currentCaseBundleURL else { continue }
-                let scratch = CaseStore.eventScratchDirectory(forHostID: evidence.id,
-                                                              in: bundleURL)
-                try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+                // Image hosts need TSK to pull each .evtx out of the image;
+                // loose folders read the file in place, so skip all of that.
+                let isLoose = evidence.kind == .kapeLooseFolder
+                var database: TSKDatabase?
+                var extractor: TSKFileExtractor?
+                var scratch: URL?
+                if !isLoose {
+                    guard let dbURL = state.dbURL else { continue }
+                    database = try TSKDatabase(path: dbURL)
+                    extractor = TSKFileExtractor(
+                        environment: tskEnv,
+                        imageURL: evidence.sourceURL,
+                        imageType: TSKImageIngestor.imageType(for: evidence.sourceURL))
+                    guard let bundleURL = currentCaseBundleURL else { continue }
+                    let dir = CaseStore.eventScratchDirectory(forHostID: evidence.id, in: bundleURL)
+                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    scratch = dir
+                }
 
                 var collected: [EventLogRecord] = []
                 for entry in candidates {
@@ -466,14 +509,26 @@ final class AppModel: ObservableObject {
                         current: completed,
                         total: totalCandidates,
                         label: "\(evidence.displayName): \(entry.name)")
-                    guard let info = try database.fetchExtractInfo(forFileID: entry.id) else {
-                        completed += 1; continue
+                    // Resolve the .evtx to a readable path: the collected file
+                    // itself (loose) or an icat extraction into scratch (image).
+                    let fileURL: URL
+                    if isLoose {
+                        guard let disk = entry.diskURL,
+                              FileManager.default.fileExists(atPath: disk.path) else {
+                            completed += 1; continue
+                        }
+                        fileURL = disk
+                    } else {
+                        guard let info = try database!.fetchExtractInfo(forFileID: entry.id) else {
+                            completed += 1; continue
+                        }
+                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name)")
+                        try await extractor!.extract(metaAddr: info.metaAddr,
+                                                     imageOffsetSectors: info.imageOffsetSectors,
+                                                     to: outURL)
+                        fileURL = outURL
                     }
-                    let outURL = scratch.appendingPathComponent("\(entry.id)-\(entry.name)")
-                    try await extractor.extract(metaAddr: info.metaAddr,
-                                                imageOffsetSectors: info.imageOffsetSectors,
-                                                to: outURL)
-                    let parsed = try await parser.parse(fileAt: outURL)
+                    let parsed = try await parser.parse(fileAt: fileURL)
                     collected.append(contentsOf: parsed)
                     completed += 1
                 }
@@ -500,9 +555,10 @@ final class AppModel: ObservableObject {
     // MARK: - Registry parsing
 
     /// Locate the standard Windows registry hives in each evidence's file
-    /// system, extract them with icat, and parse with regfexport. Findings
-    /// are NOT regenerated here - call `runAnalyzers()` (or `parseArtifacts`)
-    /// to surface results.
+    /// system and parse them with regfexport - extracting with icat for image
+    /// hosts, or reading the collected hive in place for loose folders.
+    /// Findings are NOT regenerated here - call `runAnalyzers()` (or
+    /// `parseArtifacts`) to surface results.
     func parseRegistry(force: Bool = false) async {
         guard !evidenceList.isEmpty else {
             errorMessage = "No evidence loaded."
@@ -516,17 +572,18 @@ final class AppModel: ObservableObject {
         }
 
         // Pre-flight: an old case re-opened on a different machine often has
-        // an evidence.sourceURL that no longer resolves. icat would just fail
-        // silently per hive; surface it up front instead.
+        // an evidence.sourceURL (image or loose folder) that no longer
+        // resolves. Extraction would just fail silently per hive; surface it
+        // up front instead.
         let candidates = evidenceList.filter { evidence in
             guard let state = states[evidence.id] else { return false }
             return force || state.registryValues.isEmpty
         }
-        let missingImages = candidates.filter {
+        let missingSources = candidates.filter {
             !FileManager.default.fileExists(atPath: $0.sourceURL.path)
         }
-        if !missingImages.isEmpty, missingImages.count == candidates.count {
-            errorMessage = "Source image not found: \(missingImages[0].sourceURL.path). Re-add the host or restore the image to its original path."
+        if !missingSources.isEmpty, missingSources.count == candidates.count {
+            errorMessage = "Source not found: \(missingSources[0].sourceURL.path). Re-add the host or restore the source to its original path."
             return
         }
 
@@ -558,22 +615,30 @@ final class AppModel: ObservableObject {
                 guard !candidates.isEmpty else { continue }
 
                 guard FileManager.default.fileExists(atPath: evidence.sourceURL.path) else {
-                    statusMessage = "\(evidence.displayName): source image missing at \(evidence.sourceURL.path)"
+                    statusMessage = "\(evidence.displayName): source missing at \(evidence.sourceURL.path)"
                     completed += candidates.count
                     continue
                 }
                 hostsTouched += 1
 
-                let database = try TSKDatabase(path: state.dbURL)
-                let extractor = TSKFileExtractor(
-                    environment: tskEnv,
-                    imageURL: evidence.sourceURL,
-                    imageType: TSKImageIngestor.imageType(for: evidence.sourceURL))
-
-                guard let bundleURL = currentCaseBundleURL else { continue }
-                let scratch = CaseStore.registryScratchDirectory(forHostID: evidence.id,
-                                                                 in: bundleURL)
-                try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+                // Image hosts extract each hive from the image with icat into a
+                // scratch dir; loose folders parse the collected hive in place.
+                let isLoose = evidence.kind == .kapeLooseFolder
+                var database: TSKDatabase?
+                var extractor: TSKFileExtractor?
+                var scratch: URL?
+                if !isLoose {
+                    guard let dbURL = state.dbURL else { continue }
+                    database = try TSKDatabase(path: dbURL)
+                    extractor = TSKFileExtractor(
+                        environment: tskEnv,
+                        imageURL: evidence.sourceURL,
+                        imageType: TSKImageIngestor.imageType(for: evidence.sourceURL))
+                    guard let bundleURL = currentCaseBundleURL else { continue }
+                    let dir = CaseStore.registryScratchDirectory(forHostID: evidence.id, in: bundleURL)
+                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    scratch = dir
+                }
 
                 var collected: [RegistryValue] = []
                 for candidate in candidates {
@@ -581,16 +646,31 @@ final class AppModel: ObservableObject {
                         current: completed,
                         total: totalCandidates,
                         label: "\(evidence.displayName): \(candidate.label)")
-                    guard let info = try database.fetchExtractInfo(forFileID: candidate.entry.id) else {
-                        completed += 1; continue
+                    // Resolve the hive to a readable path.
+                    let hiveURL: URL
+                    if isLoose {
+                        guard let disk = candidate.entry.diskURL,
+                              FileManager.default.fileExists(atPath: disk.path) else {
+                            completed += 1; continue
+                        }
+                        hiveURL = disk
+                    } else {
+                        guard let info = try database!.fetchExtractInfo(forFileID: candidate.entry.id) else {
+                            completed += 1; continue
+                        }
+                        let outURL = scratch!.appendingPathComponent("\(candidate.entry.id)-\(candidate.entry.name)")
+                        do {
+                            try await extractor!.extract(metaAddr: info.metaAddr,
+                                                         imageOffsetSectors: info.imageOffsetSectors,
+                                                         to: outURL)
+                        } catch {
+                            statusMessage = "\(evidence.displayName): \(candidate.label) failed (\(error.localizedDescription))"
+                            completed += 1; continue
+                        }
+                        hiveURL = outURL
                     }
-                    let outURL = scratch.appendingPathComponent("\(candidate.entry.id)-\(candidate.entry.name)")
                     do {
-                        try await extractor.extract(metaAddr: info.metaAddr,
-                                                    imageOffsetSectors: info.imageOffsetSectors,
-                                                    to: outURL)
-                        let values = try await parser.parse(hiveAt: outURL,
-                                                            hiveLabel: candidate.label)
+                        let values = try await parser.parse(hiveAt: hiveURL, hiveLabel: candidate.label)
                         collected.append(contentsOf: values)
                     } catch {
                         // A locked / corrupt hive shouldn't kill the whole
@@ -612,7 +692,7 @@ final class AppModel: ObservableObject {
             // If every host we tried extracted nothing, the user's silent-no-op
             // experience needs a louder signal than the flickering statusMessage.
             if hostsTouched > 0, hostsCollected == 0 {
-                errorMessage = "Registry parse extracted no values - check that source images are accessible and hives aren't locked."
+                errorMessage = "Registry parse extracted no values - check that sources are accessible and hives aren't locked."
             }
         } catch {
             self.errorMessage = error.localizedDescription

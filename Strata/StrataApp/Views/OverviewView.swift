@@ -42,7 +42,7 @@ struct OverviewView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(evidence.displayName).font(.title2).bold()
                 LabeledContent("Source", value: evidence.sourceURL.path)
-                LabeledContent("Type", value: evidence.kind.rawValue)
+                LabeledContent("Type", value: evidence.kind.label)
             }
         } else if model.evidenceList.isEmpty {
             Text("No evidence loaded").font(.title2).bold()

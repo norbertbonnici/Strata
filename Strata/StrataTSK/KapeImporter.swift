@@ -1,8 +1,8 @@
 import Foundation
 
 /// Classifies an evidence source and routes it to the right ingestion path.
-/// E01, .vhd/.vhdx and raw images go to TSK; loose KAPE folders are flagged
-/// (TSK ingests images, not directories - that is a phase-2 artifact parser).
+/// E01, .vhd/.vhdx and raw images go to TSK; loose KAPE folders are walked
+/// directly by `KapeFolderIngestor` (TSK ingests images, not directories).
 public struct KapeImporter {
 
     public static func classify(_ url: URL) -> EvidenceKind {
@@ -16,13 +16,13 @@ public struct KapeImporter {
         }
     }
 
+    /// Whether this kind goes through TSK (`tsk_loaddb` + `icat`) or is read
+    /// directly off disk. Loose folders take the direct path.
     public static func isTSKIngestible(_ kind: EvidenceKind) -> Bool {
         kind != .kapeLooseFolder
     }
 
-    public static func makeEvidence(from url: URL) throws -> Evidence {
-        let kind = classify(url)
-        guard isTSKIngestible(kind) else { throw TSKError.looseFolderNotSupported(url) }
-        return Evidence(displayName: url.lastPathComponent, sourceURL: url, kind: kind)
+    public static func makeEvidence(from url: URL) -> Evidence {
+        Evidence(displayName: url.lastPathComponent, sourceURL: url, kind: classify(url))
     }
 }

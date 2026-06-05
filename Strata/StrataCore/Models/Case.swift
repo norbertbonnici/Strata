@@ -23,7 +23,17 @@ public enum EvidenceKind: String, Sendable, Codable {
     case e01
     case kapeVHD
     case raw
-    case kapeLooseFolder   // not TSK-ingestible; flagged for phase 2
+    case kapeLooseFolder   // read directly off disk, not via TSK
+
+    /// Human-readable description for the UI.
+    public var label: String {
+        switch self {
+        case .e01:             return "E01 image"
+        case .kapeVHD:         return "KAPE VHD"
+        case .raw:             return "Raw image"
+        case .kapeLooseFolder: return "KAPE folder"
+        }
+    }
 }
 
 /// Persisted to `hosts.json` inside a .strata bundle. `tskDatabaseURL` is

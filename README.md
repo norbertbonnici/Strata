@@ -14,11 +14,12 @@ dependency**.
 ## What it does
 
 - **Evidence ingestion** — E01/EX01/S01, VHD/VHDX (KAPE `--vhd`), and raw `dd`
-  images. Loose KAPE triage folders are detected and flagged (TSK ingests
-  images, not directories).
+  images go through TSK; **loose KAPE/triage folders** (no image container) are
+  walked directly off disk. Both feed the same downstream pipeline.
 - **Multi-host cases** — a `.strata` bundle holds one or more hosts. Add hosts,
   reopen recent cases, keep examiner/case metadata.
-- **File system enumeration** via `tsk_loaddb` into SQLite, read back with GRDB.
+- **File system enumeration** via `tsk_loaddb` into SQLite (images), read back
+  with GRDB; loose folders are enumerated with a direct recursive walk.
 - **MACB timeline** expanded from NTFS `$STANDARD_INFORMATION` timestamps, with
   a drag-to-select histogram usable on million-row datasets and **gap analysis**
   that surfaces quiet periods (missing telemetry, powered-off windows) and
@@ -46,7 +47,7 @@ A SwiftUI app (macOS 14+) with a sidebar: **Overview**, **Evidence**,
 | Module            | Responsibility                                                        |
 |-------------------|-----------------------------------------------------------------------|
 | `StrataCore`      | Shared value types: `FileEntry`, `TimelineEvent`, `EventLogRecord`, `RegistryValue`, `IOC`, `HostProfile`, case + kill-chain models |
-| `StrataTSK`       | Locate vendored TSK binaries, run `tsk_loaddb`, read its SQLite via GRDB; KAPE source classification, file extraction |
+| `StrataTSK`       | Locate vendored TSK binaries, run `tsk_loaddb`, read its SQLite via GRDB; KAPE source classification, image extraction, and direct loose-folder walk |
 | `StrataEVTX`      | Parse `.evtx` event logs by shelling out to `evtxexport`              |
 | `StrataRegistry`  | Parse registry hives via `regfexport`                                 |
 | `StrataTimeline`  | Expand MACB timestamps into timeline events; gap / session analysis   |
@@ -97,7 +98,7 @@ additionally need a privileged helper via `SMAppService`.
 
 ## Roadmap
 
-- KAPE loose-folder direct-artifact parser (parse triage folders without an
-  image container).
+- True NTFS MACB for loose folders by parsing a collected `$MFT` (the direct
+  walk currently surfaces the collection host's modified/created times only).
 - `$FILE_NAME` timestamps and timestomping detection.
 - YARA scanning and known-bad hash matching.

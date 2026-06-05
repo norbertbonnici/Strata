@@ -17,14 +17,22 @@ public nonisolated struct FileEntry: Identifiable, Hashable, Sendable {
     public let changed: Date?     // ctime  (C) - MFT entry modified
     public let created: Date?     // crtime (B) - born
 
+    /// Real on-disk location of this file's content, when it is directly
+    /// readable without TSK. Populated for loose KAPE/triage folders (the
+    /// artifacts already live on the analyst's filesystem); nil for image-
+    /// backed entries, whose bytes must be pulled out with `icat`.
+    public let diskURL: URL?
+
     public init(id: Int64, metaAddr: Int64?, name: String, parentPath: String,
                 size: Int64, isDirectory: Bool, isDeleted: Bool,
-                modified: Date?, accessed: Date?, changed: Date?, created: Date?) {
+                modified: Date?, accessed: Date?, changed: Date?, created: Date?,
+                diskURL: URL? = nil) {
         self.id = id; self.metaAddr = metaAddr; self.name = name
         self.parentPath = parentPath; self.size = size
         self.isDirectory = isDirectory; self.isDeleted = isDeleted
         self.modified = modified; self.accessed = accessed
         self.changed = changed; self.created = created
+        self.diskURL = diskURL
     }
 
     /// Full reconstructed path, e.g. "/Windows/System32/cmd.exe".
