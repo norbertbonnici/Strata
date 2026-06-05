@@ -130,6 +130,7 @@ final class AppModel: ObservableObject {
                             continue
                         }
                         let files = KapeFolderIngestor().ingest(folderAt: root)
+                        state = EvidenceState(dbURL: nil)
                         state.files = files
                         timeline = TimelineBuilder.build(from: files)
                     } else {
