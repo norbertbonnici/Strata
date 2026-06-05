@@ -17,21 +17,44 @@ public enum MACBKind: String, CaseIterable, Sendable, Codable {
     }
 }
 
+/// Origin of a timeline event. Filesystem rows come from TSK MACB expansion;
+/// evtx rows come from parsed Windows event log records. The axis lets the
+/// analyst sessionize over just the meaningful telemetry (evtx) instead of
+/// drowning in million-row MACB noise.
+public enum TimelineSource: String, CaseIterable, Sendable, Codable {
+    case filesystem = "FS"
+    case evtx       = "EVTX"
+
+    public var label: String {
+        switch self {
+        case .filesystem: return "Filesystem"
+        case .evtx:       return "Event Log"
+        }
+    }
+}
+
 /// A single point on the timeline: one timestamp of one file.
 /// Each FileEntry expands into up to four of these (the mactime model).
 public struct TimelineEvent: Identifiable, Hashable, Sendable {
     public let id: UUID
     public let date: Date
     public let kind: MACBKind
+    public let source: TimelineSource
     public let fileID: Int64
     public let path: String
     public let size: Int64
     public let isDeleted: Bool
+    /// Set only for `.evtx` rows. Carries the Windows event ID so the
+    /// table can render it in place of the MACB badge without re-parsing
+    /// the path.
+    public let eventID: UInt32?
 
-    public init(date: Date, kind: MACBKind, fileID: Int64,
-                path: String, size: Int64, isDeleted: Bool) {
+    public init(date: Date, kind: MACBKind, source: TimelineSource = .filesystem,
+                fileID: Int64, path: String, size: Int64, isDeleted: Bool,
+                eventID: UInt32? = nil) {
         self.id = UUID()
-        self.date = date; self.kind = kind; self.fileID = fileID
+        self.date = date; self.kind = kind; self.source = source; self.fileID = fileID
         self.path = path; self.size = size; self.isDeleted = isDeleted
+        self.eventID = eventID
     }
 }

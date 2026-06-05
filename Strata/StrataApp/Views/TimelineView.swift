@@ -3,12 +3,23 @@ import SwiftUI
 struct TimelineView: View {
     @EnvironmentObject private var model: AppModel
     @State private var enabledKinds: Set<MACBKind> = Set(MACBKind.allCases)
+    /// Default to event logs only. MACB expands to millions of rows on a
+    /// real disk image, so loading them on first render makes the table
+    /// (and gap analysis) sluggish for no immediate analyst value - they
+    /// can re-enable FS when they need it.
+    @State private var enabledSources: Set<TimelineSource> = [.evtx]
     @State private var query = ""
     @State private var dateSelection: ClosedRange<Date>?
     /// TSK emits a `<name>-slack` pseudo-entry for every allocated cluster's
     /// trailing slack. They carry epoch (1980) timestamps that swamp the
     /// histogram and clutter the table, so we hide them by default.
     @State private var hideSlack = true
+
+    /// Gap-analysis controls. Default 60 min mirrors the typical DFIR
+    /// triage threshold for "operator session boundary"; analysts can dial
+    /// it up to surface multi-hour log silence or down to find tight bursts.
+    @State private var showGapAnalysis = false
+    @State private var gapThresholdMinutes: Int = 60
 
     /// Filtered event set + its full date extent. Derived on a background
     /// task whenever filter inputs change so per-render body invocations
@@ -24,20 +35,30 @@ struct TimelineView: View {
     @State private var tableRows: [TimelineEvent] = []
     @State private var tableTotal: Int = 0
 
+    /// Cached gap-analysis output for the current filter set. Recomputed
+    /// on the same background pass as `afterToggles` to keep the panel in
+    /// sync with the source/kind toggles.
+    @State private var sessions: [ActivitySession] = []
+    @State private var gaps: [QuietGap] = []
+
     private static let maxTableRows = 20_000
 
     private struct DeriveKey: Equatable {
         let timelineCount: Int
         let kinds: Set<MACBKind>
+        let sources: Set<TimelineSource>
         let hideSlack: Bool
         let query: String
+        let gapThresholdMinutes: Int
     }
 
     private var deriveKey: DeriveKey {
         DeriveKey(timelineCount: model.timeline.count,
                   kinds: enabledKinds,
+                  sources: enabledSources,
                   hideSlack: hideSlack,
-                  query: query)
+                  query: query,
+                  gapThresholdMinutes: gapThresholdMinutes)
     }
 
     private struct TableKey: Equatable {
@@ -65,10 +86,25 @@ struct TimelineView: View {
                         .controlSize(.small)
                 }
                 Divider().frame(height: 16)
+                ForEach(TimelineSource.allCases, id: \.self) { source in
+                    Toggle(source.label, isOn: Binding(
+                        get: { enabledSources.contains(source) },
+                        set: { on in
+                            if on { enabledSources.insert(source) } else { enabledSources.remove(source) }
+                        }))
+                        .toggleStyle(.button)
+                        .controlSize(.small)
+                        .help("Restrict the timeline (and Gap Analysis) to \(source.label.lowercased()) events.")
+                }
+                Divider().frame(height: 16)
                 Toggle("Hide slack", isOn: $hideSlack)
                     .toggleStyle(.button)
                     .controlSize(.small)
                     .help("Hide TSK *-slack pseudo-entries (slack-space rows with 1980 epoch timestamps).")
+                Toggle("Gaps", isOn: $showGapAnalysis)
+                    .toggleStyle(.button)
+                    .controlSize(.small)
+                    .help("Show activity sessions and quiet periods detected from the filtered timeline.")
                 Spacer()
                 if isDeriving {
                     ProgressView().controlSize(.small)
@@ -82,6 +118,11 @@ struct TimelineView: View {
 
             if !afterToggles.isEmpty {
                 histogramSection
+                Divider()
+            }
+
+            if showGapAnalysis {
+                gapAnalysisSection
                 Divider()
             }
 
@@ -102,7 +143,13 @@ struct TimelineView: View {
                 TableColumn("Time") { e in
                     Text(e.date.formatted(date: .numeric, time: .standard)).monospacedDigit()
                 }
-                TableColumn("MACB") { e in MACBBadge(kind: e.kind) }
+                TableColumn("MACB / Event ID") { e in
+                    if let eid = e.eventID {
+                        Text(String(eid)).monospacedDigit()
+                    } else {
+                        MACBBadge(kind: e.kind)
+                    }
+                }
                 TableColumn("Path") { e in
                     HStack {
                         Text(e.path).lineLimit(1).truncationMode(.middle)
@@ -122,6 +169,13 @@ struct TimelineView: View {
             if model.timeline.isEmpty {
                 ContentUnavailableView("No timeline yet", systemImage: "clock",
                     description: Text("Ingest evidence to build a MACB timeline."))
+            } else if afterToggles.isEmpty && !isDeriving {
+                // Default scope is EVTX-only; on a case without parsed event
+                // logs this would silently look empty. Nudge the analyst
+                // toward the filesystem toggle.
+                ContentUnavailableView("No events match",
+                    systemImage: "line.3.horizontal.decrease.circle",
+                    description: Text("Toggle Filesystem on or parse event logs to populate this view."))
             }
         }
     }
@@ -223,18 +277,31 @@ struct TimelineView: View {
     }
 
     /// Recompute `afterToggles` + `fullExtent` off the main thread. Driven by
-    /// `.task(id:)` so it re-runs only when filter inputs change.
+    /// `.task(id:)` so it re-runs only when filter inputs change. Gap
+    /// analysis runs on the same pass: the analyzer is single-pass O(n) so
+    /// folding it in costs basically nothing compared to a re-trigger.
     private func deriveAfterToggles() async {
         let source = model.timeline
         let kinds = enabledKinds
+        let sources = enabledSources
         let hideSlackLocal = hideSlack
         let queryLocal = query
+        let threshold = TimeInterval(max(1, gapThresholdMinutes) * 60)
         isDeriving = true
-        let result: ([TimelineEvent], ClosedRange<Date>?) = await Task.detached(priority: .userInitiated) {
+        let result: ([TimelineEvent], ClosedRange<Date>?, [ActivitySession], [QuietGap]) = await Task.detached(priority: .userInitiated) {
             let filtered = source.filter { event in
-                kinds.contains(event.kind) &&
-                (!hideSlackLocal || !event.path.hasSuffix("-slack")) &&
-                (queryLocal.isEmpty || event.path.localizedCaseInsensitiveContains(queryLocal))
+                guard kinds.contains(event.kind),
+                      sources.contains(event.source),
+                      hideSlackLocal == false || !event.path.hasSuffix("-slack")
+                else { return false }
+                if queryLocal.isEmpty { return true }
+                if event.path.localizedCaseInsensitiveContains(queryLocal) { return true }
+                // Event-ID search: "4624" should match Security:4624 rows
+                // now that the EID lives in its own field rather than the
+                // path string.
+                if let eid = event.eventID,
+                   String(eid).contains(queryLocal) { return true }
+                return false
             }
             var lo: Date? = nil
             var hi: Date? = nil
@@ -244,11 +311,14 @@ struct TimelineView: View {
             }
             let extent: ClosedRange<Date>?
             if let lo, let hi, lo <= hi { extent = lo...hi } else { extent = nil }
-            return (filtered, extent)
+            let (sessions, gaps) = GapAnalyzer.analyze(filtered, threshold: threshold)
+            return (filtered, extent, sessions, gaps)
         }.value
         if Task.isCancelled { return }
         afterToggles = result.0
         fullExtent = result.1
+        sessions = result.2
+        gaps = result.3
         // Clamp any active zoom selection to the new extent so it stays valid.
         if let range = dateSelection, let extent = result.1 {
             let lo = max(range.lowerBound, extent.lowerBound)
@@ -278,6 +348,129 @@ struct TimelineView: View {
         if Task.isCancelled { return }
         tableRows = result.0
         tableTotal = result.1
+    }
+}
+
+extension TimelineView {
+
+    @ViewBuilder
+    fileprivate var gapAnalysisSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 12) {
+                Text("Gap Analysis").font(.headline)
+                Stepper(value: $gapThresholdMinutes, in: 1...1440, step: 5) {
+                    Text("Threshold: \(thresholdLabel)").font(.callout)
+                }
+                .controlSize(.small)
+                .help("Inter-event delta above this value starts a new session and records a quiet gap.")
+                Spacer()
+                Text("\(sessions.count) session\(sessions.count == 1 ? "" : "s") · \(gaps.count) gap\(gaps.count == 1 ? "" : "s")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            HStack(alignment: .top, spacing: 12) {
+                gapsTable
+                sessionsTable
+            }
+        }
+        .padding(8)
+    }
+
+    private var thresholdLabel: String {
+        if gapThresholdMinutes < 60 {
+            return "\(gapThresholdMinutes) min"
+        } else if gapThresholdMinutes % 60 == 0 {
+            return "\(gapThresholdMinutes / 60) h"
+        } else {
+            let h = gapThresholdMinutes / 60
+            let m = gapThresholdMinutes % 60
+            return "\(h)h \(m)m"
+        }
+    }
+
+    @ViewBuilder
+    private var gapsTable: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Quiet Gaps").font(.subheadline.bold())
+            if gaps.isEmpty {
+                Text("None at this threshold.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading)
+            } else {
+                Table(gaps.sorted { $0.duration > $1.duration }) {
+                    TableColumn("Duration") { gap in
+                        Text(Self.formatDuration(gap.duration)).monospacedDigit()
+                    }
+                    .width(min: 70, ideal: 90)
+                    TableColumn("From") { gap in
+                        Text(gap.start.formatted(date: .numeric, time: .standard))
+                            .monospacedDigit()
+                    }
+                    TableColumn("To") { gap in
+                        Text(gap.end.formatted(date: .numeric, time: .standard))
+                            .monospacedDigit()
+                    }
+                    TableColumn("") { gap in
+                        Button("Zoom") { dateSelection = gap.start...gap.end }
+                            .buttonStyle(.borderless)
+                            .controlSize(.small)
+                    }
+                    .width(min: 50, ideal: 50)
+                }
+                .frame(minHeight: 120, maxHeight: 220)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var sessionsTable: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Activity Sessions").font(.subheadline.bold())
+            if sessions.isEmpty {
+                Text("No events in scope.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading)
+            } else {
+                Table(sessions.sorted { $0.duration > $1.duration }) {
+                    TableColumn("Duration") { session in
+                        Text(Self.formatDuration(session.duration)).monospacedDigit()
+                    }
+                    .width(min: 70, ideal: 90)
+                    TableColumn("Events") { session in
+                        Text(session.count.formatted()).monospacedDigit()
+                    }
+                    .width(min: 60, ideal: 80)
+                    TableColumn("Start") { session in
+                        Text(session.start.formatted(date: .numeric, time: .standard))
+                            .monospacedDigit()
+                    }
+                    TableColumn("") { session in
+                        Button("Zoom") { dateSelection = session.start...session.end }
+                            .buttonStyle(.borderless)
+                            .controlSize(.small)
+                    }
+                    .width(min: 50, ideal: 50)
+                }
+                .frame(minHeight: 120, maxHeight: 220)
+            }
+        }
+    }
+
+    /// Compact h/m/s formatter - DFIR analysts read gaps faster as
+    /// "2h 14m" than as 8040 s.
+    fileprivate static func formatDuration(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds.rounded())
+        if total <= 0 { return "0s" }
+        let days = total / 86_400
+        let hours = (total % 86_400) / 3600
+        let minutes = (total % 3600) / 60
+        let secs = total % 60
+        if days > 0 { return "\(days)d \(hours)h" }
+        if hours > 0 { return "\(hours)h \(minutes)m" }
+        if minutes > 0 { return "\(minutes)m \(secs)s" }
+        return "\(secs)s"
     }
 }
 

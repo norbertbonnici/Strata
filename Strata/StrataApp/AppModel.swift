@@ -119,15 +119,22 @@ final class AppModel: ObservableObject {
                 do {
                     let database = try TSKDatabase(path: dbURL)
                     let files = try database.fetchFiles()
-                    let timeline = TimelineBuilder.build(from: files)
+                    var timeline = TimelineBuilder.build(from: files)
                     var state = EvidenceState(dbURL: dbURL)
                     state.files = files
-                    state.timeline = timeline
                     // Rehydrate cached parse output. Missing files mean the
                     // user hasn't run Parse on this host yet (or pre-dates
                     // the caching format) - either way, fall back to empty.
                     state.events = (try? CaseStore.readEvents(forHostID: evidence.id,
                                                               in: bundleURL)) ?? []
+                    // Fold evtx records back into the timeline so the
+                    // sessions panel and Source filter work without
+                    // re-parsing on every case open.
+                    if !state.events.isEmpty {
+                        timeline.append(contentsOf: TimelineBuilder.build(from: state.events))
+                        timeline.sort { $0.date < $1.date }
+                    }
+                    state.timeline = timeline
                     state.registryValues = (try? CaseStore.readRegistry(forHostID: evidence.id,
                                                                         in: bundleURL)) ?? []
                     state.findings = (try? CaseStore.readFindings(forHostID: evidence.id,
@@ -472,6 +479,11 @@ final class AppModel: ObservableObject {
                 }
                 collected.sort { $0.writtenAt < $1.writtenAt }
                 state.events = collected
+                // Drop any prior evtx slice (paranoia for re-parses) and
+                // splice the freshly built evtx timeline back in, sorted.
+                state.timeline.removeAll { $0.source == .evtx }
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: collected))
+                state.timeline.sort { $0.date < $1.date }
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
                     try? CaseStore.writeEvents(collected, forHostID: evidence.id, in: bundleURL)
