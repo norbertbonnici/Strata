@@ -47,6 +47,7 @@ struct KillChainView: View {
             }
             .padding(.horizontal).padding(.bottom, 8)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .navigationTitle("Kill Chain")
         .inspector(isPresented: .constant(selectedGroup != nil)) {
             GroupDetailPane(group: selectedGroup)

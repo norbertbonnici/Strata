@@ -59,11 +59,13 @@ struct EvidenceTreeView: View {
                             .onTapGesture { if let e = node.entry { selection = e } }
                         }
                     }
-                    .frame(minWidth: 360)
+                    .frame(minWidth: 360, maxHeight: .infinity)
 
-                        FileDetailView(entry: selection).frame(minWidth: 280)
+                        FileDetailView(entry: selection).frame(minWidth: 280, maxHeight: .infinity)
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
         }
         .navigationTitle("Evidence")

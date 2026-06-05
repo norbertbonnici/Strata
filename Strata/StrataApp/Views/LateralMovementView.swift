@@ -21,10 +21,11 @@ struct LateralMovementView: View {
             } else {
                 HSplitView {
                     LateralGraphCanvas(graph: graph, selection: $selected)
-                        .frame(minWidth: 480)
+                        .frame(minWidth: 480, maxHeight: .infinity)
                     NodeDetailPanel(graph: graph, selection: selected)
-                        .frame(minWidth: 280)
+                        .frame(minWidth: 280, maxHeight: .infinity)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .navigationTitle(graph.edges.isEmpty
