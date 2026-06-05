@@ -35,7 +35,9 @@ dependency**.
   that emit ATT&CK-tagged `Finding`s into the kill-chain phases.
 - **IOC matching** — paste IPs, domains, URLs, and hashes; matches are scanned
   across logon fields and timeline/event data.
-- **Lateral-movement graph** built from logon/credential-pivot findings.
+- **Interactive lateral-movement graph** built from remote logon events
+  (Security 4624/4625, logon types 3/7/8/10): pan, zoom, drag nodes, and an
+  optional force-directed layout. Click a host for its inbound/outbound logons.
 
 ## UI
 
