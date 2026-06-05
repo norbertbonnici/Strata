@@ -1,7 +1,7 @@
 {
   "images" : [
     {
-      "filename" : "icon_1024.png",
+      "filename" : "AppIcon-1024.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
@@ -41,7 +41,7 @@
       "size" : "16x16"
     },
     {
-      "filename" : "icon_32.png",
+      "filename" : "icon_32 1.png",
       "idiom" : "mac",
       "scale" : "1x",
       "size" : "32x32"
@@ -65,7 +65,7 @@
       "size" : "128x128"
     },
     {
-      "filename" : "icon_256.png",
+      "filename" : "icon_256 1.png",
       "idiom" : "mac",
       "scale" : "1x",
       "size" : "256x256"
@@ -77,7 +77,7 @@
       "size" : "256x256"
     },
     {
-      "filename" : "icon_512.png",
+      "filename" : "icon_512 1.png",
       "idiom" : "mac",
       "scale" : "1x",
       "size" : "512x512"
