@@ -3,3 +3,9 @@
 Vendor/tsk/
 xcuserdata/
 *.xcuserstate
+
+# Release / packaging artifacts (scripts/release.sh writes to build/)
+build/
+*.dmg
+*.xcarchive
+*.app.zip

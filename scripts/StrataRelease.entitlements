@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Entitlements for the Developer ID release build (overrides the project's
+  default Strata.entitlements at archive time via CODE_SIGN_ENTITLEMENTS).
+
+  Deliberately empty: Strata is NOT sandboxed (it reads raw disk images), and
+  the default entitlements carry App Store / development capabilities
+  (aps-environment, iCloud/CloudKit) that a Developer ID build can't satisfy
+  and doesn't use. Full Disk Access is a user-granted TCC permission, not an
+  entitlement, so nothing is needed here. Hardened runtime (required for
+  notarization) is enabled via the ENABLE_HARDENED_RUNTIME build setting.
+-->
+<plist version="1.0">
+<dict/>
+</plist>

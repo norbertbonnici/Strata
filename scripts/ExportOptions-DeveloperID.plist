@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Export options for `xcodebuild -exportArchive`, used by scripts/release.sh.
+  Produces a Developer ID-signed app for distribution OUTSIDE the App Store
+  (the only option for a tool that reads raw disk images and can't be sandboxed).
+-->
+<plist version="1.0">
+<dict>
+    <key>method</key>
+    <string>developer-id</string>
+    <key>teamID</key>
+    <string>96ZD8RMB92</string>
+    <key>signingStyle</key>
+    <string>manual</string>
+    <key>signingCertificate</key>
+    <string>Developer ID Application</string>
+    <!-- Strip Swift symbols to shrink the bundle; harmless for a release. -->
+    <key>stripSwiftSymbols</key>
+    <true/>
+</dict>
+</plist>
