@@ -53,11 +53,15 @@ final class AppModel: ObservableObject {
     @Published private(set) var evidenceList: [Evidence] = []
 
     /// Per-evidence state, keyed by Evidence.id.
-    @Published private(set) var states: [UUID: EvidenceState] = [:]
+    @Published private(set) var states: [UUID: EvidenceState] = [:] {
+        didSet { invalidateDerived() }
+    }
 
     /// `nil` = combined view across every loaded evidence.
     /// A UUID = scope every view to just that evidence.
-    @Published var activeEvidenceID: UUID?
+    @Published var activeEvidenceID: UUID? {
+        didSet { invalidateDerived() }
+    }
 
     @Published var isWorking = false
     @Published var statusMessage = ""
@@ -344,6 +348,13 @@ final class AppModel: ObservableObject {
     }
 
     // MARK: - Computed views consumed by every screen
+    //
+    // The per-evidence arrays change rarely (ingest / parse / scope switch) but
+    // are read many times per render across every screen. Re-flatMapping and
+    // re-sorting the full dataset on every access was the dominant cost on the
+    // million-event cases this tool targets, so we roll the result up once and
+    // cache it, invalidating only when `states` or `activeEvidenceID` actually
+    // change (see their didSet -> invalidateDerived()).
 
     /// Evidence the UI is currently scoped to, or nil when "All" is active.
     var selectedEvidence: Evidence? {
@@ -351,29 +362,83 @@ final class AppModel: ObservableObject {
         return evidenceList.first { $0.id == id }
     }
 
-    var files: [FileEntry] { collect(\.files) }
+    private struct Derived {
+        var files: [FileEntry] = []
+        var events: [EventLogRecord] = []
+        var timeline: [TimelineEvent] = []
+        var findings: [Finding] = []
+        var registryValues: [RegistryValue] = []
+        var iocMatches: [IOCMatch] = []
+    }
+    private var derivedCache: Derived?
 
-    var events: [EventLogRecord] {
-        collect(\.events).sorted { $0.writtenAt < $1.writtenAt }
+    /// Monotonic token bumped whenever the derived data changes. Use it as a
+    /// `.task(id:)` / `.onChange(of:)` key instead of reading a heavy
+    /// collection's `.count` (which used to force a full sort just to count).
+    private(set) var dataVersion = 0
+
+    private func invalidateDerived() {
+        derivedCache = nil
+        dataVersion &+= 1
     }
 
-    var timeline: [TimelineEvent] {
-        collect(\.timeline).sorted { $0.date < $1.date }
+    private func derived() -> Derived {
+        if let cached = derivedCache { return cached }
+        let built = buildDerived()
+        derivedCache = built
+        return built
     }
 
-    var findings: [Finding] {
-        collect(\.findings).sorted { $0.severity > $1.severity }
-    }
-
-    var registryValues: [RegistryValue] { collect(\.registryValues) }
-
-    var iocMatches: [IOCMatch] { collect(\.iocMatches) }
-
-    private func collect<T>(_ kp: KeyPath<EvidenceState, [T]>) -> [T] {
+    private func buildDerived() -> Derived {
+        var d = Derived()
         if let id = activeEvidenceID {
-            return states[id]?[keyPath: kp] ?? []
+            // Single-evidence scope: the per-state arrays are already stored in
+            // display order (events/timeline sorted at parse, findings by the
+            // analysis engine), so hand them back without re-sorting.
+            guard let s = states[id] else { return d }
+            d.files = s.files
+            d.events = s.events
+            d.timeline = s.timeline
+            d.findings = s.findings
+            d.registryValues = s.registryValues
+            d.iocMatches = s.iocMatches
+            return d
         }
-        return evidenceList.flatMap { states[$0.id]?[keyPath: kp] ?? [] }
+        // Combined ("All") scope: merge every host, then sort the ordered ones.
+        for evidence in evidenceList {
+            guard let s = states[evidence.id] else { continue }
+            d.files.append(contentsOf: s.files)
+            d.events.append(contentsOf: s.events)
+            d.timeline.append(contentsOf: s.timeline)
+            d.findings.append(contentsOf: s.findings)
+            d.registryValues.append(contentsOf: s.registryValues)
+            d.iocMatches.append(contentsOf: s.iocMatches)
+        }
+        d.events.sort { $0.writtenAt < $1.writtenAt }
+        d.timeline.sort { $0.date < $1.date }
+        d.findings.sort { $0.severity > $1.severity }
+        return d
+    }
+
+    var files: [FileEntry] { derived().files }
+    var events: [EventLogRecord] { derived().events }
+    var timeline: [TimelineEvent] { derived().timeline }
+    var findings: [Finding] { derived().findings }
+    var registryValues: [RegistryValue] { derived().registryValues }
+    var iocMatches: [IOCMatch] { derived().iocMatches }
+
+    // Count-only accessors: sum per-host counts without building or sorting the
+    // rolled-up arrays. For stat tiles / titles that only need a number.
+    var fileCount: Int { scopedCount(\.files.count) }
+    var eventCount: Int { scopedCount(\.events.count) }
+    var timelineCount: Int { scopedCount(\.timeline.count) }
+    var findingCount: Int { scopedCount(\.findings.count) }
+    var registryValueCount: Int { scopedCount(\.registryValues.count) }
+    var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
+
+    private func scopedCount(_ kp: KeyPath<EvidenceState, Int>) -> Int {
+        if let id = activeEvidenceID { return states[id]?[keyPath: kp] ?? 0 }
+        return evidenceList.reduce(0) { $0 + (states[$1.id]?[keyPath: kp] ?? 0) }
     }
 
     // MARK: - Ingest
