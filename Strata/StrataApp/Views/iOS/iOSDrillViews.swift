@@ -11,11 +11,23 @@ struct FilesystemDrillView: View {
     @EnvironmentObject private var model: AppModel
     /// Current path inside the evidence, in `/A/B/C` form. Empty == root.
     @State private var path: String = ""
+    @State private var displayLimit = 200
+    private let pageSize = 200
+
+    /// Normalize a directory path for comparison: drop any trailing slash and
+    /// treat root ("/" or "") as "". TSK-backed FileEntry.parentPath carries a
+    /// trailing slash ("/Windows/") while KAPE's does not ("/Windows"), and our
+    /// reconstructed `path` never does - so normalize BOTH sides. Without this
+    /// every subfolder of an image-backed case appeared empty.
+    private func normalized(_ p: String) -> String {
+        if p == "/" || p.isEmpty { return "" }
+        return p.hasSuffix("/") ? String(p.dropLast()) : p
+    }
 
     private var children: [FileEntry] {
-        let prefix = path
+        let here = normalized(path)
         return model.files
-            .filter { $0.parentPath == (prefix.isEmpty ? "/" : prefix) }
+            .filter { normalized($0.parentPath) == here }
             .sorted { lhs, rhs in
                 if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory }
                 return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
@@ -23,7 +35,8 @@ struct FilesystemDrillView: View {
     }
 
     var body: some View {
-        ScrollView {
+        let kids = children
+        return ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 LargeTitle(title: "Filesystem")
 
@@ -31,10 +44,10 @@ struct FilesystemDrillView: View {
 
                 note
 
-                if children.isEmpty {
+                if kids.isEmpty {
                     emptyState
                 } else {
-                    Card { rows }.padding(.top, 10)
+                    Card { rows(kids) }.padding(.top, 10)
                 }
 
                 Spacer(minLength: 26)
@@ -44,20 +57,32 @@ struct FilesystemDrillView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.bg, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        .onChange(of: path) { displayLimit = pageSize }   // restart paging on navigate
     }
 
+    /// Tappable breadcrumb so the analyst can jump back up the tree (the system
+    /// back button only exits the whole screen, since navigation mutates `path`
+    /// rather than pushing a NavigationStack).
     private var breadcrumb: some View {
         let crumbs = path.split(separator: "/").map(String.init)
         return HStack(spacing: 5) {
-            Text("C:\\")
-                .font(.system(size: 12.5, design: .monospaced))
-                .foregroundStyle(Theme.text2)
+            Button { path = "" } label: {
+                Text("C:\\")
+                    .font(.system(size: 12.5, design: .monospaced))
+                    .foregroundStyle(Theme.text2)
+            }
+            .buttonStyle(.plain)
             ForEach(Array(crumbs.enumerated()), id: \.offset) { idx, name in
                 Text("›").foregroundStyle(Theme.text3)
-                Text(name)
-                    .font(.system(size: 12.5, weight: idx == crumbs.count - 1 ? .semibold : .regular,
-                                  design: .monospaced))
-                    .foregroundStyle(idx == crumbs.count - 1 ? Theme.text : Theme.text2)
+                Button {
+                    path = "/" + crumbs[0...idx].joined(separator: "/")
+                } label: {
+                    Text(name)
+                        .font(.system(size: 12.5, weight: idx == crumbs.count - 1 ? .semibold : .regular,
+                                      design: .monospaced))
+                        .foregroundStyle(idx == crumbs.count - 1 ? Theme.text : Theme.text2)
+                }
+                .buttonStyle(.plain)
             }
         }
         .padding(.horizontal, 22)
@@ -65,8 +90,9 @@ struct FilesystemDrillView: View {
     }
 
     private var note: some View {
-        let total = model.files.count
-        let deleted = model.files.filter(\.isDeleted).count
+        let files = model.files
+        let total = files.count
+        let deleted = files.lazy.filter(\.isDeleted).count
         return Text("\(human(total)) objects · \(human(deleted)) deleted")
             .font(.system(size: 12))
             .foregroundStyle(Theme.text3)
@@ -83,8 +109,10 @@ struct FilesystemDrillView: View {
             .frame(maxWidth: .infinity)
     }
 
-    @ViewBuilder private var rows: some View {
-        ForEach(children) { entry in
+    @ViewBuilder private func rows(_ kids: [FileEntry]) -> some View {
+        // Cap rendered rows: a Windows folder (System32 / WinSxS) can hold tens
+        // of thousands of entries, which would spike memory on a phone.
+        ForEach(kids.prefix(displayLimit)) { entry in
             Button {
                 if entry.isDirectory {
                     let parent = path.isEmpty ? "/" : path
@@ -125,6 +153,16 @@ struct FilesystemDrillView: View {
                 Divider().background(Theme.hair2)
             }
         }
+        if kids.count > displayLimit {
+            Button { displayLimit += pageSize } label: {
+                Text("Show \(min(pageSize, kids.count - displayLimit)) more · \(human(kids.count - displayLimit)) hidden")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Theme.teal)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 13)
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     private func iconForFile(_ entry: FileEntry) -> String {
@@ -160,14 +198,19 @@ struct FilesystemDrillView: View {
 struct LateralDrillView: View {
     @EnvironmentObject private var model: AppModel
 
-    private var graph: LateralGraph { LateralGraph.build(from: model.events) }
+    private var graph: LateralGraph { model.lateralGraph }   // cached on AppModel
 
     var body: some View {
-        ScrollView {
+        // Build + sort once per render (graph was rebuilt 4x, each re-sorting
+        // the event set and recompiling regexes).
+        let graph = self.graph
+        let edges = graph.edges.sorted { $0.firstSeen < $1.firstSeen }
+        let nodes = graph.nodes.sorted { $0.degree > $1.degree }
+        return ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 LargeTitle(
                     title: "Lateral Movement",
-                    subtitle: subtitle)
+                    subtitle: "\(graph.nodes.count) hosts · \(graph.edges.count) edges")
 
                 if graph.edges.isEmpty {
                     ContentUnavailableView(
@@ -179,9 +222,9 @@ struct LateralDrillView: View {
                 } else {
                     legend.padding(.horizontal, 16).padding(.top, 4)
                     SectionHeader(label: "Hops").padding(.top, 14)
-                    Card { hopRows }
+                    Card { hopRows(edges) }
                     SectionHeader(label: "Hosts").padding(.top, 14)
-                    Card { hostRows }
+                    Card { hostRows(nodes) }
                 }
 
                 Spacer(minLength: 26)
@@ -191,10 +234,6 @@ struct LateralDrillView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.bg, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
-    }
-
-    private var subtitle: String {
-        "\(graph.nodes.count) hosts · \(graph.edges.count) edges"
     }
 
     private var legend: some View {
@@ -207,8 +246,8 @@ struct LateralDrillView: View {
         .foregroundStyle(Theme.text2)
     }
 
-    @ViewBuilder private var hopRows: some View {
-        ForEach(graph.edges.sorted(by: { $0.firstSeen < $1.firstSeen }), id: \.id) { edge in
+    @ViewBuilder private func hopRows(_ edges: [LateralGraph.Edge]) -> some View {
+        ForEach(edges, id: \.id) { edge in
             HStack(spacing: 11) {
                 Text(Self.timeFmt.string(from: edge.firstSeen))
                     .font(.system(size: 11, design: .monospaced))
@@ -256,8 +295,8 @@ struct LateralDrillView: View {
         return parts.joined(separator: " · ")
     }
 
-    @ViewBuilder private var hostRows: some View {
-        ForEach(graph.nodes.sorted(by: { $0.degree > $1.degree }), id: \.id) { node in
+    @ViewBuilder private func hostRows(_ nodes: [LateralGraph.Node]) -> some View {
+        ForEach(nodes, id: \.id) { node in
             HStack(spacing: 12) {
                 SeverityDot(color: node.kind == .knownHost ? Theme.amber : Theme.text3)
                 Text(node.id)
@@ -278,6 +317,7 @@ struct LateralDrillView: View {
         let f = DateFormatter()
         f.dateFormat = "HH:mm:ss"
         f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")   // forensic timestamps are UTC
         return f
     }()
 }

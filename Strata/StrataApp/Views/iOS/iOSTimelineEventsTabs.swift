@@ -41,23 +41,31 @@ struct TimelineTab: View {
         }
     }
 
-    /// Group the visible window of events by yyyy-MM-dd. The whole timeline
-    /// can be tens of millions of rows on a real case, so we slice with
-    /// `prefix(displayLimit)` *before* grouping — grouping the full set just
-    /// to throw the tail away is wasted work.
-    private var grouped: [(String, [TimelineEvent])] {
-        let cal = Calendar.current
-        let window = filtered.prefix(displayLimit)
-        let groups = Dictionary(grouping: window) { ev -> Date in
-            cal.startOfDay(for: ev.date)
+    /// Newest-first grouping over the newest `displayLimit` slice. The source is
+    /// sorted ascending, so we take the suffix (most recent) and sort days +
+    /// within-day events descending — matching triage expectation and the
+    /// Events tab. Forensic timestamps are absolute (UTC); bucketing in the
+    /// device timezone would shift events across day boundaries, so we use a
+    /// fixed UTC calendar.
+    private func grouped(_ visible: [TimelineEvent]) -> [(String, [TimelineEvent])] {
+        let window = visible.suffix(displayLimit)
+        let groups = Dictionary(grouping: window) { ev in
+            Self.utcCalendar.startOfDay(for: ev.date)
         }
         return groups
             .sorted { $0.key > $1.key }
-            .map { (Self.dayLabel(for: $0.key), $0.value) }
+            .map { (Self.dayLabel(for: $0.key), $0.value.sorted { $0.date > $1.date }) }
     }
 
+    private static let utcCalendar: Calendar = {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "UTC")!
+        return c
+    }()
+
     var body: some View {
-        ScrollView {
+        let visible = filtered
+        return ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 LargeTitle(
                     title: "Timeline",
@@ -68,10 +76,10 @@ struct TimelineTab: View {
 
                 searchBar.padding(.horizontal, 16).padding(.bottom, 6)
 
-                if model.timeline.isEmpty {
+                if model.timelineCount == 0 {
                     emptyState
                 } else {
-                    ForEach(grouped, id: \.0) { (day, events) in
+                    ForEach(grouped(visible), id: \.0) { (day, events) in
                         Text(day.uppercased())
                             .font(.system(size: 12.5, weight: .heavy))
                             .tracking(0.7)
@@ -82,11 +90,11 @@ struct TimelineTab: View {
 
                         Card { tlRows(events) }
                     }
-                    if filtered.count > displayLimit {
+                    if visible.count > displayLimit {
                         Button {
                             displayLimit += pageSize
                         } label: {
-                            Text("Show \(min(pageSize, filtered.count - displayLimit)) more")
+                            Text("Show \(min(pageSize, visible.count - displayLimit)) more")
                                 .font(.system(size: 13, weight: .semibold))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 12)
@@ -102,10 +110,14 @@ struct TimelineTab: View {
         }
         .background(Theme.bg.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
+        // Restart paging when the result set changes, else a deep displayLimit
+        // dumps thousands of rows after a chip/search change.
+        .onChange(of: filter) { displayLimit = pageSize }
+        .onChange(of: query) { displayLimit = pageSize }
     }
 
     private var subtitle: String {
-        let n = model.timeline.count
+        let n = model.timelineCount
         let f = NumberFormatter(); f.numberStyle = .decimal
         let total = f.string(from: NSNumber(value: n)) ?? "\(n)"
         return "MACB · \(total) events"
@@ -179,14 +191,20 @@ struct TimelineTab: View {
         let f = DateFormatter()
         f.dateFormat = "HH:mm:ss"
         f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")   // forensic timestamps are UTC
         return f
     }()
 
-    private static func dayLabel(for date: Date) -> String {
+    // Hoisted formatter (was re-allocated per call in the grouping hot path).
+    private static let dayFmt: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "MMM d, yyyy"
-        return f.string(from: date)
-    }
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")
+        return f
+    }()
+
+    private static func dayLabel(for date: Date) -> String { dayFmt.string(from: date) }
 }
 
 // MARK: - Events tab
@@ -208,8 +226,9 @@ struct EventsTab: View {
             switch self {
             case .all:      return { _ in true }
             case .security: return { $0.localizedCaseInsensitiveContains("security") }
-            case .sysmon:   return { $0.localizedCaseInsensitiveContains("sysmon")
-                                     || $0.localizedCaseInsensitiveContains("operational") }
+            // Match Sysmon precisely - the old "operational" clause also matched
+            // every <Provider>/Operational channel (PowerShell, WinRM, ...).
+            case .sysmon:   return { $0.localizedCaseInsensitiveContains("sysmon") }
             case .system:   return { $0.localizedCaseInsensitiveContains("system") }
             }
         }
@@ -220,7 +239,8 @@ struct EventsTab: View {
     }
 
     var body: some View {
-        ScrollView {
+        let visible = filtered
+        return ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 LargeTitle(
                     title: "Events",
@@ -229,16 +249,16 @@ struct EventsTab: View {
                 ChipRow(options: chipOptions, selection: $filter)
                     .padding(.bottom, 4)
 
-                if model.events.isEmpty {
+                if model.eventCount == 0 {
                     emptyState
                 } else {
-                    Card { eventRows }.padding(.top, 8)
+                    Card { eventRows(visible) }.padding(.top, 8)
 
-                    if filtered.count > displayLimit {
+                    if visible.count > displayLimit {
                         Button {
                             displayLimit += pageSize
                         } label: {
-                            Text("Show \(min(pageSize, filtered.count - displayLimit)) more")
+                            Text("Show \(min(pageSize, visible.count - displayLimit)) more")
                                 .font(.system(size: 13, weight: .semibold))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 12)
@@ -254,10 +274,11 @@ struct EventsTab: View {
         }
         .background(Theme.bg.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
+        .onChange(of: filter) { displayLimit = pageSize }   // restart paging on chip change
     }
 
     private var subtitle: String {
-        let n = model.events.count
+        let n = model.eventCount
         let f = NumberFormatter(); f.numberStyle = .decimal
         return "Parsed · \(f.string(from: NSNumber(value: n)) ?? "0") records"
     }
@@ -275,9 +296,11 @@ struct EventsTab: View {
             .frame(maxWidth: .infinity)
     }
 
-    @ViewBuilder private var eventRows: some View {
-        let window = filtered.prefix(displayLimit)
-        ForEach(Array(window)) { ev in
+    @ViewBuilder private func eventRows(_ visible: [EventLogRecord]) -> some View {
+        // Newest-first: source is ascending, so take the newest slice and
+        // reverse for display (consistent with the Timeline tab).
+        let window = Array(visible.suffix(displayLimit).reversed())
+        ForEach(window) { ev in
             HStack(spacing: 11) {
                 SeverityDot(color: levelColor(ev.level))
                 Pill(text: "\(ev.eventID)")
@@ -329,6 +352,7 @@ struct EventsTab: View {
         let f = DateFormatter()
         f.dateFormat = "HH:mm:ss"
         f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")   // forensic timestamps are UTC
         return f
     }()
 }

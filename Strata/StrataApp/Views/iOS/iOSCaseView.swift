@@ -52,10 +52,15 @@ struct OverviewTab: View {
         model.selectedEvidence ?? model.evidenceList.first
     }
 
-    private var hostProfile: HostProfile? {
+    /// Cached host profile, recomputed only when the data/scope changes.
+    /// HostProfile.derive linearly scans registryValues (tens of thousands of
+    /// rows); it was running twice per render off a computed property.
+    @State private var hostProfile: HostProfile?
+
+    private func recomputeProfile() {
         guard let id = primaryEvidence?.id,
-              let regs = model.states[id]?.registryValues else { return nil }
-        return HostProfile.derive(from: regs)
+              let regs = model.states[id]?.registryValues else { hostProfile = nil; return }
+        hostProfile = HostProfile.derive(from: regs)
     }
 
     private var criticalFindings: [Finding] {
@@ -95,6 +100,7 @@ struct OverviewTab: View {
         }
         .background(Theme.bg.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
+        .task(id: model.dataVersion) { recomputeProfile() }
     }
 
     private var subtitle: String {
@@ -161,10 +167,10 @@ struct OverviewTab: View {
 
     private var tiles: [StatTiles.Tile] {
         [
-            .init(value: humanCount(model.files.count),     label: "Files enumerated", color: Theme.text),
-            .init(value: humanCount(model.timeline.count),  label: "Timeline events",  color: Theme.teal2),
-            .init(value: "\(model.findings.count)",         label: "Findings",         color: Theme.crit),
-            .init(value: "\(model.iocs.count)",             label: "Indicators",       color: Theme.amber),
+            .init(value: humanCount(model.fileCount),      label: "Files enumerated", color: Theme.text),
+            .init(value: humanCount(model.timelineCount),  label: "Timeline events",  color: Theme.teal2),
+            .init(value: "\(model.findingCount)",          label: "Findings",         color: Theme.crit),
+            .init(value: "\(model.iocs.count)",            label: "Indicators",       color: Theme.amber),
         ]
     }
 
@@ -172,6 +178,9 @@ struct OverviewTab: View {
         switch n {
         case 1_000_000...:
             return String(format: "%.2fM", Double(n) / 1_000_000)
+        case 999_950...:
+            // Below 1M but rounds to "1000.0K" at one decimal - promote to M.
+            return String(format: "%.1fM", Double(n) / 1_000_000)
         case 100_000...:
             return String(format: "%.1fK", Double(n) / 1_000)
         case 1_000...:
@@ -220,7 +229,7 @@ struct MoreTab: View {
                         FilesystemDrillView()
                     } label: {
                         moreRow(icon: "folder", title: "Filesystem",
-                                trailing: counter(model.files.count))
+                                trailing: counter(model.fileCount))
                     }
                     .buttonStyle(.plain)
                     Divider().background(Theme.hair2).padding(.leading, 50)
@@ -263,9 +272,8 @@ struct MoreTab: View {
     }
 
     private var lateralHops: String {
-        let events = model.events
-        let graph = LateralGraph.build(from: events)
-        return graph.edges.isEmpty ? "—" : "\(graph.edges.count) hop\(graph.edges.count == 1 ? "" : "s")"
+        let count = model.lateralGraph.edges.count   // cached; no per-render rebuild
+        return count == 0 ? "—" : "\(count) hop\(count == 1 ? "" : "s")"
     }
 
     private func counter(_ n: Int) -> String {

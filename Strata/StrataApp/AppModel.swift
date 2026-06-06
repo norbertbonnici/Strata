@@ -372,6 +372,7 @@ final class AppModel: ObservableObject {
         var iocMatches: [IOCMatch] = []
     }
     private var derivedCache: Derived?
+    private var lateralGraphCache: LateralGraph?
 
     /// Monotonic token bumped whenever the derived data changes. Use it as a
     /// `.task(id:)` / `.onChange(of:)` key instead of reading a heavy
@@ -380,7 +381,19 @@ final class AppModel: ObservableObject {
 
     private func invalidateDerived() {
         derivedCache = nil
+        lateralGraphCache = nil
         dataVersion &+= 1
+    }
+
+    /// Lateral-movement graph for the active scope, cached. Building it sorts
+    /// the event set and compiles a regex per 4624/4625, so the views (macOS
+    /// canvas, iOS drill, the More-tab hop count) share this one build instead
+    /// of each reconstructing it every render.
+    var lateralGraph: LateralGraph {
+        if let cached = lateralGraphCache { return cached }
+        let graph = LateralGraph.build(from: events)
+        lateralGraphCache = graph
+        return graph
     }
 
     private func derived() -> Derived {

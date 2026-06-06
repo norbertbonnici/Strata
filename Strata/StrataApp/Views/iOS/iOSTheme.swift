@@ -103,11 +103,13 @@ struct SectionHeader: View {
     }
 }
 
-/// Rounded dark card that wraps a section of stacked rows.
+/// Rounded dark card that wraps a section of stacked rows. Uses LazyVStack so
+/// large row sets (e.g. a directory listing) only instantiate visible rows -
+/// every Card here lives inside a ScrollView, where lazy stacking applies.
 struct Card<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
-        VStack(spacing: 0) { content }
+        LazyVStack(spacing: 0) { content }
             .background(Theme.card)
             .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.hair, lineWidth: 1))
             .clipShape(RoundedRectangle(cornerRadius: 16))

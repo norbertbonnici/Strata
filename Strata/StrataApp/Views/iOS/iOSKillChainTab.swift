@@ -8,27 +8,24 @@ import SwiftUI
 struct KillChainTab: View {
     @EnvironmentObject private var model: AppModel
 
-    private var findingsByPhase: [KillChainPhase: [Finding]] {
-        Dictionary(grouping: model.findings, by: \.phase)
-    }
-
-    private var maxSeverity: Severity? {
-        model.findings.map(\.severity).max()
-    }
-
     var body: some View {
-        ScrollView {
+        // Snapshot findings once; it was read 4x per render (grouping, max
+        // severity, and two summary-line passes).
+        let findings = model.findings
+        let byPhase = Dictionary(grouping: findings, by: \.phase)
+        let maxSev = findings.map(\.severity).max()
+        return ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 LargeTitle(
                     title: "Kill Chain",
                     subtitle: "Lockheed Martin · ATT&CK mapped")
 
-                summaryLine
+                summaryLine(findings, maxSeverity: maxSev)
 
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(KillChainPhase.allCases.enumerated()), id: \.element) { (idx, phase) in
                         phaseRow(phase: phase,
-                                 findings: findingsByPhase[phase] ?? [],
+                                 findings: byPhase[phase] ?? [],
                                  isLast: idx == KillChainPhase.allCases.count - 1)
                     }
                 }
@@ -41,9 +38,9 @@ struct KillChainTab: View {
         .toolbar(.hidden, for: .navigationBar)
     }
 
-    @ViewBuilder private var summaryLine: some View {
-        let techniques = Set(model.findings.compactMap { $0.technique?.attackID }).count
-        let phases = Set(model.findings.map(\.phase)).count
+    @ViewBuilder private func summaryLine(_ findings: [Finding], maxSeverity: Severity?) -> some View {
+        let techniques = Set(findings.compactMap { $0.technique?.attackID }).count
+        let phases = Set(findings.map(\.phase)).count
         HStack(spacing: 4) {
             Text("\(techniques) technique\(techniques == 1 ? "" : "s")")
                 .foregroundStyle(Theme.text).bold()

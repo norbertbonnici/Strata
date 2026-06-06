@@ -9,7 +9,7 @@ struct LateralMovementView: View {
     @EnvironmentObject private var model: AppModel
     @State private var selected: String?
 
-    private var graph: LateralGraph { LateralGraph.build(from: model.events) }
+    private var graph: LateralGraph { model.lateralGraph }   // cached on AppModel
 
     var body: some View {
         // Build the graph once per render. It was read 4-6x per body, and each
