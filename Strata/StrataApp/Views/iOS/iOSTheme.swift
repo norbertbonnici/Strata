@@ -18,7 +18,9 @@ enum Theme {
 
     static let text      = Color(red: 0xEA/255, green: 0xF1/255, blue: 0xF5/255)
     static let text2     = Color(red: 0x94/255, green: 0xA6/255, blue: 0xB1/255)
-    static let text3     = Color(red: 0x5F/255, green: 0x72/255, blue: 0x7D/255)
+    // Lightened from 0x5F727D (3.7:1, below WCAG AA) to clear 4.5:1 on both bg
+    // and card while staying dimmer than text2 so the hierarchy holds.
+    static let text3     = Color(red: 0x77/255, green: 0x8E/255, blue: 0x9C/255)
 
     static let teal      = Color(red: 0x3F/255, green: 0xB5/255, blue: 0xAD/255)
     static let teal2     = Color(red: 0x56/255, green: 0xC7/255, blue: 0xBE/255)
@@ -180,12 +182,18 @@ struct ChipRow<Value: Hashable>: View {
     }
 }
 
-/// Small colored circle used in event rows / IOC rows / finding cards.
+/// Small colored circle used in event rows / IOC rows / finding cards. Pass a
+/// `label` where the color is the only severity cue; left decorative (and
+/// hidden from VoiceOver) otherwise, since the adjacent row text carries the
+/// meaning and a color-only dot would just add screen-reader noise.
 struct SeverityDot: View {
     let color: Color
     var size: CGFloat = 9
+    var label: String? = nil
     var body: some View {
         Circle().fill(color).frame(width: size, height: size)
+            .accessibilityLabel(label ?? "")
+            .accessibilityHidden(label == nil)
     }
 }
 

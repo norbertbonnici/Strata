@@ -153,11 +153,17 @@ private struct LateralGraphCanvas: View {
 
     private var controls: some View {
         HStack(spacing: 6) {
+            // Disabled past the node cap: the O(n²) force step would stutter
+            // for multiple seconds on a busy DC's graph (hundreds of nodes).
+            let tooManyForForce = graph.nodes.count > GraphEngine.maxForceNodes
             Toggle(isOn: $forceEnabled) {
                 Label("Force", systemImage: "scribble.variable")
             }
             .toggleStyle(.button)
-            .help("Auto-arrange with a force-directed layout. Drag a node and its neighbours react and re-settle.")
+            .disabled(tooManyForForce)
+            .help(tooManyForForce
+                  ? "Force layout is disabled above \(GraphEngine.maxForceNodes) nodes (too costly to animate)."
+                  : "Auto-arrange with a force-directed layout. Drag a node and its neighbours react and re-settle.")
 
             Divider().frame(height: 14)
 
@@ -464,10 +470,16 @@ private final class GraphEngine {
         alpha = 1
     }
 
+    /// Above this node count the O(n²) repulsion is too costly to run per
+    /// animation frame, so the simulation no-ops and the layout stays at the
+    /// seeded ring (the canvas disables the Force toggle to match).
+    static let maxForceNodes = 200
+    var nodeCount: Int { order.count }
+
     /// One physics tick (d3-force style: per-frame, dt-independent). Pinned
     /// node is held fixed so the cursor leads and neighbours follow.
     func step() {
-        guard order.count > 1 else { return }
+        guard order.count > 1, order.count <= Self.maxForceNodes else { return }
         guard alpha > alphaMin || pinned != nil else { return }
 
         // Repulsion: every pair pushes apart (~1/dist²). O(n²), but lateral

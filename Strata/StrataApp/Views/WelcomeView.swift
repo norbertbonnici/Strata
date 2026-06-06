@@ -96,7 +96,14 @@ struct WelcomeView: View {
     @ViewBuilder
     private func recentRow(_ url: URL) -> some View {
         Button {
-            Task { await model.openCase(at: url) }
+            // The URL came from a security-scoped bookmark (RecentCases); acquire
+            // the scope for the duration of the open, mirroring the .fileImporter
+            // path, so a sandboxed (iOS / future macOS) build can actually read it.
+            let didStart = url.startAccessingSecurityScopedResource()
+            Task {
+                await model.openCase(at: url)
+                if didStart { url.stopAccessingSecurityScopedResource() }
+            }
         } label: {
             HStack {
                 Image(systemName: "tray.full").foregroundStyle(Theme.teal2)

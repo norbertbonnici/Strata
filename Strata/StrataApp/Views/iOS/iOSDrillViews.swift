@@ -407,8 +407,11 @@ struct IOCsDrillView: View {
                 Image(systemName: "doc.on.doc")
                     .font(.system(size: 14))
                     .foregroundStyle(Theme.text3.opacity(0.7))
+                    .frame(width: 44, height: 44)        // 44pt minimum hit target
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Copy \(ioc.value)")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)

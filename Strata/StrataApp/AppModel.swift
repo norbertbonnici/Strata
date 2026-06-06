@@ -344,8 +344,15 @@ final class AppModel: ObservableObject {
     /// state if the open fails partway through. The actual file dialog is
     /// presented by WelcomeView via SwiftUI's `.fileImporter`.
     func requestOpenCase() {
-        if currentCase != nil { closeCase() }
-        showOpenCasePicker = true
+        if currentCase != nil {
+            closeCase()
+            // Let WelcomeView (which hosts the .fileImporter) mount before we
+            // flip the flag - otherwise the binding is already true at insertion
+            // and SwiftUI can silently drop the presentation.
+            Task { @MainActor in showOpenCasePicker = true }
+        } else {
+            showOpenCasePicker = true
+        }
     }
 
     // MARK: - Computed views consumed by every screen
