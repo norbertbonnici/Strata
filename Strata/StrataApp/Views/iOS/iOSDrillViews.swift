@@ -14,15 +14,10 @@ struct FilesystemDrillView: View {
     @State private var displayLimit = 200
     private let pageSize = 200
 
-    /// Normalize a directory path for comparison: drop any trailing slash and
-    /// treat root ("/" or "") as "". TSK-backed FileEntry.parentPath carries a
-    /// trailing slash ("/Windows/") while KAPE's does not ("/Windows"), and our
-    /// reconstructed `path` never does - so normalize BOTH sides. Without this
-    /// every subfolder of an image-backed case appeared empty.
-    private func normalized(_ p: String) -> String {
-        if p == "/" || p.isEmpty { return "" }
-        return p.hasSuffix("/") ? String(p.dropLast()) : p
-    }
+    /// Delegate to the shared, unit-tested normalizer. TSK parentPaths carry a
+    /// trailing slash and KAPE's don't, so both sides must be normalized or
+    /// image-backed cases show every subfolder as empty.
+    private func normalized(_ p: String) -> String { FileEntry.normalizeDirPath(p) }
 
     private var children: [FileEntry] {
         let here = normalized(path)

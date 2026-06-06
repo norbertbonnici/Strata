@@ -44,4 +44,14 @@ public nonisolated struct FileEntry: Identifiable, Hashable, Sendable {
     public var fileExtension: String {
         (name as NSString).pathExtension.lowercased()
     }
+
+    /// Normalize a directory path for "is child of" comparison: strip a trailing
+    /// slash and represent root as "". TSK records parentPath WITH a trailing
+    /// slash ("/Windows/"); the KAPE walk records it WITHOUT ("/Windows"). The
+    /// iOS filesystem browser compares a reconstructed path against parentPath,
+    /// so both sides must be normalized or image-backed cases show empty folders.
+    public static func normalizeDirPath(_ path: String) -> String {
+        if path == "/" || path.isEmpty { return "" }
+        return path.hasSuffix("/") ? String(path.dropLast()) : path
+    }
 }
