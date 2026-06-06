@@ -44,6 +44,15 @@ final class AppModel: ObservableObject {
     /// stays false.
     @Published var showAddHostPicker = false
 
+    /// The Case Library: a remembered folder (iCloud Drive, an SMB/WebDAV share,
+    /// or local) holding `.strata` cases. nil until the user picks one.
+    @Published var libraryURL: URL? = CaseLibrary.savedURL()
+    /// Cases discovered in the library folder (incl. not-yet-downloaded iCloud
+    /// placeholders).
+    @Published private(set) var libraryCases: [LibraryCase] = []
+    /// Drives the WelcomeView folder picker for choosing the library.
+    @Published var showLibraryPicker = false
+
     enum ActiveSheet: Identifiable {
         case newCase
         case enrichment
@@ -87,7 +96,54 @@ final class AppModel: ObservableObject {
         public var percent: Int { Int(fraction * 100) }
     }
 
-    init() {}
+    init() { refreshLibrary() }
+
+    // MARK: - Case Library
+
+    /// Remember a new library folder and list its cases.
+    func setCaseLibrary(_ url: URL) {
+        let didStart = url.startAccessingSecurityScopedResource()
+        defer { if didStart { url.stopAccessingSecurityScopedResource() } }
+        CaseLibrary.setURL(url)
+        libraryURL = url
+        refreshLibrary()
+    }
+
+    /// Re-scan the library folder for `.strata` cases.
+    func refreshLibrary() {
+        guard let url = libraryURL else { libraryCases = []; return }
+        let didStart = url.startAccessingSecurityScopedResource()
+        defer { if didStart { url.stopAccessingSecurityScopedResource() } }
+        libraryCases = CaseLibrary.cases(in: url)
+    }
+
+    /// Open a case from the library, downloading it from iCloud first if it's a
+    /// placeholder. The library's security scope is held across the read.
+    func openLibraryCase(_ item: LibraryCase) {
+        Task {
+            guard let lib = libraryURL else { return }
+            let didStart = lib.startAccessingSecurityScopedResource()
+            defer { if didStart { lib.stopAccessingSecurityScopedResource() } }
+
+            if !item.isDownloaded {
+                isWorking = true
+                statusMessage = "Downloading \(item.name) from iCloud..."
+                try? FileManager.default.startDownloadingUbiquitousItem(at: item.url)
+                let marker = CaseStore.caseFile(in: item.url)   // bundle/case.json
+                for _ in 0..<120 {                              // wait up to ~30s
+                    if FileManager.default.fileExists(atPath: marker.path) { break }
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                }
+                isWorking = false
+                guard FileManager.default.fileExists(atPath: marker.path) else {
+                    errorMessage = "\(item.name) hasn't finished downloading from iCloud yet - try again in a moment."
+                    return
+                }
+            }
+            await openCase(at: item.url)
+            refreshLibrary()
+        }
+    }
 
     // MARK: - Case management
 
@@ -231,6 +287,7 @@ final class AppModel: ObservableObject {
         progress = nil
         statusMessage = ""
         errorMessage = nil
+        refreshLibrary()   // pick up any case added/synced while one was open
     }
 
     private func saveHosts() {

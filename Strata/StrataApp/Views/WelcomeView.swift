@@ -46,6 +46,8 @@ struct WelcomeView: View {
                 #endif
             }
 
+            caseLibrarySection
+
             if !model.recentCases.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Recent")
@@ -68,6 +70,7 @@ struct WelcomeView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.bg)
+        .onAppear { model.refreshLibrary() }
         // A `.strata` bundle is a directory on disk - the picker accepts a
         // folder selection on both platforms. We hold a security-scoped
         // resource for the duration of the open, then release.
@@ -127,6 +130,70 @@ struct WelcomeView: View {
         .overlay(alignment: .bottom) { Divider().background(Theme.hair2) }
     }
 
+    // MARK: - Case Library
+
+    @ViewBuilder
+    private var caseLibrarySection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Case Library").font(.headline).foregroundStyle(Theme.text2)
+                Spacer()
+                if model.libraryURL != nil {
+                    Button("Change…") { model.showLibraryPicker = true }
+                        .font(.caption).buttonStyle(.plain).foregroundStyle(Theme.teal2)
+                }
+            }
+            if let lib = model.libraryURL {
+                Text(lib.path).font(.caption2).foregroundStyle(Theme.text3)
+                    .lineLimit(1).truncationMode(.middle)
+                if model.libraryCases.isEmpty {
+                    Text("No cases here yet. Create or save a case in this folder and it'll sync to your other devices.")
+                        .font(.caption).foregroundStyle(Theme.text3)
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(model.libraryCases) { libraryRow($0) }
+                    }
+                    .background(Theme.card)
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.hair, lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+            } else {
+                Button { model.showLibraryPicker = true } label: {
+                    Label("Set Case Library Folder…", systemImage: "folder.badge.gearshape")
+                }
+                Text("Pick a folder in iCloud Drive (or a shared / network location) to keep cases in sync across your Mac and iOS devices.")
+                    .font(.caption2).foregroundStyle(Theme.text3)
+            }
+        }
+        .padding(.horizontal, 40)
+        .frame(maxWidth: 560)
+        .fileImporter(isPresented: $model.showLibraryPicker,
+                      allowedContentTypes: [.folder],
+                      allowsMultipleSelection: false) { result in
+            guard case .success(let urls) = result, let url = urls.first else { return }
+            model.setCaseLibrary(url)
+        }
+    }
+
+    @ViewBuilder
+    private func libraryRow(_ item: LibraryCase) -> some View {
+        Button { model.openLibraryCase(item) } label: {
+            HStack {
+                Image(systemName: item.isDownloaded ? "tray.full" : "icloud.and.arrow.down")
+                    .foregroundStyle(Theme.teal2)
+                Text(item.name).font(.body).foregroundStyle(Theme.text)
+                Spacer()
+                if !item.isDownloaded {
+                    Text("iCloud").font(.caption2).foregroundStyle(Theme.text3)
+                }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .bottom) { Divider().background(Theme.hair2) }
+    }
+
 }
 
 #if os(macOS)
@@ -151,6 +218,11 @@ struct NewCaseSheet: View {
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }
+                if let lib = model.libraryURL {
+                    Button("Create in Library") { createInLibrary(lib) }
+                        .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .help("Create the case inside your Case Library so it syncs to your other devices.")
+                }
                 Button("Choose Folder...") { showFolderPicker = true }
                     .keyboardShortcut(.defaultAction)
                     .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -178,6 +250,19 @@ struct NewCaseSheet: View {
                 if didStart { parent.stopAccessingSecurityScopedResource() }
                 dismiss()
             }
+        }
+    }
+
+    private func createInLibrary(_ lib: URL) {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        let bundle = lib.appendingPathComponent("\(trimmed).\(CaseStore.bundleExtension)",
+                                                isDirectory: true)
+        let examinerCopy = examiner.trimmingCharacters(in: .whitespaces)
+        let didStart = lib.startAccessingSecurityScopedResource()
+        Task {
+            await model.createCase(name: trimmed, examiner: examinerCopy, at: bundle)
+            if didStart { lib.stopAccessingSecurityScopedResource() }
+            dismiss()
         }
     }
 }
