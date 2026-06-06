@@ -1,5 +1,7 @@
 import Foundation
 
+#if os(macOS)
+
 /// Parses a Windows .evtx file into `EventLogRecord`s by shelling out to
 /// libevtx's `evtxexport -f xml`. evtxexport emits one XML document per event;
 /// we split on the record boundary and pull fields out with simple regexes
@@ -118,3 +120,6 @@ private nonisolated final class StderrCollector: @unchecked Sendable {
         return buffer.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
+
+#endif
+

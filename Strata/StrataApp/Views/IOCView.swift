@@ -44,6 +44,7 @@ struct IOCView: View {
             .padding(8)
             Divider()
 
+            #if os(macOS)
             HSplitView {
                 iocList
                     .frame(minWidth: 280, maxHeight: .infinity)
@@ -51,6 +52,16 @@ struct IOCView: View {
                     .frame(minWidth: 480, maxHeight: .infinity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            #else
+            HStack(spacing: 0) {
+                iocList
+                    .frame(minWidth: 280, maxHeight: .infinity)
+                Divider()
+                matchList
+                    .frame(minWidth: 480, maxHeight: .infinity)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            #endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .navigationTitle("IOCs - \(model.iocs.count) loaded, \(model.iocMatches.count) matches")
@@ -88,7 +99,11 @@ struct IOCView: View {
                     }
                 }
             }
+            #if os(macOS)
             .listStyle(.inset(alternatesRowBackgrounds: true))
+            #else
+            .listStyle(.inset)
+            #endif
         }
     }
 

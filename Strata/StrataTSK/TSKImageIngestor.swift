@@ -1,5 +1,7 @@
 import Foundation
 
+#if os(macOS)
+
 /// Runs `tsk_loaddb` to ingest a disk image into a SQLite database that
 /// StrataTSK then queries. This is where TSK does all the forensic file handling.
 public actor TSKImageIngestor {
@@ -80,3 +82,6 @@ private nonisolated final class StderrCollector: @unchecked Sendable {
         return buffer.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
+
+#endif
+

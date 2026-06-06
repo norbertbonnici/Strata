@@ -34,6 +34,14 @@ final class AppModel: ObservableObject {
     /// iocs.json inside the bundle. Empty by default - IOC matching never
     /// runs unless the user has loaded at least one.
     @Published var iocs: [IOC] = []
+    /// The welcome screen observes this and presents `.fileImporter` when it
+    /// flips to true. Used on both platforms now that the file dialog is
+    /// SwiftUI-driven rather than AppKit-driven.
+    @Published var showOpenCasePicker = false
+    /// Toggled by the "Add Host..." toolbar item so ContentView can drive a
+    /// `.fileImporter`. On iOS the toolbar item is hidden and this flag
+    /// stays false.
+    @Published var showAddHostPicker = false
 
     enum ActiveSheet: Identifiable {
         case newCase
@@ -115,6 +123,11 @@ final class AppModel: ObservableObject {
             currentCaseBundleURL = bundleURL
             evidenceList = hosts
             states = [:]
+            // iOS memory is tight enough that we cannot replay the macOS load
+            // path verbatim: dropping the trailing-slack pseudo-entries and
+            // skipping the full file-MACB timeline (200k+ files × 4 stamps =
+            // millions of TimelineEvents) is the difference between opening
+            // a real case and an OOM kill. macOS keeps the full fidelity.
             for evidence in hosts {
                 do {
                     // Rebuild the file listing from the source, mirroring how it
@@ -129,24 +142,46 @@ final class AppModel: ObservableObject {
                             statusMessage = "\(evidence.displayName): source folder missing at \(root.path)"
                             continue
                         }
-                        let files = KapeFolderIngestor().ingest(folderAt: root)
+                        var files = KapeFolderIngestor().ingest(folderAt: root)
+                        #if !os(macOS)
+                        files.removeAll(where: TimelineBuilder.isSlackEntry)
+                        #endif
                         state = EvidenceState(dbURL: nil)
                         state.files = files
+                        #if os(macOS)
                         timeline = TimelineBuilder.build(from: files)
+                        #else
+                        timeline = []
+                        #endif
                     } else {
                         let dbURL = CaseStore.tskDatabaseURL(forHostID: evidence.id, in: bundleURL)
                         guard FileManager.default.fileExists(atPath: dbURL.path) else { continue }
                         let database = try TSKDatabase(path: dbURL)
-                        let files = try database.fetchFiles()
+                        var files = try database.fetchFiles()
+                        #if !os(macOS)
+                        files.removeAll(where: TimelineBuilder.isSlackEntry)
+                        #endif
                         state = EvidenceState(dbURL: dbURL)
                         state.files = files
+                        #if os(macOS)
                         timeline = TimelineBuilder.build(from: files)
+                        #else
+                        timeline = []
+                        #endif
                     }
                     // Rehydrate cached parse output. Missing files mean the
                     // user hasn't run Parse on this host yet (or pre-dates
                     // the caching format) - either way, fall back to empty.
+                    // Lean mode drops the per-event XML payload (the bulk of
+                    // each EventLogRecord's footprint) so the events array
+                    // fits even for million-event cases.
+                    #if os(macOS)
                     state.events = (try? CaseStore.readEvents(forHostID: evidence.id,
                                                               in: bundleURL)) ?? []
+                    #else
+                    state.events = (try? CaseStore.readEventsLite(forHostID: evidence.id,
+                                                                  in: bundleURL)) ?? []
+                    #endif
                     // Fold evtx records back into the timeline so the
                     // sessions panel and Source filter work without
                     // re-parsing on every case open.
@@ -301,16 +336,11 @@ final class AppModel: ObservableObject {
 
     /// Triggered by File > Open Case... (Cmd-O). Closes any open case before
     /// presenting the picker so the user doesn't end up with mismatched
-    /// state if the open fails partway through.
+    /// state if the open fails partway through. The actual file dialog is
+    /// presented by WelcomeView via SwiftUI's `.fileImporter`.
     func requestOpenCase() {
         if currentCase != nil { closeCase() }
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.treatsFilePackagesAsDirectories = false
-        panel.message = "Choose a .strata case bundle."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        Task { await openCase(at: url) }
+        showOpenCasePicker = true
     }
 
     // MARK: - Computed views consumed by every screen
@@ -347,6 +377,8 @@ final class AppModel: ObservableObject {
     }
 
     // MARK: - Ingest
+
+    #if os(macOS)
 
     /// Add a new host to the current case. For an image, `tsk_loaddb` output
     /// lands inside the case bundle so the case stays self-contained; for a
@@ -418,6 +450,8 @@ final class AppModel: ObservableObject {
         }
     }
 
+    #endif
+
     /// Drop a host from the current case. We delete the entire host directory
     /// inside the bundle (TSK DB, extracted .evtx / hive scratch) since the
     /// data is reproducible from the original source image.
@@ -432,6 +466,8 @@ final class AppModel: ObservableObject {
     }
 
     // MARK: - Event-log parsing
+
+    #if os(macOS)
 
     /// One-stop button: parse event logs and registry hives, then run the
     /// detection engine over the combined evidence.
@@ -741,6 +777,8 @@ final class AppModel: ObservableObject {
               usersIdx + 1 < parts.count else { return nil }
         return parts[usersIdx + 1]
     }
+
+    #endif
 
     // MARK: - Analysis
 

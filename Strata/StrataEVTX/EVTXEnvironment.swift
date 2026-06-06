@@ -1,5 +1,7 @@
 import Foundation
 
+#if os(macOS)
+
 /// Locates the libevtx CLI (`evtxexport`) - bundled inside the app first,
 /// then Homebrew, then PATH. Mirrors TSKEnvironment.
 public nonisolated struct EVTXEnvironment: Sendable {
@@ -49,3 +51,6 @@ public enum EVTXError: Error, LocalizedError {
         }
     }
 }
+
+#endif
+

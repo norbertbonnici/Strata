@@ -1,5 +1,10 @@
 import SwiftUI
 
+/// Background behind the lateral-movement canvas. Uses Theme.bg2 - a touch
+/// deeper than Theme.bg - so the graph sits in its own visual well rather
+/// than blending into the surrounding pane.
+private var canvasBackground: Color { Theme.bg2 }
+
 struct LateralMovementView: View {
     @EnvironmentObject private var model: AppModel
     @State private var selected: String?
@@ -19,6 +24,7 @@ struct LateralMovementView: View {
                     description: Text("No 4624 / 4625 events with remote logon types (3, 7, 8, 10) were observed."))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
+                #if os(macOS)
                 HSplitView {
                     LateralGraphCanvas(graph: graph, selection: $selected)
                         .frame(minWidth: 480, maxHeight: .infinity)
@@ -26,6 +32,16 @@ struct LateralMovementView: View {
                         .frame(minWidth: 280, maxHeight: .infinity)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                #else
+                HStack(spacing: 0) {
+                    LateralGraphCanvas(graph: graph, selection: $selected)
+                        .frame(minWidth: 480, maxHeight: .infinity)
+                    Divider()
+                    NodeDetailPanel(graph: graph, selection: selected)
+                        .frame(minWidth: 280, maxHeight: .infinity)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                #endif
             }
         }
         .navigationTitle(graph.edges.isEmpty
@@ -126,7 +142,7 @@ private struct LateralGraphCanvas: View {
         .contentShape(Rectangle())
         .gesture(dragGesture)
         .simultaneousGesture(magnifyGesture)
-        .background(Color(NSColor.controlBackgroundColor))
+        .background(canvasBackground)
         .overlay(alignment: .topTrailing) { controls.padding(10) }
     }
 

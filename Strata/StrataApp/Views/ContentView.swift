@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum SidebarItem: String, CaseIterable, Identifiable {
     case overview = "Overview"
@@ -25,23 +26,39 @@ enum SidebarItem: String, CaseIterable, Identifiable {
 
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
-    @State private var item: SidebarItem = .overview
+    // List(_:selection:) on iOS requires an optional binding for the
+    // sidebar-style selection; we keep a non-nil default so the detail pane
+    // always has something to render.
+    @State private var item: SidebarItem? = .overview
 
     var body: some View {
         Group {
             if model.currentCase == nil {
                 WelcomeView()
             } else {
+                #if os(macOS)
                 caseBody
+                #else
+                // iOS uses a TabView-based layout that better fits a phone
+                // and the iOS HIG. macOS keeps the sidebar/split view.
+                iOSCaseView()
+                #endif
             }
         }
+        #if os(macOS)
         .overlay(alignment: .bottom) { statusBar }
+        #endif
         // Single sheet binding (see AppModel.ActiveSheet) so two top-level
         // modals never compete - stacking .sheet(isPresented:) modifiers on
         // the same view can SIGABRT in SwiftUI.
         .sheet(item: $model.activeSheet) { sheet in
             switch sheet {
-            case .newCase:    NewCaseSheet().environmentObject(model)
+            case .newCase:
+                #if os(macOS)
+                NewCaseSheet().environmentObject(model)
+                #else
+                EmptyView()
+                #endif
             case .enrichment: EnrichmentSheet().environmentObject(model)
             }
         }
@@ -52,11 +69,16 @@ struct ContentView: View {
             List(SidebarItem.allCases, selection: $item) { entry in
                 Label(entry.rawValue, systemImage: entry.symbol).tag(entry)
             }
+            // Hide the List's own scroll background so the Theme.bg2 paints
+            // straight through; otherwise the sidebar reads as system-dark
+            // gray and clashes with the deep blue-teal in the detail pane.
+            .scrollContentBackground(.hidden)
+            .background(Theme.bg2)
             .navigationTitle(model.currentCase?.name ?? "Strata")
             .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 320)
         } detail: {
             Group {
-                switch item {
+                switch item ?? .overview {
                 case .overview:  OverviewView()
                 case .evidence:  EvidenceTreeView()
                 case .timeline:  TimelineView()
@@ -66,17 +88,20 @@ struct ContentView: View {
                 case .iocs:      IOCView()
                 }
             }
+            .background(Theme.bg)
             .toolbar {
                 ToolbarItem(placement: .navigation) {
                     EvidenceScopePicker()
                 }
+                #if os(macOS)
                 ToolbarItem(placement: .primaryAction) {
-                    Button { openSource() } label: {
+                    Button { model.showAddHostPicker = true } label: {
                         Label("Add Host...", systemImage: "plus")
                     }
                     .disabled(model.isWorking)
                     .help("Ingest a new disk image or KAPE capture into this case.")
                 }
+                #endif
                 ToolbarItem(placement: .primaryAction) {
                     Button { model.closeCase() } label: {
                         Label("Close Case", systemImage: "xmark.circle")
@@ -85,6 +110,27 @@ struct ContentView: View {
                     .help("Close this case and return to the welcome screen.")
                 }
             }
+            #if os(macOS)
+            // Multi-select to match the old NSOpenPanel behavior. We hand
+            // ingest each URL sequentially because tsk_loaddb is single-
+            // threaded and chewing on a disk image - parallel runs would
+            // just thrash I/O. `.item` permits any file (E01/VHD/VHDX/raw);
+            // `.folder` lets the analyst point at a loose KAPE capture.
+            .fileImporter(
+                isPresented: $model.showAddHostPicker,
+                allowedContentTypes: [.item, .folder],
+                allowsMultipleSelection: true
+            ) { result in
+                guard case .success(let urls) = result, !urls.isEmpty else { return }
+                Task {
+                    for url in urls {
+                        let didStart = url.startAccessingSecurityScopedResource()
+                        await model.ingest(sourceURL: url)
+                        if didStart { url.stopAccessingSecurityScopedResource() }
+                    }
+                }
+            }
+            #endif
         }
     }
 
@@ -126,20 +172,6 @@ struct ContentView: View {
         }
     }
 
-    private func openSource() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = true   // loose KAPE folders are walked directly
-        panel.canChooseFiles = true
-        panel.message = "Select E01 images, KAPE .vhd files, raw images, or loose KAPE/triage folders."
-        guard panel.runModal() == .OK else { return }
-        // Ingest sequentially: tsk_loaddb is single-threaded and chewing on a
-        // disk image, so doing them in parallel would just thrash I/O.
-        let urls = panel.urls
-        Task {
-            for url in urls { await model.ingest(sourceURL: url) }
-        }
-    }
 }
 
 /// Toolbar control that lets the user scope every screen to a single

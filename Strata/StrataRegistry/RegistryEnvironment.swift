@@ -1,5 +1,7 @@
 import Foundation
 
+#if os(macOS)
+
 /// Locates libregf's `regfexport` binary. Bundle-first (so a shipped app uses
 /// the binary we statically linked), then Homebrew, then PATH. Mirrors
 /// TSKEnvironment and EVTXEnvironment.
@@ -50,3 +52,6 @@ public enum RegistryError: Error, LocalizedError {
         }
     }
 }
+
+#endif
+

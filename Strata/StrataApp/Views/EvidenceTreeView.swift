@@ -37,32 +37,7 @@ struct EvidenceTreeView: View {
                     }
                     .padding(.horizontal, 12).padding(.vertical, 6)
                     Divider()
-                    HSplitView {
-                        List {
-                            OutlineGroup(tree, children: \.children) { node in
-                            HStack {
-                                Image(systemName: (node.entry?.isDirectory ?? true) ? "folder" : "doc")
-                                    .foregroundStyle(.secondary)
-                                Text(node.name)
-                                if node.entry?.isDeleted == true {
-                                    Text("deleted").font(.caption2)
-                                        .padding(.horizontal, 5).padding(.vertical, 1)
-                                        .background(.red.opacity(0.2), in: Capsule())
-                                        .foregroundStyle(.red)
-                                }
-                                Spacer()
-                                if let entry = node.entry, entry.isDirectory == false {
-                                    Text(byteString(entry.size)).font(.caption).foregroundStyle(.secondary)
-                                }
-                            }
-                            .contentShape(Rectangle())
-                            .onTapGesture { if let e = node.entry { selection = e } }
-                        }
-                    }
-                    .frame(minWidth: 360, maxHeight: .infinity)
-
-                        FileDetailView(entry: selection).frame(minWidth: 280, maxHeight: .infinity)
-                    }
+                    evidenceSplit
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -73,6 +48,47 @@ struct EvidenceTreeView: View {
 
     private func byteString(_ bytes: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
+    private var evidenceTree: some View {
+        List {
+            OutlineGroup(tree, children: \.children) { node in
+                HStack {
+                    Image(systemName: (node.entry?.isDirectory ?? true) ? "folder" : "doc")
+                        .foregroundStyle(.secondary)
+                    Text(node.name)
+                    if node.entry?.isDeleted == true {
+                        Text("deleted").font(.caption2)
+                            .padding(.horizontal, 5).padding(.vertical, 1)
+                            .background(.red.opacity(0.2), in: Capsule())
+                            .foregroundStyle(.red)
+                    }
+                    Spacer()
+                    if let entry = node.entry, entry.isDirectory == false {
+                        Text(byteString(entry.size)).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { if let e = node.entry { selection = e } }
+            }
+        }
+        .frame(minWidth: 360, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var evidenceSplit: some View {
+        #if os(macOS)
+        HSplitView {
+            evidenceTree
+            FileDetailView(entry: selection).frame(minWidth: 280, maxHeight: .infinity)
+        }
+        #else
+        HStack(spacing: 0) {
+            evidenceTree
+            Divider()
+            FileDetailView(entry: selection).frame(minWidth: 280, maxHeight: .infinity)
+        }
+        #endif
     }
 }
 

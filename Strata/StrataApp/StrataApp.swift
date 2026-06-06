@@ -8,15 +8,26 @@ struct StrataApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(model)
+                #if os(macOS)
                 .frame(minWidth: 1000, minHeight: 640)
+                #endif
+                // Force the dark palette on both platforms so system controls
+                // (text fields, toolbar buttons, sheets) read correctly against
+                // the Theme.bg backgrounds we paint behind them.
+                .preferredColorScheme(.dark)
+                .tint(Theme.teal2)
         }
+        #if os(macOS)
         .windowStyle(.titleBar)
         .commands {
             CaseCommands(model: model)
             ToolsCommands(model: model)
         }
+        #endif
     }
 }
+
+#if os(macOS)
 
 /// File-menu wiring for case lifecycle. Replaces the default "New Window"
 /// item so Cmd-N triggers New Case instead of opening a duplicate window.
@@ -74,3 +85,4 @@ private struct ToolsCommands: Commands {
     }
 }
 
+#endif

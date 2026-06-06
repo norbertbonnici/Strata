@@ -1,5 +1,7 @@
 import Foundation
 
+#if os(macOS)
+
 /// Extracts a single file's bytes out of a forensic image by shelling out to
 /// `icat` and redirecting its stdout to a scratch file. Needed because TSK's
 /// SQLite database only holds metadata - the actual file content lives in
@@ -74,3 +76,6 @@ private nonisolated final class ExtractorStderrCollector: @unchecked Sendable {
         return buffer.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
+
+#endif
+

@@ -46,6 +46,7 @@ struct EventsView: View {
                          ? "Ingest evidence first, then come back here."
                          : "Click Parse to extract and parse every .evtx in the image.")
                 } actions: {
+                    #if os(macOS)
                     if !model.files.isEmpty {
                         Button {
                             Task { await model.parseArtifacts() }
@@ -55,6 +56,7 @@ struct EventsView: View {
                         .disabled(model.isWorking)
                         .help("Parse event logs and registry hives, then run all analyzers.")
                     }
+                    #endif
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -69,6 +71,7 @@ struct EventsView: View {
                         TextField("Filter channel / provider / EID / host...", text: $query)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 320)
+                        #if os(macOS)
                         Button {
                             Task { await model.parseArtifacts() }
                         } label: {
@@ -76,35 +79,12 @@ struct EventsView: View {
                         }
                         .help("Re-parse event logs and registry, then re-run analyzers")
                         .disabled(model.isWorking)
+                        #endif
                     }
                     .padding(8)
                     Divider()
 
-                    HSplitView {
-                        Table(filtered, selection: $selectedEventID) {
-                            TableColumn("Time") { e in
-                                Text(e.writtenAt.formatted(date: .numeric, time: .standard))
-                                    .monospacedDigit().font(.caption)
-                            }
-                            TableColumn("EID") { e in
-                                Text("\(e.eventID)").monospacedDigit().font(.caption)
-                            }
-                            TableColumn("Level") { e in LevelBadge(level: e.level) }
-                            TableColumn("Channel") { e in
-                                Text(e.channel).font(.caption).lineLimit(1).truncationMode(.middle)
-                            }
-                            TableColumn("Provider") { e in
-                                Text(e.provider).font(.caption).lineLimit(1).truncationMode(.middle)
-                            }
-                            TableColumn("Computer") { e in
-                                Text(e.computer).font(.caption).lineLimit(1).truncationMode(.middle)
-                            }
-                        }
-                        .frame(minWidth: 600, maxHeight: .infinity)
-
-                        EventDetailView(event: detail)
-                            .frame(minWidth: 320, maxHeight: .infinity)
-                    }
+                    eventsSplit
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -116,6 +96,47 @@ struct EventsView: View {
     private var detail: EventLogRecord? {
         guard let id = selectedEventID else { return nil }
         return model.events.first { $0.id == id }
+    }
+
+    private var eventsTable: some View {
+        Table(filtered, selection: $selectedEventID) {
+            TableColumn("Time") { e in
+                Text(e.writtenAt.formatted(date: .numeric, time: .standard))
+                    .monospacedDigit().font(.caption)
+            }
+            TableColumn("EID") { e in
+                Text("\(e.eventID)").monospacedDigit().font(.caption)
+            }
+            TableColumn("Level") { e in LevelBadge(level: e.level) }
+            TableColumn("Channel") { e in
+                Text(e.channel).font(.caption).lineLimit(1).truncationMode(.middle)
+            }
+            TableColumn("Provider") { e in
+                Text(e.provider).font(.caption).lineLimit(1).truncationMode(.middle)
+            }
+            TableColumn("Computer") { e in
+                Text(e.computer).font(.caption).lineLimit(1).truncationMode(.middle)
+            }
+        }
+        .frame(minWidth: 600, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var eventsSplit: some View {
+        #if os(macOS)
+        HSplitView {
+            eventsTable
+            EventDetailView(event: detail)
+                .frame(minWidth: 320, maxHeight: .infinity)
+        }
+        #else
+        HStack(spacing: 0) {
+            eventsTable
+            Divider()
+            EventDetailView(event: detail)
+                .frame(minWidth: 320, maxHeight: .infinity)
+        }
+        #endif
     }
 }
 

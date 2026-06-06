@@ -121,6 +121,22 @@ public enum CaseStore {
                                    forHostID id: UUID, in bundle: URL) throws {
         try writeArray(events, at: eventsFileURL(forHostID: id, in: bundle))
     }
+    /// "Lite" event load: same JSON file, but a Decodable variant that
+    /// skips the `payloadXML` field (typically the bulk of each record's
+    /// in-memory size). Used by iOS where carrying every event's XML payload
+    /// for a 1M+ event case is enough to get the app OOM-killed.
+    ///
+    /// The on-disk format is unchanged - macOS still reads the full record.
+    public static func readEventsLite(forHostID id: UUID, in bundle: URL) throws -> [EventLogRecord]? {
+        let url = eventsFileURL(forHostID: id, in: bundle)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        // Memory-map rather than read; large events.json files are common
+        // and a straight `Data(contentsOf:)` can already exceed iOS limits
+        // before decoding even starts.
+        let data = try Data(contentsOf: url, options: .alwaysMapped)
+        let lite = try jsonDecoder.decode([EventLogRecordLite].self, from: data)
+        return lite.map { $0.materialize() }
+    }
     public static func readRegistry(forHostID id: UUID, in bundle: URL) throws -> [RegistryValue]? {
         try readArrayIfPresent(at: registryFileURL(forHostID: id, in: bundle))
     }
@@ -196,5 +212,29 @@ public enum CaseStore {
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = .iso8601
         return dec
+    }
+}
+
+/// Decoder-only mirror of EventLogRecord that omits `payloadXML`. The decoder
+/// still has to scan past the field in the JSON, but it never allocates a
+/// String for the value - the saving on a 1M-event case is in the hundreds
+/// of MB. `materialize()` rebuilds a real EventLogRecord with empty payload
+/// so downstream views and analyzers continue to compile.
+private struct EventLogRecordLite: Decodable {
+    let id: UUID
+    let recordNumber: UInt64
+    let writtenAt: Date
+    let eventID: UInt32
+    let level: UInt8
+    let channel: String
+    let provider: String
+    let computer: String
+    let sourceFile: String
+
+    func materialize() -> EventLogRecord {
+        EventLogRecord(id: id, recordNumber: recordNumber, writtenAt: writtenAt,
+                       eventID: eventID, level: level, channel: channel,
+                       provider: provider, computer: computer,
+                       payloadXML: "", sourceFile: sourceFile)
     }
 }

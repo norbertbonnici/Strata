@@ -1,5 +1,7 @@
 import Foundation
 
+#if os(macOS)
+
 /// Locates The Sleuth Kit command-line tools installed on the host.
 public nonisolated struct TSKEnvironment: Sendable {
     public let binDirectory: URL
@@ -53,3 +55,6 @@ public nonisolated struct TSKEnvironment: Sendable {
         return path.isEmpty ? nil : URL(fileURLWithPath: path)
     }
 }
+
+#endif
+

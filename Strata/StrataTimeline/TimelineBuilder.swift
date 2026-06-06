@@ -4,11 +4,23 @@ import Foundation
 /// TSK's `mactime` uses: one event per non-empty MACB timestamp.
 public enum TimelineBuilder {
 
-    public static func build(from files: [FileEntry]) -> [TimelineEvent] {
+    /// TSK emits a `<name>-slack` pseudo-entry for every allocated cluster's
+    /// trailing slack space. These carry 1980-epoch timestamps and inflate
+    /// the timeline by orders of magnitude without forensic value most of
+    /// the time, so callers can opt to drop them at build time. The macOS
+    /// UI exposes this as a toggle; the iOS load path forces it on because
+    /// the timeline simply won't fit in phone memory otherwise.
+    public static func isSlackEntry(_ file: FileEntry) -> Bool {
+        file.name.hasSuffix("-slack")
+    }
+
+    public static func build(from files: [FileEntry],
+                             excludeSlack: Bool = false) -> [TimelineEvent] {
         var events: [TimelineEvent] = []
         events.reserveCapacity(files.count * 2)
 
         for file in files {
+            if excludeSlack, isSlackEntry(file) { continue }
             func add(_ date: Date?, _ kind: MACBKind) {
                 guard let date else { return }
                 events.append(TimelineEvent(date: date, kind: kind, source: .filesystem,
@@ -26,8 +38,9 @@ public enum TimelineBuilder {
 
     /// Events within a closed date range.
     public static func build(from files: [FileEntry],
-                             in range: ClosedRange<Date>) -> [TimelineEvent] {
-        build(from: files).filter { range.contains($0.date) }
+                             in range: ClosedRange<Date>,
+                             excludeSlack: Bool = false) -> [TimelineEvent] {
+        build(from: files, excludeSlack: excludeSlack).filter { range.contains($0.date) }
     }
 
     /// Project Windows event log records onto the timeline so analysts can

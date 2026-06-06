@@ -1,5 +1,7 @@
 import Foundation
 
+#if os(macOS)
+
 /// Parses a Windows registry hive (SYSTEM / SOFTWARE / NTUSER.DAT / etc.)
 /// by shelling out to libregf's `regfexport`. The exporter emits a
 /// human-readable text dump organized as key blocks followed by their
@@ -244,3 +246,6 @@ private nonisolated final class RegStderrCollector: @unchecked Sendable {
         return buffer.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
+
+#endif
+

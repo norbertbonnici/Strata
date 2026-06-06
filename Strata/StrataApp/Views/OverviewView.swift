@@ -70,7 +70,11 @@ struct OverviewView: View {
                     profile: HostProfile.derive(
                         from: model.states[evidence.id]?.registryValues ?? []),
                     isWorking: model.isWorking,
-                    onParseRegistry: { Task { await model.parseRegistry(force: true) } })
+                    onParseRegistry: {
+                        #if os(macOS)
+                        Task { await model.parseRegistry(force: true) }
+                        #endif
+                    })
             }
         }
     }
@@ -153,11 +157,13 @@ private struct HostProfileCard: View {
                     Text("Registry not parsed yet.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    #if os(macOS)
                     Button(action: onParseRegistry) {
                         Label("Parse registry", systemImage: "play.fill")
                     }
                     .disabled(isWorking)
                     .controlSize(.small)
+                    #endif
                 }
             }
         }
