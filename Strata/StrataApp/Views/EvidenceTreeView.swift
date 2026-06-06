@@ -4,6 +4,15 @@ struct EvidenceTreeView: View {
     @EnvironmentObject private var model: AppModel
     @State private var selection: FileEntry?
     @State private var showDeleted = false
+    /// TSK emits a `<name>-slack` pseudo-entry per allocated cluster's trailing
+    /// slack (1980-epoch timestamps); hide them by default, matching Timeline.
+    @State private var hideSlack = true
+
+    /// Files the current filters keep: deleted/unallocated and slack toggles.
+    private func isVisible(_ f: FileEntry) -> Bool {
+        (showDeleted || !f.isDeleted) &&
+        (!hideSlack || !TimelineBuilder.isSlackEntry(f))
+    }
     /// Memoized tree, rebuilt off the main thread when the file set or the
     /// deleted toggle changes. Rebuilding it inside body re-allocated and
     /// re-sorted the whole node graph on every unrelated state change.
@@ -12,9 +21,8 @@ struct EvidenceTreeView: View {
     var body: some View {
         // Snapshot once (cached) for the header counts.
         let allFiles = model.files
-        let visibleCount = showDeleted ? allFiles.count
-                                       : allFiles.lazy.filter { !$0.isDeleted }.count
-        let hidden = showDeleted ? 0 : allFiles.count - visibleCount
+        let shownCount = allFiles.lazy.filter(isVisible).count
+        let hidden = allFiles.count - shownCount
         return Group {
             if allFiles.isEmpty {
                 ContentUnavailableView("No files loaded", systemImage: "folder",
@@ -26,12 +34,16 @@ struct EvidenceTreeView: View {
                         Toggle("Show deleted / unallocated", isOn: $showDeleted)
                             .toggleStyle(.switch)
                             .controlSize(.small)
+                        Toggle("Hide slack", isOn: $hideSlack)
+                            .toggleStyle(.switch)
+                            .controlSize(.small)
+                            .help("Hide TSK *-slack pseudo-entries (slack-space rows with 1980 epoch timestamps).")
                         if hidden > 0 {
                             Text("\(hidden) hidden")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Text("\(visibleCount) files")
+                        Text("\(shownCount) files")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     .padding(.horizontal, 12).padding(.vertical, 6)
@@ -57,10 +69,11 @@ struct EvidenceTreeView: View {
             }
         }
         .onChange(of: showDeleted) { rebuildTree() }
+        .onChange(of: hideSlack) { rebuildTree() }
     }
 
     private func rebuildTree() {
-        let files = showDeleted ? model.files : model.files.filter { !$0.isDeleted }
+        let files = model.files.filter(isVisible)
         tree = FileNode.buildTree(from: files, volumes: model.volumes)
     }
 
