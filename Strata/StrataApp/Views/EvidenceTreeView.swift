@@ -9,8 +9,6 @@ struct EvidenceTreeView: View {
     /// re-sorted the whole node graph on every unrelated state change.
     @State private var tree: [FileNode] = []
 
-    private struct TreeKey: Equatable { let version: Int; let showDeleted: Bool }
-
     var body: some View {
         // Snapshot once (cached) for the header counts.
         let allFiles = model.files
@@ -45,25 +43,25 @@ struct EvidenceTreeView: View {
             }
         }
         .navigationTitle("Evidence")
-        .task(id: TreeKey(version: model.dataVersion, showDeleted: showDeleted)) {
-            await rebuildTree()
-        }
+        // Rebuild synchronously on appear and when the data/scope or the deleted
+        // toggle changes - NOT in body (which would rebuild every render) and
+        // NOT via a detached task (whose cancellation on a tab switch could
+        // leave the tree empty). buildTree is O(files) but only runs on change.
+        .onAppear { rebuildTree() }
         .onChange(of: model.dataVersion) {
+            rebuildTree()
             // Drop or refresh a stale selection when the file set / scope changes
             // (the value-type FileEntry could otherwise point at another host).
             if let sel = selection {
                 selection = model.files.first { $0.id == sel.id }
             }
         }
+        .onChange(of: showDeleted) { rebuildTree() }
     }
 
-    private func rebuildTree() async {
+    private func rebuildTree() {
         let files = showDeleted ? model.files : model.files.filter { !$0.isDeleted }
-        let built = await Task.detached(priority: .userInitiated) {
-            FileNode.buildTree(from: files)
-        }.value
-        if Task.isCancelled { return }
-        tree = built
+        tree = FileNode.buildTree(from: files)
     }
 
     private func byteString(_ bytes: Int64) -> String {
@@ -171,9 +169,12 @@ nonisolated struct FileNode: Identifiable, Sendable {
                     // File leaf: key by the file's unique obj_id so same-name
                     // siblings (NTFS ADS, or a deleted + live entry at one path
                     // - exactly what "Show deleted" surfaces) both survive
-                    // instead of the first silently clobbering the second.
+                    // instead of the first silently clobbering the second. The
+                    // dict key uses a NUL (can't appear in a path component); the
+                    // OutlineGroup-facing node id avoids NUL (SwiftUI ids should
+                    // be plain) while staying unique via the obj_id suffix.
                     let key = "\u{0}\(file.id)"
-                    cursor.kids[key] = Box(FileNode(id: "\(path)\u{0}\(file.id)",
+                    cursor.kids[key] = Box(FileNode(id: "\(path)#\(file.id)",
                                                     name: comp, entry: file, children: nil))
                 } else {
                     // Directory component: merge by name so the subtree is
