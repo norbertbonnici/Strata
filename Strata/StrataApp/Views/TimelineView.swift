@@ -53,7 +53,7 @@ struct TimelineView: View {
     }
 
     private var deriveKey: DeriveKey {
-        DeriveKey(timelineCount: model.timeline.count,
+        DeriveKey(timelineCount: model.timelineCount,
                   kinds: enabledKinds,
                   sources: enabledSources,
                   hideSlack: hideSlack,
@@ -166,7 +166,7 @@ struct TimelineView: View {
             await deriveTableRows()
         }
         .overlay {
-            if model.timeline.isEmpty {
+            if model.timelineCount == 0 {
                 ContentUnavailableView("No timeline yet", systemImage: "clock",
                     description: Text("Ingest evidence to build a MACB timeline."))
             } else if afterToggles.isEmpty && !isDeriving {
@@ -281,13 +281,18 @@ struct TimelineView: View {
     /// analysis runs on the same pass: the analyzer is single-pass O(n) so
     /// folding it in costs basically nothing compared to a re-trigger.
     private func deriveAfterToggles() async {
+        // Debounce: .task(id:) cancels + restarts this on every filter/query
+        // change, so a short sleep coalesces rapid keystrokes into one pass. A
+        // cancelled sleep (a newer change arrived) bails before the heavy work.
+        isDeriving = true
+        try? await Task.sleep(nanoseconds: 250_000_000)
+        if Task.isCancelled { return }
         let source = model.timeline
         let kinds = enabledKinds
         let sources = enabledSources
         let hideSlackLocal = hideSlack
         let queryLocal = query
         let threshold = TimeInterval(max(1, gapThresholdMinutes) * 60)
-        isDeriving = true
         let result: ([TimelineEvent], ClosedRange<Date>?, [ActivitySession], [QuietGap]) = await Task.detached(priority: .userInitiated) {
             let filtered = source.filter { event in
                 guard kinds.contains(event.kind),

@@ -288,6 +288,7 @@ final class AppModel: ObservableObject {
     /// detached task so the UI keeps responsive on multi-million-event
     /// corpora.
     func runIOCMatch() async {
+        guard !isWorking else { return }   // no overlapping passes
         guard !iocs.isEmpty else {
             statusMessage = "No IOCs loaded."
             return

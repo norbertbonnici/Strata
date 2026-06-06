@@ -4,20 +4,21 @@ struct EvidenceTreeView: View {
     @EnvironmentObject private var model: AppModel
     @State private var selection: FileEntry?
     @State private var showDeleted = false
+    /// Memoized tree, rebuilt off the main thread when the file set or the
+    /// deleted toggle changes. Rebuilding it inside body re-allocated and
+    /// re-sorted the whole node graph on every unrelated state change.
+    @State private var tree: [FileNode] = []
 
-    private var visibleFiles: [FileEntry] {
-        showDeleted ? model.files : model.files.filter { !$0.isDeleted }
-    }
-
-    private var tree: [FileNode] { FileNode.buildTree(from: visibleFiles) }
-
-    private var hiddenCount: Int {
-        showDeleted ? 0 : model.files.count - visibleFiles.count
-    }
+    private struct TreeKey: Equatable { let version: Int; let showDeleted: Bool }
 
     var body: some View {
-        Group {
-            if model.files.isEmpty {
+        // Snapshot once (cached) for the header counts.
+        let allFiles = model.files
+        let visibleCount = showDeleted ? allFiles.count
+                                       : allFiles.lazy.filter { !$0.isDeleted }.count
+        let hidden = showDeleted ? 0 : allFiles.count - visibleCount
+        return Group {
+            if allFiles.isEmpty {
                 ContentUnavailableView("No files loaded", systemImage: "folder",
                     description: Text("Open an E01 or KAPE .vhd to enumerate the file system."))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -27,12 +28,12 @@ struct EvidenceTreeView: View {
                         Toggle("Show deleted / unallocated", isOn: $showDeleted)
                             .toggleStyle(.switch)
                             .controlSize(.small)
-                        if hiddenCount > 0 {
-                            Text("\(hiddenCount) hidden")
+                        if hidden > 0 {
+                            Text("\(hidden) hidden")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Text("\(visibleFiles.count) files")
+                        Text("\(visibleCount) files")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     .padding(.horizontal, 12).padding(.vertical, 6)
@@ -44,6 +45,25 @@ struct EvidenceTreeView: View {
             }
         }
         .navigationTitle("Evidence")
+        .task(id: TreeKey(version: model.dataVersion, showDeleted: showDeleted)) {
+            await rebuildTree()
+        }
+        .onChange(of: model.dataVersion) {
+            // Drop or refresh a stale selection when the file set / scope changes
+            // (the value-type FileEntry could otherwise point at another host).
+            if let sel = selection {
+                selection = model.files.first { $0.id == sel.id }
+            }
+        }
+    }
+
+    private func rebuildTree() async {
+        let files = showDeleted ? model.files : model.files.filter { !$0.isDeleted }
+        let built = await Task.detached(priority: .userInitiated) {
+            FileNode.buildTree(from: files)
+        }.value
+        if Task.isCancelled { return }
+        tree = built
     }
 
     private func byteString(_ bytes: Int64) -> String {
@@ -123,8 +143,9 @@ private struct FileDetailView: View {
     }
 }
 
-/// Tree node built from flat FileEntry paths, for OutlineGroup.
-struct FileNode: Identifiable {
+/// Tree node built from flat FileEntry paths, for OutlineGroup. `nonisolated`
+/// + Sendable so the (pure) builder can run off the main actor.
+nonisolated struct FileNode: Identifiable, Sendable {
     let id: String        // full path
     let name: String
     var entry: FileEntry?
@@ -145,14 +166,28 @@ struct FileNode: Identifiable {
             var path = ""
             for (index, comp) in components.enumerated() {
                 path += "/" + comp
-                if let existing = cursor.kids[comp] {
-                    cursor = existing
+                let isLast = index == components.count - 1
+                if isLast && !file.isDirectory {
+                    // File leaf: key by the file's unique obj_id so same-name
+                    // siblings (NTFS ADS, or a deleted + live entry at one path
+                    // - exactly what "Show deleted" surfaces) both survive
+                    // instead of the first silently clobbering the second.
+                    let key = "\u{0}\(file.id)"
+                    cursor.kids[key] = Box(FileNode(id: "\(path)\u{0}\(file.id)",
+                                                    name: comp, entry: file, children: nil))
                 } else {
-                    let isLeaf = index == components.count - 1
-                    let box = Box(FileNode(id: path, name: comp,
-                                           entry: isLeaf ? file : nil, children: nil))
-                    cursor.kids[comp] = box
-                    cursor = box
+                    // Directory component: merge by name so the subtree is
+                    // shared. A directory entry attaches its metadata to the
+                    // (possibly already-created) named node.
+                    if let existing = cursor.kids[comp] {
+                        if isLast, existing.node.entry == nil { existing.node.entry = file }
+                        cursor = existing
+                    } else {
+                        let box = Box(FileNode(id: path, name: comp,
+                                               entry: isLast ? file : nil, children: nil))
+                        cursor.kids[comp] = box
+                        cursor = box
+                    }
                 }
             }
         }

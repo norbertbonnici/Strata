@@ -55,8 +55,10 @@ struct TimelineHistogram: View {
         .chartLegend(.hidden)
         // chartXSelection(range:) crashes on stacked bars in current Charts
         // releases, so we roll our own drag-to-select with an overlay. The
-        // overlay covers exactly the plot area, so gesture coordinates map
-        // directly through proxy.value(atX:).
+        // overlay GeometryReader spans the whole chart (including the y-axis
+        // gutter), so we convert gesture coordinates into the plot area's space
+        // before handing them to proxy.value(atX:) - otherwise the selection is
+        // skewed right by the gutter width.
         .chartOverlay { proxy in
             GeometryReader { geo in
                 Rectangle()
@@ -65,13 +67,20 @@ struct TimelineHistogram: View {
                     .gesture(
                         DragGesture(minimumDistance: 4)
                             .onEnded { drag in
-                                let width = geo.size.width
-                                let xStart = clamp(min(drag.startLocation.x, drag.location.x),
-                                                   to: 0...width)
-                                let xEnd   = clamp(max(drag.startLocation.x, drag.location.x),
-                                                   to: 0...width)
+                                guard let plotAnchor = proxy.plotFrame else { return }
+                                let plot = geo[plotAnchor]
+                                guard plot.width > 0 else { return }
+                                let xStart = clamp(min(drag.startLocation.x, drag.location.x) - plot.minX,
+                                                   to: 0...plot.width)
+                                let xEnd   = clamp(max(drag.startLocation.x, drag.location.x) - plot.minX,
+                                                   to: 0...plot.width)
+                                // Reject a near-vertical drag: a zero-width
+                                // selection feeds a degenerate domain to
+                                // chartXScale and collapses the plot.
+                                guard xEnd > xStart else { return }
                                 guard let dStart: Date = proxy.value(atX: xStart),
-                                      let dEnd: Date   = proxy.value(atX: xEnd) else { return }
+                                      let dEnd: Date   = proxy.value(atX: xEnd),
+                                      dEnd > dStart else { return }
                                 selection = dStart...dEnd
                             }
                     )

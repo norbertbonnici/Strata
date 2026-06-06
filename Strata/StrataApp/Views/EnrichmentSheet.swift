@@ -32,6 +32,7 @@ struct EnrichmentSheet: View {
             .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
 
             HStack {
+                if model.isWorking { ProgressView().controlSize(.small) }
                 Spacer()
                 Button("Skip") { dismiss() }
                 Button("Run") {
@@ -43,7 +44,9 @@ struct EnrichmentSheet: View {
                     }
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(!runIOCMatching || model.iocs.isEmpty)
+                // Also gate on isWorking so repeated taps / Return can't launch
+                // overlapping IOC-match passes while one is in flight.
+                .disabled(!runIOCMatching || model.iocs.isEmpty || model.isWorking)
             }
         }
         .padding(20)

@@ -9,12 +9,16 @@ struct OverviewView: View {
                 header
 
                 HStack(spacing: 16) {
-                    StatCard(title: "Files", value: "\(model.files.count)")
-                    StatCard(title: "Deleted", value: "\(model.files.filter(\.isDeleted).count)")
-                    StatCard(title: "Timeline events", value: "\(model.timeline.count)")
-                    StatCard(title: "Log events", value: "\(model.events.count)")
-                    StatCard(title: "Registry values", value: "\(model.registryValues.count)")
-                    StatCard(title: "Findings", value: "\(model.findings.count)")
+                    // Snapshot files once (needed for the deleted filter); use
+                    // count-only accessors for the rest so we never build/sort
+                    // the million-row collections just to show a number.
+                    let files = model.files
+                    StatCard(title: "Files", value: "\(files.count)")
+                    StatCard(title: "Deleted", value: "\(files.lazy.filter(\.isDeleted).count)")
+                    StatCard(title: "Timeline events", value: "\(model.timelineCount)")
+                    StatCard(title: "Log events", value: "\(model.eventCount)")
+                    StatCard(title: "Registry values", value: "\(model.registryValueCount)")
+                    StatCard(title: "Findings", value: "\(model.findingCount)")
                 }
 
                 if !model.evidenceList.isEmpty {

@@ -12,8 +12,11 @@ struct LateralMovementView: View {
     private var graph: LateralGraph { LateralGraph.build(from: model.events) }
 
     var body: some View {
-        Group {
-            if model.events.isEmpty {
+        // Build the graph once per render. It was read 4-6x per body, and each
+        // build re-sorts the event set and recompiles a regex per 4624/4625.
+        let graph = self.graph
+        return Group {
+            if model.eventCount == 0 {
                 ContentUnavailableView("No events parsed yet",
                     systemImage: "point.3.connected.trianglepath.dotted",
                     description: Text("Parse event logs on the Events tab to populate this view."))

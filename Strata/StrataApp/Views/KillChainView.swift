@@ -10,13 +10,19 @@ struct KillChainView: View {
     @State private var selectedGroupID: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            SummaryBar(findings: model.findings)
+        // Snapshot findings once and group once per render. Previously the
+        // findings collection + the full phase-grouping pipeline ran up to 3x
+        // per body (here, plus the inspector's isPresented expr and its content).
+        let findings = model.findings
+        let groupsByPhase = Self.groupByPhase(findings)
+        let selected = Self.group(withID: selectedGroupID, in: groupsByPhase)
+        let eventsEmpty = model.eventCount == 0
+        return VStack(alignment: .leading, spacing: 0) {
+            SummaryBar(findings: findings)
                 .padding(.horizontal).padding(.top)
 
             ScrollView(.horizontal, showsIndicators: true) {
                 HStack(alignment: .top, spacing: 0) {
-                    let groupsByPhase = Self.groupByPhase(model.findings)
                     ForEach(Array(KillChainPhase.allCases.enumerated()), id: \.element) { index, phase in
                         PhaseColumn(phase: phase,
                                     groups: groupsByPhase[phase] ?? [],
@@ -40,8 +46,8 @@ struct KillChainView: View {
                     Label("Run analyzers", systemImage: "play.fill")
                 }
                 .controlSize(.small)
-                .disabled(model.isWorking || model.events.isEmpty)
-                .help(model.events.isEmpty
+                .disabled(model.isWorking || eventsEmpty)
+                .help(eventsEmpty
                       ? "Parse event logs first (Events tab)."
                       : "Run the detection analyzers on the loaded evidence.")
             }
@@ -49,17 +55,20 @@ struct KillChainView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .navigationTitle("Kill Chain")
-        .inspector(isPresented: .constant(selectedGroup != nil)) {
-            GroupDetailPane(group: selectedGroup)
+        // Real read/write binding so the inspector's own collapse control works
+        // (a .constant binding silently discards the dismiss).
+        .inspector(isPresented: Binding(
+            get: { selectedGroupID != nil },
+            set: { if !$0 { selectedGroupID = nil } })) {
+            GroupDetailPane(group: selected)
                 .inspectorColumnWidth(min: 320, ideal: 400, max: 540)
         }
     }
 
-    private var selectedGroup: FindingGroup? {
-        guard let id = selectedGroupID else { return nil }
-        return Self.groupByPhase(model.findings).values
-            .flatMap { $0 }
-            .first { $0.id == id }
+    private static func group(withID id: String?,
+                              in groups: [KillChainPhase: [FindingGroup]]) -> FindingGroup? {
+        guard let id else { return nil }
+        return groups.values.flatMap { $0 }.first { $0.id == id }
     }
 
     /// Bucket findings by phase and then by ATT&CK ID. Findings without a
@@ -111,9 +120,11 @@ private struct FindingGroup: Identifiable, Hashable {
 private struct SummaryBar: View {
     let findings: [Finding]
     var body: some View {
+        // One grouping pass instead of a filter per severity.
+        let counts = Dictionary(grouping: findings, by: \.severity).mapValues(\.count)
         HStack(spacing: 14) {
             ForEach(Severity.allCases.reversed(), id: \.self) { sev in
-                let count = findings.filter { $0.severity == sev }.count
+                let count = counts[sev] ?? 0
                 HStack(spacing: 5) {
                     Circle().fill(sev.color).frame(width: 9, height: 9)
                     Text("\(sev.label): \(count)").font(.caption)

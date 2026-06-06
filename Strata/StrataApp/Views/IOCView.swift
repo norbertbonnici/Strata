@@ -7,12 +7,19 @@ struct IOCView: View {
     @EnvironmentObject private var model: AppModel
     @State private var showingPasteSheet = false
     @State private var selectedKindFilter: IOCKind?
+    @State private var sortOrder: [KeyPathComparator<IOCMatch>] = []
 
     private var matches: [IOCMatch] {
-        if let filter = selectedKindFilter {
-            return model.iocMatches.filter { $0.iocKind == filter }
+        var m = model.iocMatches
+        if let filter = selectedKindFilter { m = m.filter { $0.iocKind == filter } }
+        if sortOrder.isEmpty {
+            // Default to chronological order so the leading "When" column is
+            // honest; matches with no timestamp (file/registry hits) sort last.
+            m.sort { ($0.timestamp ?? .distantFuture) < ($1.timestamp ?? .distantFuture) }
+        } else {
+            m.sort(using: sortOrder)
         }
-        return model.iocMatches
+        return m
     }
 
     var body: some View {
@@ -64,7 +71,7 @@ struct IOCView: View {
             #endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .navigationTitle("IOCs - \(model.iocs.count) loaded, \(model.iocMatches.count) matches")
+        .navigationTitle("IOCs - \(model.iocs.count) loaded, \(model.iocMatchCount) matches")
         .sheet(isPresented: $showingPasteSheet) { IOCPasteSheet() }
         .overlay {
             if model.currentCase == nil {
@@ -116,21 +123,24 @@ struct IOCView: View {
                                   ? "Add IOCs above and click Run Match."
                                   : "Run Match to scan events, registry, and files."))
         } else {
-            Table(matches) {
+            // sortOrder drives click-to-sort on the text columns; "When" and
+            // "Kind" stay default-ordered (Optional/enum aren't KeyPathComparator-
+            // friendly), and the chronological default above keeps rows honest.
+            Table(matches, sortOrder: $sortOrder) {
                 TableColumn("When") { m in
                     Text(m.timestamp?.formatted(date: .numeric, time: .standard) ?? "—")
                         .font(.caption).monospacedDigit()
                 }
                 TableColumn("Kind") { m in IOCKindBadge(kind: m.iocKind) }
-                TableColumn("IOC") { m in
+                TableColumn("IOC", value: \.iocValue) { m in
                     Text(m.iocValue).font(.caption.monospaced())
                         .lineLimit(1).truncationMode(.middle)
                 }
-                TableColumn("Where") { m in
+                TableColumn("Where", value: \.summary) { m in
                     Text(m.summary).font(.caption)
                         .lineLimit(1).truncationMode(.middle)
                 }
-                TableColumn("Context") { m in
+                TableColumn("Context", value: \.context) { m in
                     Text(m.context).font(.caption.monospaced())
                         .lineLimit(1).truncationMode(.middle)
                         .help(m.context)

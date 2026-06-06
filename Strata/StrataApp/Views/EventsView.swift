@@ -25,8 +25,8 @@ struct EventsView: View {
         }
     }
 
-    private var filtered: [EventLogRecord] {
-        model.events.filter { event in
+    private func filtered(_ events: [EventLogRecord]) -> [EventLogRecord] {
+        events.filter { event in
             selectedLevel.matches(event.level) &&
             (query.isEmpty
                 || event.channel.localizedCaseInsensitiveContains(query)
@@ -37,8 +37,13 @@ struct EventsView: View {
     }
 
     var body: some View {
-        Group {
-            if model.events.isEmpty {
+        // Snapshot the (now-cached) events once and filter once per render, then
+        // thread the results through; previously events + filter were each
+        // materialized several times per body and per keystroke.
+        let events = model.events
+        let visible = filtered(events)
+        return Group {
+            if events.isEmpty {
                 ContentUnavailableView {
                     Label("No events parsed yet", systemImage: "doc.text.magnifyingglass")
                 } description: {
@@ -84,22 +89,17 @@ struct EventsView: View {
                     .padding(8)
                     Divider()
 
-                    eventsSplit
+                    eventsSplit(visible, detail: events.first { $0.id == selectedEventID })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
         }
-        .navigationTitle(model.events.isEmpty ? "Events" : "Events - \(filtered.count) of \(model.events.count)")
+        .navigationTitle(events.isEmpty ? "Events" : "Events - \(visible.count) of \(events.count)")
     }
 
-    private var detail: EventLogRecord? {
-        guard let id = selectedEventID else { return nil }
-        return model.events.first { $0.id == id }
-    }
-
-    private var eventsTable: some View {
-        Table(filtered, selection: $selectedEventID) {
+    private func eventsTable(_ visible: [EventLogRecord]) -> some View {
+        Table(visible, selection: $selectedEventID) {
             TableColumn("Time") { e in
                 Text(e.writtenAt.formatted(date: .numeric, time: .standard))
                     .monospacedDigit().font(.caption)
@@ -122,16 +122,16 @@ struct EventsView: View {
     }
 
     @ViewBuilder
-    private var eventsSplit: some View {
+    private func eventsSplit(_ visible: [EventLogRecord], detail: EventLogRecord?) -> some View {
         #if os(macOS)
         HSplitView {
-            eventsTable
+            eventsTable(visible)
             EventDetailView(event: detail)
                 .frame(minWidth: 320, maxHeight: .infinity)
         }
         #else
         HStack(spacing: 0) {
-            eventsTable
+            eventsTable(visible)
             Divider()
             EventDetailView(event: detail)
                 .frame(minWidth: 320, maxHeight: .infinity)
@@ -154,7 +154,9 @@ private struct LevelBadge: View {
         case 1: return "CRIT"
         case 2: return "ERR"
         case 3: return "WARN"
-        case 4: return "INFO"
+        // Level 0 (LogAlways / unset) is treated as Information, matching the
+        // Info level filter — otherwise an Info-filtered list shows blank "—".
+        case 0, 4: return "INFO"
         default: return "—"
         }
     }
@@ -163,7 +165,7 @@ private struct LevelBadge: View {
         case 1: return .pink
         case 2: return .red
         case 3: return .orange
-        case 4: return .blue
+        case 0, 4: return .blue
         default: return .gray
         }
     }
