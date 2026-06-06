@@ -30,7 +30,7 @@ public nonisolated struct TSKDatabase {
     public func fetchFiles(limit: Int? = nil, offset: Int = 0) throws -> [FileEntry] {
         let limitClause = limit.map { "LIMIT \($0) OFFSET \(offset)" } ?? ""
         let sql = """
-            SELECT obj_id, meta_addr, name, parent_path, size,
+            SELECT obj_id, meta_addr, fs_obj_id, name, parent_path, size,
                    meta_type, meta_flags, dir_flags,
                    crtime, mtime, atime, ctime
             FROM tsk_files
@@ -40,6 +40,27 @@ public nonisolated struct TSKDatabase {
             """
         return try dbQueue.read { db in
             try Row.fetchAll(db, sql: sql).map(Self.makeEntry)
+        }
+    }
+
+    /// The filesystems/volumes in the image. A disk image holds several (EFI
+    /// FAT + main NTFS + recovery NTFS, ...), each with its own metadata files,
+    /// so the UI groups the file tree by these.
+    public func fetchVolumes() throws -> [VolumeInfo] {
+        let sql = """
+            SELECT obj_id, fs_type, img_offset, block_size, block_count
+            FROM tsk_fs_info
+            ORDER BY img_offset
+            """
+        return try dbQueue.read { db in
+            try Row.fetchAll(db, sql: sql).map { row in
+                let blockSize: Int64 = row["block_size"] ?? 0
+                let blockCount: Int64 = row["block_count"] ?? 0
+                return VolumeInfo(id: row["obj_id"] ?? 0,
+                                  fsType: VolumeInfo.fsTypeName(row["fs_type"] ?? 0),
+                                  offsetBytes: row["img_offset"] ?? 0,
+                                  sizeBytes: blockSize * blockCount)
+            }
         }
     }
 
@@ -60,7 +81,8 @@ public nonisolated struct TSKDatabase {
             modified: Self.date(row["mtime"]),
             accessed: Self.date(row["atime"]),
             changed: Self.date(row["ctime"]),
-            created: Self.date(row["crtime"])
+            created: Self.date(row["crtime"]),
+            fsID: row["fs_obj_id"]
         )
     }
 

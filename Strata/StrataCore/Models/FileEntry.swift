@@ -5,6 +5,7 @@ import Foundation
 public nonisolated struct FileEntry: Identifiable, Hashable, Sendable {
     public let id: Int64          // tsk_files.obj_id
     public let metaAddr: Int64?   // MFT entry / inode number
+    public let fsID: Int64?       // tsk_files.fs_obj_id - which filesystem/volume; nil for loose folders
     public let name: String
     public let parentPath: String // e.g. "/Windows/System32/"
     public let size: Int64
@@ -26,13 +27,13 @@ public nonisolated struct FileEntry: Identifiable, Hashable, Sendable {
     public init(id: Int64, metaAddr: Int64?, name: String, parentPath: String,
                 size: Int64, isDirectory: Bool, isDeleted: Bool,
                 modified: Date?, accessed: Date?, changed: Date?, created: Date?,
-                diskURL: URL? = nil) {
+                fsID: Int64? = nil, diskURL: URL? = nil) {
         self.id = id; self.metaAddr = metaAddr; self.name = name
         self.parentPath = parentPath; self.size = size
         self.isDirectory = isDirectory; self.isDeleted = isDeleted
         self.modified = modified; self.accessed = accessed
         self.changed = changed; self.created = created
-        self.diskURL = diskURL
+        self.fsID = fsID; self.diskURL = diskURL
     }
 
     /// Full reconstructed path, e.g. "/Windows/System32/cmd.exe".

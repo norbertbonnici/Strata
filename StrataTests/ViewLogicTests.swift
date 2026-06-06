@@ -71,13 +71,47 @@ struct ViewLogicTests {
         #expect((windows?.children?.filter { $0.name == "Temp" }.count ?? 0) == 1)  // not duplicated
     }
 
+    // MARK: - Volume grouping (multi-filesystem images)
+
+    /// A disk image with several filesystems must group the tree by volume so
+    /// each volume's metadata ($MFT, ...) lives under its own node instead of
+    /// colliding at the root.
+    @Test func multipleFilesystemsGroupIntoVolumeNodes() {
+        let main = file(id: 1, name: "$MFT", parent: "/", fs: 462)
+        let recov = file(id: 2, name: "$MFT", parent: "/", fs: 563419)
+        let volumes = [
+            VolumeInfo(id: 462,    fsType: "NTFS", offsetBytes: 100, sizeBytes: 1000),
+            VolumeInfo(id: 563419, fsType: "NTFS", offsetBytes: 200, sizeBytes: 50),
+        ]
+        let roots = FileNode.buildTree(from: [main, recov], volumes: volumes)
+        let allVolumes = roots.allSatisfy(\.isVolume)
+        let eachHasMFT = roots.allSatisfy { node in
+            (node.children ?? []).contains { $0.name == "$MFT" }
+        }
+        #expect(roots.count == 2)
+        #expect(allVolumes)
+        #expect(roots.first?.id == "vol:462")   // ordered by image offset
+        #expect(eachHasMFT)
+    }
+
+    @Test func singleFilesystemSkipsVolumeLayer() {
+        let f = file(id: 1, name: "cmd.exe", parent: "/Windows/", fs: 462)
+        let roots = FileNode.buildTree(
+            from: [f],
+            volumes: [VolumeInfo(id: 462, fsType: "NTFS", offsetBytes: 0, sizeBytes: 0)])
+        let hasWindows = roots.contains { $0.name == "Windows" }
+        #expect(roots.first?.isVolume == false)        // no volume wrapper for one fs
+        #expect(hasWindows)
+    }
+
     // MARK: - Helpers
 
     private func file(id: Int64 = 0, name: String, parent: String,
-                      isDirectory: Bool = false, deleted: Bool = false) -> FileEntry {
+                      isDirectory: Bool = false, deleted: Bool = false,
+                      fs: Int64? = nil) -> FileEntry {
         FileEntry(id: id, metaAddr: nil, name: name, parentPath: parent,
                   size: 0, isDirectory: isDirectory, isDeleted: deleted,
-                  modified: nil, accessed: nil, changed: nil, created: nil)
+                  modified: nil, accessed: nil, changed: nil, created: nil, fsID: fs)
     }
 
     private static func leaves(of nodes: [FileNode]) -> [FileNode] {

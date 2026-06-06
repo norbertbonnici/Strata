@@ -10,6 +10,7 @@ struct EvidenceState {
     /// to back a TSK database - their files are read straight off disk.
     var dbURL: URL?
     var files: [FileEntry] = []
+    var volumes: [VolumeInfo] = []   // filesystems in the image (empty for loose folders)
     var events: [EventLogRecord] = []
     var timeline: [TimelineEvent] = []
     var registryValues: [RegistryValue] = []
@@ -167,6 +168,7 @@ final class AppModel: ObservableObject {
                         #endif
                         state = EvidenceState(dbURL: dbURL)
                         state.files = files
+                        state.volumes = (try? database.fetchVolumes()) ?? []
                         #if os(macOS)
                         timeline = TimelineBuilder.build(from: files)
                         #else
@@ -442,6 +444,12 @@ final class AppModel: ObservableObject {
     }
 
     var files: [FileEntry] { derived().files }
+    /// Volumes for the active scope (small; not worth caching). Combined "All"
+    /// scope concatenates per-host volume lists.
+    var volumes: [VolumeInfo] {
+        if let id = activeEvidenceID { return states[id]?.volumes ?? [] }
+        return evidenceList.flatMap { states[$0.id]?.volumes ?? [] }
+    }
     var events: [EventLogRecord] { derived().events }
     var timeline: [TimelineEvent] { derived().timeline }
     var findings: [Finding] { derived().findings }
@@ -515,6 +523,7 @@ final class AppModel: ObservableObject {
                 let loaded = try database.fetchFiles()
                 var s = EvidenceState(dbURL: dbURL)
                 s.files = loaded
+                s.volumes = (try? database.fetchVolumes()) ?? []
                 s.timeline = TimelineBuilder.build(from: loaded)
                 state = s
             }

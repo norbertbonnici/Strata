@@ -61,7 +61,7 @@ struct EvidenceTreeView: View {
 
     private func rebuildTree() {
         let files = showDeleted ? model.files : model.files.filter { !$0.isDeleted }
-        tree = FileNode.buildTree(from: files)
+        tree = FileNode.buildTree(from: files, volumes: model.volumes)
     }
 
     private func byteString(_ bytes: Int64) -> String {
@@ -72,9 +72,11 @@ struct EvidenceTreeView: View {
         List {
             OutlineGroup(tree, children: \.children) { node in
                 HStack {
-                    Image(systemName: (node.entry?.isDirectory ?? true) ? "folder" : "doc")
-                        .foregroundStyle(.secondary)
+                    Image(systemName: node.isVolume ? "internaldrive"
+                          : ((node.entry?.isDirectory ?? true) ? "folder" : "doc"))
+                        .foregroundStyle(node.isVolume ? Color.accentColor : .secondary)
                     Text(node.name)
+                        .fontWeight(node.isVolume ? .semibold : .regular)
                     if node.entry?.isDeleted == true {
                         Text("deleted").font(.caption2)
                             .padding(.horizontal, 5).padding(.vertical, 1)
@@ -144,12 +146,46 @@ private struct FileDetailView: View {
 /// Tree node built from flat FileEntry paths, for OutlineGroup. `nonisolated`
 /// + Sendable so the (pure) builder can run off the main actor.
 nonisolated struct FileNode: Identifiable, Sendable {
-    let id: String        // full path
+    let id: String        // full path, or "vol:<fsID>" for a volume node
     let name: String
     var entry: FileEntry?
     var children: [FileNode]?
+    var isVolume = false
 
-    static func buildTree(from files: [FileEntry]) -> [FileNode] {
+    /// Build the evidence tree. When the files span more than one filesystem
+    /// (the usual case for a disk image: EFI FAT + main NTFS + recovery NTFS),
+    /// the top level is one node per volume - so same-named volume metadata
+    /// ($MFT, $LogFile, ...) no longer looks like duplicates. A single volume or
+    /// a loose folder (no fsID) skips the volume layer entirely.
+    static func buildTree(from files: [FileEntry], volumes: [VolumeInfo] = []) -> [FileNode] {
+        let fsIDs = Set(files.compactMap { $0.fsID })
+        guard fsIDs.count > 1 else { return buildSubtree(from: files) }
+
+        let labels = Dictionary(volumes.map { ($0.id, $0.label) }, uniquingKeysWith: { a, _ in a })
+        let order  = Dictionary(uniqueKeysWithValues: volumes.enumerated().map { ($1.id, $0) })
+        var byFS: [Int64: [FileEntry]] = [:]
+        var unassigned: [FileEntry] = []
+        for file in files {
+            if let fs = file.fsID { byFS[fs, default: []].append(file) } else { unassigned.append(file) }
+        }
+        var roots: [FileNode] = byFS.keys
+            .sorted { (order[$0] ?? Int.max, $0) < (order[$1] ?? Int.max, $1) }   // by image offset
+            .map { fs in
+                let label = labels[fs] ?? "Volume \(fs)"
+                let count = (byFS[fs]?.count ?? 0).formatted()
+                return FileNode(id: "vol:\(fs)", name: "\(label) — \(count) files",
+                                entry: nil, children: buildSubtree(from: byFS[fs] ?? []),
+                                isVolume: true)
+            }
+        if !unassigned.isEmpty {
+            roots.append(FileNode(id: "vol:none",
+                                  name: "Unassigned — \(unassigned.count.formatted()) files",
+                                  entry: nil, children: buildSubtree(from: unassigned), isVolume: true))
+        }
+        return roots
+    }
+
+    private static func buildSubtree(from files: [FileEntry]) -> [FileNode] {
         final class Box {
             var node: FileNode
             var kids: [String: Box] = [:]
