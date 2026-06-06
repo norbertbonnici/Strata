@@ -3,6 +3,38 @@
 All notable changes to Strata are documented here. The format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions correspond to git tags.
 
+## [0.1.0-beta.2] — 2026-06-06
+
+### Added
+
+- **iOS viewer companion** — open a `.strata` case on iPhone/iPad and review the
+  overview, timeline, events, kill chain, lateral movement, filesystem, and IOCs
+  (read-only; ingestion stays on macOS).
+- **Evidence tree grouped by volume** — each filesystem (EFI/FAT, main NTFS,
+  recovery NTFS, …) is its own node, so per-volume metadata (`$MFT`, `$LogFile`,
+  …) no longer looks like duplicates.
+- **"Hide slack" toggle** on the Evidence tab.
+
+### Changed
+
+- Major performance pass: AppModel rolls up and caches its derived collections,
+  and views snapshot/derive heavy data off the render path — removing repeated
+  main-thread sorts on million-row cases.
+- Recent cases use security-scoped bookmarks; the force-directed lateral layout
+  is capped on very large graphs; accessibility and contrast improvements.
+
+### Fixed
+
+- Timeline histogram drag-select coordinate skew and zero-width selections.
+- IOC match table now defaults to chronological order and is sortable.
+- Kill-chain inspector can be dismissed; level-0 events badge as INFO.
+- Evidence tree no longer drops same-path (deleted vs live) entries; the
+  selection revalidates on scope change; the tree no longer renders empty.
+- iOS: filesystem browser navigates below root; lists are lazy/paged; newest-
+  first paging; UTC timestamps; precise Sysmon filter.
+
+[0.1.0-beta.2]: https://github.com/norbertbonnici/Strata/releases/tag/v0.1.0-beta.2
+
 ## [0.1.0-beta.1] — 2026-06-05
 
 First public beta.

@@ -29,7 +29,14 @@
 set -euo pipefail
 
 VERSION="${1:?usage: scripts/release.sh <version>   e.g. 0.1.0-beta.1}"
-SHORT_VERSION="${VERSION%%-*}"                 # 0.1.0-beta.1 -> 0.1.0
+SHORT_VERSION="${VERSION%%-*}"                 # 0.1.0-beta.2 -> 0.1.0 (CFBundleShortVersionString)
+# Build number (CFBundleVersion): default to the beta number so successive
+# betas differ, else 1. Override with BUILD=...
+case "$VERSION" in
+    *-beta.*) DEFAULT_BUILD="${VERSION##*-beta.}" ;;
+    *)        DEFAULT_BUILD=1 ;;
+esac
+BUILD="${BUILD:-$DEFAULT_BUILD}"
 TEAM_ID="${TEAM_ID:-96ZD8RMB92}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-strata-notary}"
 SCHEME="Strata"
@@ -84,6 +91,7 @@ xcodebuild archive \
     CODE_SIGN_ENTITLEMENTS="$ENTITLEMENTS" \
     ENABLE_HARDENED_RUNTIME=YES \
     MARKETING_VERSION="$SHORT_VERSION" \
+    CURRENT_PROJECT_VERSION="$BUILD" \
     OTHER_CODE_SIGN_FLAGS="--timestamp"
 
 # ── Export the Developer ID-signed app ─────────────────────────────────────
