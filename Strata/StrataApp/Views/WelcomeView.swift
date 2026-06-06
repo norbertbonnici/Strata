@@ -73,7 +73,9 @@ struct WelcomeView: View {
         // resource for the duration of the open, then release.
         .fileImporter(
             isPresented: $model.showOpenCasePicker,
-            allowedContentTypes: [.folder],
+            // .strataCase once registered (a package); .folder as a fallback for
+            // bundles created before the type was registered.
+            allowedContentTypes: [.strataCase, .folder],
             allowsMultipleSelection: false
         ) { result in
             guard case .success(let urls) = result, let url = urls.first else { return }

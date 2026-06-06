@@ -6,5 +6,45 @@
 	<array>
 		<string>remote-notification</string>
 	</array>
+	<!-- A .strata case is a directory bundle; declare it as a package document
+	     type so Finder / Files / iCloud Drive treat each case as one item and
+	     both apps can open it directly. -->
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.bonnicilabs.strata-case</string>
+			<key>UTTypeDescription</key>
+			<string>Strata Case</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>com.apple.package</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>strata</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Strata Case</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.bonnicilabs.strata-case</string>
+			</array>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSTypeIsPackage</key>
+			<true/>
+		</dict>
+	</array>
 </dict>
 </plist>
