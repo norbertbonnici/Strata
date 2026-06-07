@@ -12,6 +12,13 @@ public nonisolated struct ExportSelection: Sendable, Equatable {
     public var findingsJSON: Bool
     public var iocMatchesCSV: Bool
     public var iocMatchesJSON: Bool
+    /// Chain-of-custody report (acquisition provenance, source hashes, and the
+    /// custody ledger). Separate from the examiner report.
+    public var cocHTML: Bool
+    public var cocMarkdown: Bool
+    /// Raw custody-log data export.
+    public var custodyCSV: Bool
+    public var custodyJSON: Bool
     /// Severities to include in the examiner *report*. Defaults to all. This
     /// filters only the narrative report (findings list, severity rollups, and
     /// the findings timeline excerpt) - the raw findings CSV/JSON export stays
@@ -22,6 +29,8 @@ public nonisolated struct ExportSelection: Sendable, Equatable {
                 timelineCSV: Bool = false, timelineJSON: Bool = false,
                 findingsCSV: Bool = false, findingsJSON: Bool = false,
                 iocMatchesCSV: Bool = false, iocMatchesJSON: Bool = false,
+                cocHTML: Bool = false, cocMarkdown: Bool = false,
+                custodyCSV: Bool = false, custodyJSON: Bool = false,
                 reportSeverities: Set<Severity> = Set(Severity.allCases)) {
         self.reportMarkdown = reportMarkdown
         self.reportHTML = reportHTML
@@ -31,17 +40,25 @@ public nonisolated struct ExportSelection: Sendable, Equatable {
         self.findingsJSON = findingsJSON
         self.iocMatchesCSV = iocMatchesCSV
         self.iocMatchesJSON = iocMatchesJSON
+        self.cocHTML = cocHTML
+        self.cocMarkdown = cocMarkdown
+        self.custodyCSV = custodyCSV
+        self.custodyJSON = custodyJSON
         self.reportSeverities = reportSeverities
     }
 
     /// True when nothing is selected - the Export button gates on this.
     public var isEmpty: Bool {
         !(reportMarkdown || reportHTML || timelineCSV || timelineJSON ||
-          findingsCSV || findingsJSON || iocMatchesCSV || iocMatchesJSON)
+          findingsCSV || findingsJSON || iocMatchesCSV || iocMatchesJSON ||
+          cocHTML || cocMarkdown || custodyCSV || custodyJSON)
     }
 
     /// Whether any examiner-report format was picked.
     public var wantsReport: Bool { reportMarkdown || reportHTML }
+
+    /// Whether any chain-of-custody report format was picked.
+    public var wantsCoC: Bool { cocHTML || cocMarkdown }
 }
 
 /// One generated artifact: a bare filename (no path) and its bytes. The writer

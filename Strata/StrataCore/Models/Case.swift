@@ -46,11 +46,32 @@ public struct Evidence: Identifiable, Hashable, Sendable, Codable {
     public var kind: EvidenceKind
     public var tskDatabaseURL: URL? = nil
 
-    enum CodingKeys: String, CodingKey { case id, displayName, sourceURL, kind }
+    // Chain-of-custody / integrity (see Custody.swift). Both are optional /
+    // defaulted and listed in CodingKeys, so a legacy `hosts.json` written
+    // before this feature decodes cleanly to nil / [].
+    public var acquisition: AcquisitionInfo? = nil
+    public var sourceHashes: [SourceHash] = []
+
+    enum CodingKeys: String, CodingKey {
+        case id, displayName, sourceURL, kind, acquisition, sourceHashes
+    }
 
     public init(id: UUID = UUID(), displayName: String, sourceURL: URL,
-                kind: EvidenceKind, tskDatabaseURL: URL? = nil) {
+                kind: EvidenceKind, tskDatabaseURL: URL? = nil,
+                acquisition: AcquisitionInfo? = nil, sourceHashes: [SourceHash] = []) {
         self.id = id; self.displayName = displayName; self.sourceURL = sourceURL
         self.kind = kind; self.tskDatabaseURL = tskDatabaseURL
+        self.acquisition = acquisition; self.sourceHashes = sourceHashes
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        displayName = try c.decode(String.self, forKey: .displayName)
+        sourceURL = try c.decode(URL.self, forKey: .sourceURL)
+        kind = try c.decode(EvidenceKind.self, forKey: .kind)
+        // Tolerate older bundles that predate these keys.
+        acquisition = try c.decodeIfPresent(AcquisitionInfo.self, forKey: .acquisition)
+        sourceHashes = try c.decodeIfPresent([SourceHash].self, forKey: .sourceHashes) ?? []
     }
 }

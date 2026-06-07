@@ -6,7 +6,9 @@ import Foundation
 ///
 /// MyCase.strata/
 ///   case.json                metadata { id, name, examiner, createdAt }
-///   hosts.json               [{ id, displayName, sourceURL, kind }, ...]
+///   hosts.json               [{ id, displayName, sourceURL, kind, acquisition, sourceHashes }, ...]
+///   custody.json             append-only chain-of-custody log [CustodyEvent], case-wide
+///   iocs.json                case-wide indicators [IOC]
 ///   hosts/<host-uuid>/
 ///     tsk.db                 SQLite produced by tsk_loaddb
 ///     events/                scratch dir for extracted .evtx files
@@ -23,6 +25,7 @@ public enum CaseStore {
     private static let findingsFilename   = "findings.json"
     private static let iocsFilename       = "iocs.json"
     private static let iocMatchesFilename = "iocmatches.json"
+    private static let custodyFilename    = "custody.json"
 
     // MARK: - URLs
 
@@ -177,6 +180,24 @@ public enum CaseStore {
     public static func writeIOCMatches(_ matches: [IOCMatch],
                                        forHostID id: UUID, in bundle: URL) throws {
         try writeArray(matches, at: iocMatchesFileURL(forHostID: id, in: bundle))
+    }
+
+    // MARK: - Chain of custody (case-wide, append-only)
+    //
+    // The custody log lives in its own bundle-root file rather than inside
+    // `case.json` / `hosts.json` so the frequent rewrites of those files can
+    // never truncate the legal-weight, append-only ledger.
+
+    public static func custodyFileURL(in bundle: URL) -> URL {
+        bundle.appendingPathComponent(custodyFilename)
+    }
+
+    public static func readCustody(in bundle: URL) throws -> [CustodyEvent] {
+        try readArrayIfPresent(at: custodyFileURL(in: bundle)) ?? []
+    }
+
+    public static func writeCustody(_ events: [CustodyEvent], in bundle: URL) throws {
+        try writeArray(events, at: custodyFileURL(in: bundle))
     }
 
     private static func readArrayIfPresent<T: Decodable>(at url: URL) throws -> [T]? {

@@ -31,7 +31,7 @@ OUT="$ROOT/Vendor/tsk"
 SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
 DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
 
-TOOLS=(tsk_loaddb fls icat mmls fsstat blkstat istat evtxexport evtxinfo regfexport regfinfo)
+TOOLS=(tsk_loaddb fls icat mmls fsstat blkstat istat evtxexport evtxinfo regfexport regfinfo ewfinfo ewfverify)
 
 download() {
     local url="$1" dest="$2"
