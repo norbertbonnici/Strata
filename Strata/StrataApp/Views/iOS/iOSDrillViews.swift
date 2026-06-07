@@ -424,4 +424,205 @@ struct IOCsDrillView: View {
         return parts.joined(separator: " · ")
     }
 }
+
+// MARK: - Registry drill view
+
+/// Tap-through registry browser over the same `RegistryValue` set the macOS
+/// explorer uses. Navigation mutates a `path` component stack (hive first),
+/// with a tappable breadcrumb to climb back up — mirroring FilesystemDrillView.
+/// Each level shows the current key's subkeys (tap to descend) and its values.
+struct RegistryDrillView: View {
+    @EnvironmentObject private var model: AppModel
+    /// Key tree, rebuilt off the render path when the data/scope changes.
+    @State private var tree: [RegistryNode] = []
+    /// Component stack into the tree; [] == the hive list (root).
+    @State private var path: [String] = []
+    @State private var displayLimit = 200
+    private let pageSize = 200
+
+    /// Resolve the current `path` to its node and the child keys at this level.
+    /// A broken path (data changed under us) falls back to the deepest level
+    /// still reachable so the view never goes blank.
+    private func locate() -> (node: RegistryNode?, children: [RegistryNode]) {
+        var level = tree
+        var current: RegistryNode?
+        for comp in path {
+            guard let match = level.first(where: { $0.name == comp }) else {
+                return (current, level)
+            }
+            current = match
+            level = match.children ?? []
+        }
+        return (current, level)
+    }
+
+    var body: some View {
+        let (node, children) = locate()
+        let values = node?.values ?? []
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitle(title: "Registry")
+
+                breadcrumb
+
+                note(node: node)
+
+                if children.isEmpty && values.isEmpty {
+                    emptyState
+                } else {
+                    if !children.isEmpty {
+                        SectionHeader(label: path.isEmpty ? "Hives" : "Subkeys").padding(.top, 12)
+                        Card { keyRows(children) }
+                    }
+                    if !values.isEmpty {
+                        SectionHeader(label: "Values").padding(.top, 16)
+                        Card { valueRows(values) }
+                    }
+                }
+
+                Spacer(minLength: 26)
+            }
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        // Build the tree off the render path (HostProfile-style): the value set
+        // can be tens of thousands of rows, so don't rebuild inside body.
+        .task(id: model.dataVersion) {
+            tree = RegistryNode.buildTree(from: model.registryValues)
+        }
+        .onChange(of: path) { displayLimit = pageSize }   // restart paging on navigate
+    }
+
+    /// Tappable breadcrumb (registry paths run long, so it scrolls horizontally).
+    /// The system back button exits the whole screen since navigation mutates
+    /// `path` rather than pushing a NavigationStack.
+    private var breadcrumb: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 5) {
+                Button { path = [] } label: {
+                    Text("Registry")
+                        .font(.system(size: 12.5, design: .monospaced))
+                        .foregroundStyle(Theme.text2)
+                }
+                .buttonStyle(.plain)
+                ForEach(Array(path.enumerated()), id: \.offset) { idx, name in
+                    Text("›").foregroundStyle(Theme.text3)
+                    Button {
+                        path = Array(path[0...idx])
+                    } label: {
+                        Text(name)
+                            .font(.system(size: 12.5, weight: idx == path.count - 1 ? .semibold : .regular,
+                                          design: .monospaced))
+                            .foregroundStyle(idx == path.count - 1 ? Theme.text : Theme.text2)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 22)
+            .padding(.top, 4)
+        }
+    }
+
+    private func note(node: RegistryNode?) -> some View {
+        var parts = ["\(human(model.registryValueCount)) values"]
+        if let lw = node?.lastWritten {
+            parts.append("written \(Self.dateFmt.string(from: lw))")
+        }
+        return Text(parts.joined(separator: " · "))
+            .font(.system(size: 12))
+            .foregroundStyle(Theme.text3)
+            .padding(.horizontal, 22)
+            .padding(.top, 10)
+    }
+
+    private var emptyState: some View {
+        ContentUnavailableView(
+            "No registry data",
+            systemImage: "list.bullet.indent",
+            description: Text("Parse the registry hives on the macOS app to browse them here."))
+            .padding(.top, 60)
+            .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder private func keyRows(_ kids: [RegistryNode]) -> some View {
+        // Cap rendered rows: SOFTWARE\Classes can hold tens of thousands of
+        // subkeys, which would spike memory on a phone.
+        ForEach(kids.prefix(displayLimit)) { node in
+            Button { path.append(node.name) } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: node.isHive ? "externaldrive" : "folder")
+                        .font(.system(size: 17))
+                        .frame(width: 24)
+                        .foregroundStyle(node.isHive
+                            ? Theme.teal2
+                            : Color(red: 0x7C/255, green: 0xB8/255, blue: 0xEC/255))
+                    Text(node.name)
+                        .font(.system(size: 14))
+                        .foregroundStyle(Theme.text)
+                        .lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    if !node.values.isEmpty {
+                        Text("\(node.values.count)")
+                            .font(.system(size: 11.5, design: .monospaced))
+                            .foregroundStyle(Theme.text3)
+                    }
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.text3.opacity(0.7))
+                }
+                .padding(.horizontal, 15).padding(.vertical, 12)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .overlay(alignment: .bottom) { Divider().background(Theme.hair2) }
+        }
+        if kids.count > displayLimit {
+            Button { displayLimit += pageSize } label: {
+                Text("Show \(min(pageSize, kids.count - displayLimit)) more · \(human(kids.count - displayLimit)) hidden")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Theme.teal)
+                    .frame(maxWidth: .infinity).padding(.vertical, 13)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    @ViewBuilder private func valueRows(_ values: [RegistryValue]) -> some View {
+        ForEach(values) { value in
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 8) {
+                    Text(value.name.isEmpty ? "(default)" : value.name)
+                        .font(.system(size: 13.5, weight: .medium))
+                        .foregroundStyle(value.name.isEmpty ? Theme.text2 : Theme.text)
+                        .lineLimit(1).truncationMode(.middle)
+                    Pill(text: value.typeBadge, foreground: Theme.text2)
+                    Spacer(minLength: 0)
+                }
+                Text(value.decodedData.isEmpty ? "(empty)" : value.decodedData)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(value.decodedData.isEmpty ? Theme.text3 : Theme.text2)
+                    .lineLimit(4).truncationMode(.tail)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 15).padding(.vertical, 11)
+            .overlay(alignment: .bottom) { Divider().background(Theme.hair2) }
+        }
+    }
+
+    private func human(_ n: Int) -> String {
+        let f = NumberFormatter(); f.numberStyle = .decimal
+        return f.string(from: NSNumber(value: n)) ?? "\(n)"
+    }
+
+    private static let dateFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")   // forensic timestamps are UTC
+        return f
+    }()
+}
 #endif

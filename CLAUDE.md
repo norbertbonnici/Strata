@@ -116,7 +116,8 @@ Ingestion (E01/VHD/raw + loose KAPE folders), file tree (volume-grouped, deleted
 registry parsing → host profile, 15 ATT&CK analyzers → kill chain, IOC matching,
 interactive lateral graph, multi-host `.strata` cases, iOS viewer, Case
 Library / iCloud-Drive sync, case reporting & export (HTML/Markdown examiner
-report + CSV/JSON data exports; per-endpoint selection + report severity filter).
+report + CSV/JSON data exports; per-endpoint selection + report severity filter),
+registry explorer (regedit-style hive→key→value browser, macOS + iOS).
 Two betas shipped. A full 56-issue view review was completed and remediated.
 
 ## Roadmap
@@ -149,11 +150,16 @@ Two betas shipped. A full 56-issue view review was completed and remediated.
    rather than rehashing a huge image (add `ewfinfo`/`ewfverify` to the vendored
    tools in `build-tsk.sh` — libewf is already built); compute for raw/VHD.
    This is the legal-weight record, separate from the CTI enrichment audit log.
-3. **Registry explorer** — interactive hive → key → value tree browser
-   (SYSTEM/SOFTWARE/SAM/SECURITY/NTUSER/UsrClass…), with key last-write times,
-   typed value decoding (REG_SZ/DWORD/BINARY/MULTI_SZ…), and search. Build the
-   tree from the already-parsed `RegistryValue` set the way `FileNode.buildTree`
-   builds the file tree; add a "Registry" sidebar tab (+ iOS drill view).
+3. ~~**Registry explorer**~~ — **shipped.** Interactive hive → key → value tree
+   browser (SYSTEM/SOFTWARE/SAM/SECURITY/NTUSER/UsrClass…) with key last-write
+   times, typed value decoding (REG_SZ/DWORD/BINARY/MULTI_SZ…), and search. Pure
+   `RegistryNode.buildTree` (`StrataCore`) groups the already-parsed
+   `RegistryValue` set by hive the way `FileNode.buildTree` groups by volume;
+   regedit-style two-pane macOS `RegistryView` (key OutlineGroup + value table,
+   search flips the left pane to a flat match list) + iOS `RegistryDrillView`
+   (breadcrumb drill). Shared display helpers (`typeBadge`/`decodedData`/
+   `matches`) live on `RegistryValue`. **Known v1 limit:** hives sharing a label
+   (several users' `NTUSER`) merge under one node, since `hive` is a logical label.
 4. **More artifact parsers/analyzers** (each plugs into the `Analyzer` protocol):
    Prefetch, Amcache/Shimcache, USN journal (`$J`), LNK/JumpLists, SRUM, browser
    history, WMI persistence.

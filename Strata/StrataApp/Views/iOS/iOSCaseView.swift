@@ -235,6 +235,15 @@ struct MoreTab: View {
                     Divider().background(Theme.hair2).padding(.leading, 50)
 
                     NavigationLink {
+                        RegistryDrillView()
+                    } label: {
+                        moreRow(icon: "list.bullet.indent", title: "Registry",
+                                trailing: counter(model.registryValueCount))
+                    }
+                    .buttonStyle(.plain)
+                    Divider().background(Theme.hair2).padding(.leading, 50)
+
+                    NavigationLink {
                         LateralDrillView()
                     } label: {
                         moreRow(icon: "point.3.connected.trianglepath.dotted",
