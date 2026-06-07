@@ -115,8 +115,9 @@ Ingestion (E01/VHD/raw + loose KAPE folders), file tree (volume-grouped, deleted
 & slack toggles), MACB timeline (histogram drag-select, gap analysis), EVTX +
 registry parsing → host profile, 15 ATT&CK analyzers → kill chain, IOC matching,
 interactive lateral graph, multi-host `.strata` cases, iOS viewer, Case
-Library / iCloud-Drive sync. Two betas shipped. A full 56-issue view review was
-completed and remediated.
+Library / iCloud-Drive sync, case reporting & export (HTML/Markdown examiner
+report + CSV/JSON data exports; per-endpoint selection + report severity filter).
+Two betas shipped. A full 56-issue view review was completed and remediated.
 
 ## Roadmap
 
@@ -132,9 +133,14 @@ completed and remediated.
   download-completion (needs on-device validation).
 
 ### Planned roadmap (owner-approved, roughly prioritized)
-1. **Case reporting & export** — examiner report (PDF/HTML/Markdown) of host
-   profile + kill chain + findings + timeline excerpts; CSV/JSON export of
-   timeline / findings / IOC matches.
+1. ~~**Case reporting & export**~~ — **shipped.** Examiner report (HTML +
+   Markdown) of host profile + kill chain + findings + timeline excerpts; CSV/JSON
+   export of timeline / findings / IOC matches. Endpoint (host) selection + a
+   report severity filter; each export is a timestamped folder with a `README.txt`.
+   Pure, cross-platform `StrataReport/` module; macOS `ExportSheet` (Tools ▸
+   Export…, ⇧⌘E). **In-app PDF was intentionally dropped** in favour of
+   print-ready HTML (open in a browser → Print → Save as PDF) — revisit only if a
+   hash-stable, canonical PDF is needed for legal weight.
 2. **Chain-of-custody & evidence integrity** — capture acquisition metadata
    (examiner, acquisition method/tool, date/time, case #) and **source hashes**
    per evidence item, with a verification status and a custody log (acquired /

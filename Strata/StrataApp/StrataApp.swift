@@ -81,6 +81,12 @@ private struct ToolsCommands: Commands {
                 Task { await model.runIOCMatch() }
             }
             .disabled(model.currentCase == nil || model.iocs.isEmpty || model.isWorking)
+
+            Divider()
+
+            Button("Export...") { model.requestExport() }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
+                .disabled(model.currentCase == nil)
         }
     }
 }

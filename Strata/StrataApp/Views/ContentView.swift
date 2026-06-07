@@ -60,6 +60,12 @@ struct ContentView: View {
                 EmptyView()
                 #endif
             case .enrichment: EnrichmentSheet().environmentObject(model)
+            case .export:
+                #if os(macOS)
+                ExportSheet().environmentObject(model)
+                #else
+                EmptyView()
+                #endif
             }
         }
     }

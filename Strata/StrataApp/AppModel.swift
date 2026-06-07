@@ -61,6 +61,7 @@ final class AppModel: ObservableObject {
     enum ActiveSheet: Identifiable {
         case newCase
         case enrichment
+        case export
         var id: Int { hashValue }
     }
 
@@ -401,6 +402,74 @@ final class AppModel: ObservableObject {
     func requestEnrichment() {
         guard currentCase != nil else { return }
         activeSheet = .enrichment
+    }
+
+    /// Triggered by Tools > Export (Shift-Cmd-E). Presents the export sheet.
+    func requestExport() {
+        guard currentCase != nil else { return }
+        activeSheet = .export
+    }
+
+    /// Generate the selected report/export artifacts and write them as one
+    /// timestamped set into `folder`. Returns the created export folder on
+    /// success (so the sheet can reveal it in Finder), or nil.
+    ///
+    /// `hostIDs` selects which endpoints to include - both the report and the
+    /// data exports cover exactly those hosts, in the case's host order.
+    ///
+    /// Mirrors `runIOCMatch`: snapshot the (Sendable) per-host data on the main
+    /// actor, then build + write off the main actor so a large timeline doesn't
+    /// stall the UI.
+    @discardableResult
+    func exportSet(_ selection: ExportSelection, hostIDs: Set<UUID>,
+                   to folder: URL) async -> URL? {
+        guard !isWorking else { return nil }
+        guard let theCase = currentCase, !selection.isEmpty else { return nil }
+        let selectedHosts = evidenceList.filter { hostIDs.contains($0.id) }
+        guard !selectedHosts.isEmpty else { return nil }
+        errorMessage = nil
+        isWorking = true
+        defer { isWorking = false }
+        statusMessage = "Generating export…"
+
+        let hosts: [ReportInputs.Host] = selectedHosts.map { evidence in
+            let state = states[evidence.id]
+            return ReportInputs.Host(
+                displayName: evidence.displayName,
+                kindLabel: evidence.kind.label,
+                sourcePath: evidence.sourceURL.path,
+                registryValues: state?.registryValues ?? [],
+                findings: state?.findings ?? [],
+                iocMatches: state?.iocMatches ?? [],
+                timeline: state?.timeline ?? [],
+                fileCount: state?.files.count ?? 0,
+                eventCount: state?.events.count ?? 0)
+        }
+        let now = Date()
+        let inputs = ReportInputs(caseName: theCase.name, examiner: theCase.examiner,
+                                  createdAt: theCase.createdAt, generatedAt: now,
+                                  hosts: hosts)
+
+        let outcome = await Task.detached(priority: .userInitiated) { () -> ExportOutcome in
+            let files = ExportGenerator.generate(inputs: inputs, selection: selection)
+            do {
+                let output = try CaseExportWriter.write(files, caseName: inputs.caseName,
+                                                        timestamp: now, to: folder)
+                return .success(folderURL: output.folderURL, filenames: output.filenames)
+            } catch {
+                return .failure(message: error.localizedDescription)
+            }
+        }.value
+
+        switch outcome {
+        case let .success(folderURL, filenames):
+            let n = filenames.count
+            statusMessage = "Exported \(n) file\(n == 1 ? "" : "s") to \(folderURL.lastPathComponent)."
+            return folderURL
+        case let .failure(message):
+            errorMessage = "Export failed: \(message)"
+            return nil
+        }
     }
 
     /// Triggered by File > Open Case... (Cmd-O). Closes any open case before
