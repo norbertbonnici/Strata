@@ -148,6 +148,8 @@ struct ExportSheet: View {
             Toggle("HTML (.html)", isOn: $reportHTML)
             Text("Per-host profile, findings grouped by kill-chain phase with ATT&CK tags, IOC matches, and a findings timeline.")
                 .font(.caption).foregroundStyle(.secondary)
+            Text("For a PDF, open the HTML report in a browser and Print → Save as PDF.")
+                .font(.caption).foregroundStyle(.secondary)
             Divider()
             Text("Include severities (report only)").font(.caption).foregroundStyle(.secondary)
             HStack(spacing: 12) {

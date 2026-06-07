@@ -233,6 +233,28 @@ struct StrataReportTests {
         #expect(CaseExportWriter.sanitize("   ") == "Case")
     }
 
+    // MARK: - README
+
+    @Test func readmeDocumentsSetAndPDFPathWhenHTMLPresent() {
+        let files = ExportGenerator.generate(inputs: Self.sampleInputs(),
+            selection: ExportSelection(reportHTML: true, timelineCSV: true))
+        let readme = try! #require(files.first { $0.filename == "README.txt" })
+        let text = String(decoding: readme.data, as: UTF8.self)
+        #expect(text.contains("Operation Test"))
+        #expect(text.contains("Operation Test-report.html"))
+        #expect(text.contains("Print > Save as PDF"))     // print-to-PDF guidance
+        // README never lists itself.
+        #expect(!text.contains("README.txt"))
+    }
+
+    @Test func readmeOmitsPDFGuidanceWithoutHTML() {
+        let files = ExportGenerator.generate(inputs: Self.sampleInputs(),
+            selection: ExportSelection(timelineCSV: true))
+        let readme = try! #require(files.first { $0.filename == "README.txt" })
+        let text = String(decoding: readme.data, as: UTF8.self)
+        #expect(!text.contains("Save as PDF"))
+    }
+
     // MARK: - End-to-end generate + write
 
     @Test func generateAndWriteProducesSelectedFiles() throws {
@@ -246,7 +268,8 @@ struct StrataReportTests {
         #expect(names == [
             "Operation Test-report.md", "Operation Test-report.html",
             "Operation Test-timeline.csv", "Operation Test-timeline.json",
-            "Operation Test-findings.csv", "Operation Test-iocmatches.json"
+            "Operation Test-findings.csv", "Operation Test-iocmatches.json",
+            "README.txt"
         ])
 
         let fm = FileManager.default

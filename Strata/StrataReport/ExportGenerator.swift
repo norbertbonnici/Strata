@@ -63,6 +63,12 @@ public nonisolated enum ExportGenerator {
             }
         }
 
+        // Document the set (and the print-to-PDF path) once we know what it holds.
+        if !files.isEmpty {
+            let readme = ExportReadme.render(inputs: inputs, filenames: files.map(\.filename))
+            files.append(ExportedFile(filename: ExportReadme.filename, data: Data(readme.utf8)))
+        }
+
         return files
     }
 }

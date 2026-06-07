@@ -19,7 +19,10 @@ All notable changes to Strata are documented here. The format loosely follows
     severities the report includes (the raw data exports stay complete).
   - **Data exports** (CSV + JSON) of the timeline, findings, and IOC matches,
     with stable, documented schemas and per-host attribution.
-  - All timestamps are ISO-8601 / UTC. PDF export is planned as a follow-up.
+  - Each export folder gets a `README.txt` documenting its contents. All
+    timestamps are ISO-8601 / UTC. There is no in-app PDF renderer by design —
+    the HTML report is print-ready, so open it in a browser and Print → Save as
+    PDF.
 
 ## [0.1.0-beta.2] — 2026-06-06
 
