@@ -131,17 +131,40 @@ completed and remediated.
 - Phase-D hardening for iCloud: `NSFileCoordinator` + robust package
   download-completion (needs on-device validation).
 
-### Candidate features (proposed — pending prioritization)
-*Claude's recommendations; the project owner will add theirs.*
-- **More artifact parsers/analyzers** (highest leverage): Prefetch, Amcache/
-  Shimcache, SRUM, LNK/JumpLists, USN journal (`$J`), browser history, WMI
-  persistence. Each plugs into the existing `Analyzer` protocol.
-- **Case reporting/export**: generate an examiner report (PDF/HTML/Markdown) of
-  findings + kill chain + host profile; CSV/JSON export of timeline/findings.
-- **Super-timeline**: unify FS MACB + EVTX + registry (+ future artifacts) into
-  one pivotable timeline; bookmark/tag findings + analyst notes.
-- **Known-good filtering (NSRL / hash sets)** to cut noise from system files.
-- **Global search** across files/events/registry/timeline.
-- **Multi-host correlation**: case-wide lateral movement across hosts.
-- **IOC enrichment** (VirusTotal/GeoIP) — opt-in, network, confidentiality-gated.
-- **Chain-of-custody audit log** per case (forensic integrity).
+### Planned roadmap (owner-approved, roughly prioritized)
+1. **Case reporting & export** — examiner report (PDF/HTML/Markdown) of host
+   profile + kill chain + findings + timeline excerpts; CSV/JSON export of
+   timeline / findings / IOC matches.
+2. **More artifact parsers/analyzers** (each plugs into the `Analyzer` protocol):
+   Prefetch, Amcache/Shimcache, USN journal (`$J`), LNK/JumpLists, SRUM, browser
+   history, WMI persistence.
+3. **Super-timeline + tagging/notes** — unify FS MACB + EVTX + registry (+ future
+   artifacts) into one pivotable timeline; bookmark/tag findings, analyst notes,
+   case narrative.
+4. **Global search** across files/events/registry/timeline.
+5. **`$MFT` / `$FN` parsing → timestomping detection** (also unlocks true
+   loose-folder MACB).
+6. **Multi-host correlation** — case-wide lateral movement across hosts.
+
+### CTI enrichment (tiered hash/IOC lookup)
+Goal: enrich case IOCs while **minimising VirusTotal API calls** and keeping data
+in org control. Waterfall, short-circuiting on a definitive verdict:
+
+    NSRL  →  MISP / OpenCTI  →  VirusTotal
+
+- **NSRL** (local hash set): known-good filter. A hash in NSRL is benign → tag it
+  and skip all downstream lookups. Doubles as file-tree noise reduction.
+- **MISP / OpenCTI** (self-hosted, org-controlled → confidentiality-friendly):
+  look up hash / IP / domain / URL. MISP via REST (`/attributes/restSearch`),
+  OpenCTI via GraphQL. A hit records the verdict + source and stops the cascade.
+- **VirusTotal** (third-party, rate-limited / paid): last resort, only for
+  indicators unresolved above. Hash-only lookups by default.
+
+Design principles:
+- Per-instance config (base URL + API token) in **Keychain**; all CTI is
+  **opt-in** and clearly labeled — evidence/IOCs leave the host only when enabled.
+- **Cache** verdicts (per-case + global) to avoid repeat calls; back off on rate
+  limits.
+- Record **provenance** on every enrichment (which tier/source produced it).
+- IPs / domains / URLs (no NSRL tier): cascade is MISP / OpenCTI → VT.
+- **Chain-of-custody audit log** of enrichment lookups per case.
