@@ -27,8 +27,15 @@ public nonisolated enum HTMLReportRenderer {
         out += metaRow("Hosts", String(model.hostSections.count))
         out += metaRow("Total findings", String(model.totalFindings))
         out += metaRow("Total IOC matches", String(model.totalIOCMatches))
+        if let note = model.severityFilterNote {
+            out += metaRow("Severity filter", note)
+        }
         out += "</table>\n"
-        out += "<p class=\"note\">All timestamps are ISO-8601 / UTC.</p>\n"
+        out += "<p class=\"note\">All timestamps are ISO-8601 / UTC."
+        if let note = model.severityFilterNote {
+            out += " Findings limited to severities: \(escape(note))."
+        }
+        out += "</p>\n"
 
         if !model.caseSeverityCounts.isEmpty {
             out += "<h2>Case severity summary</h2>\n<p class=\"badges\">"

@@ -165,6 +165,39 @@ struct StrataReportTests {
         #expect(host.timelineExcerpt.count == 2)
     }
 
+    // MARK: - Report severity filter
+
+    @Test func reportSeverityFilterLimitsFindingsButNotDataExport() {
+        let inputs = Self.sampleInputs()
+        let model = ReportModelBuilder.build(from: inputs, severities: [.critical])
+        let host = model.hostSections.first!
+        #expect(host.findingCount == 1)            // only the critical finding
+        #expect(model.totalFindings == 1)
+        #expect(host.phaseGroups.allSatisfy { group in
+            group.findings.allSatisfy { $0.severity == .critical }
+        })
+        #expect(host.timelineExcerpt.allSatisfy { $0.severity == .critical })
+        #expect(model.severityFilterNote == "Critical")
+
+        // The raw findings export is NOT filtered - all 3 findings remain.
+        #expect(ExportRowBuilder.findingRows(from: inputs.hosts).count == 3)
+    }
+
+    @Test func noSeverityFilterNoteWhenAllIncluded() {
+        let model = ReportModelBuilder.build(from: Self.sampleInputs())
+        #expect(model.severityFilterNote == nil)
+    }
+
+    @Test func generatorAppliesReportSeverityFilter() {
+        var selection = ExportSelection(reportMarkdown: true)
+        selection.reportSeverities = [.high, .critical]
+        let files = ExportGenerator.generate(inputs: Self.sampleInputs(), selection: selection)
+        let report = try! #require(files.first { $0.filename.hasSuffix("-report.md") })
+        let text = String(decoding: report.data, as: UTF8.self)
+        #expect(text.contains("Findings limited to severities: Critical, High"))
+        #expect(!text.contains("Suspicious service"))   // the medium finding is excluded
+    }
+
     // MARK: - Markdown
 
     @Test func markdownContainsKeySections() {

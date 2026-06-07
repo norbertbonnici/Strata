@@ -8,12 +8,15 @@ All notable changes to Strata are documented here. The format loosely follows
 ### Added
 
 - **Case reporting & export** (Tools ▸ Export…, ⇧⌘E) — generate an examiner
-  report and data exports for the whole case in one pass, written as a
-  timestamped set into a chosen folder:
+  report and data exports in one pass, written as a timestamped set into a
+  chosen folder:
+  - **Endpoint selection** — choose one, several, or all hosts; both the report
+    and the data exports cover exactly the selected endpoints.
   - **Examiner report** (Markdown + HTML) — per-host profile, findings grouped
     by Cyber Kill Chain phase with ATT&CK tags, IOC matches, and a
     findings-anchored timeline excerpt. The HTML is print-ready (paginates
-    cleanly from a browser's Print dialog).
+    cleanly from a browser's Print dialog). A **severity filter** chooses which
+    severities the report includes (the raw data exports stay complete).
   - **Data exports** (CSV + JSON) of the timeline, findings, and IOC matches,
     with stable, documented schemas and per-host attribution.
   - All timestamps are ISO-8601 / UTC. PDF export is planned as a follow-up.

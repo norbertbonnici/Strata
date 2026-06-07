@@ -12,11 +12,17 @@ public nonisolated struct ExportSelection: Sendable, Equatable {
     public var findingsJSON: Bool
     public var iocMatchesCSV: Bool
     public var iocMatchesJSON: Bool
+    /// Severities to include in the examiner *report*. Defaults to all. This
+    /// filters only the narrative report (findings list, severity rollups, and
+    /// the findings timeline excerpt) - the raw findings CSV/JSON export stays
+    /// complete so the data dump is always a faithful copy.
+    public var reportSeverities: Set<Severity>
 
     public init(reportMarkdown: Bool = false, reportHTML: Bool = false,
                 timelineCSV: Bool = false, timelineJSON: Bool = false,
                 findingsCSV: Bool = false, findingsJSON: Bool = false,
-                iocMatchesCSV: Bool = false, iocMatchesJSON: Bool = false) {
+                iocMatchesCSV: Bool = false, iocMatchesJSON: Bool = false,
+                reportSeverities: Set<Severity> = Set(Severity.allCases)) {
         self.reportMarkdown = reportMarkdown
         self.reportHTML = reportHTML
         self.timelineCSV = timelineCSV
@@ -25,6 +31,7 @@ public nonisolated struct ExportSelection: Sendable, Equatable {
         self.findingsJSON = findingsJSON
         self.iocMatchesCSV = iocMatchesCSV
         self.iocMatchesJSON = iocMatchesJSON
+        self.reportSeverities = reportSeverities
     }
 
     /// True when nothing is selected - the Export button gates on this.

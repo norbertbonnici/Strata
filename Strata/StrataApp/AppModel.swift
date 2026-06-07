@@ -410,24 +410,29 @@ final class AppModel: ObservableObject {
         activeSheet = .export
     }
 
-    /// Generate the selected report/export artifacts for the whole case and
-    /// write them as one timestamped set into `folder`. Returns the created
-    /// export folder on success (so the sheet can reveal it in Finder), or nil.
+    /// Generate the selected report/export artifacts and write them as one
+    /// timestamped set into `folder`. Returns the created export folder on
+    /// success (so the sheet can reveal it in Finder), or nil.
+    ///
+    /// `hostIDs` selects which endpoints to include - both the report and the
+    /// data exports cover exactly those hosts, in the case's host order.
     ///
     /// Mirrors `runIOCMatch`: snapshot the (Sendable) per-host data on the main
     /// actor, then build + write off the main actor so a large timeline doesn't
-    /// stall the UI. The export always covers every host, regardless of the
-    /// current scope selection.
+    /// stall the UI.
     @discardableResult
-    func exportSet(_ selection: ExportSelection, to folder: URL) async -> URL? {
+    func exportSet(_ selection: ExportSelection, hostIDs: Set<UUID>,
+                   to folder: URL) async -> URL? {
         guard !isWorking else { return nil }
         guard let theCase = currentCase, !selection.isEmpty else { return nil }
+        let selectedHosts = evidenceList.filter { hostIDs.contains($0.id) }
+        guard !selectedHosts.isEmpty else { return nil }
         errorMessage = nil
         isWorking = true
         defer { isWorking = false }
         statusMessage = "Generating export…"
 
-        let hosts: [ReportInputs.Host] = evidenceList.map { evidence in
+        let hosts: [ReportInputs.Host] = selectedHosts.map { evidence in
             let state = states[evidence.id]
             return ReportInputs.Host(
                 displayName: evidence.displayName,

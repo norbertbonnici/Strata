@@ -13,7 +13,8 @@ public nonisolated enum ExportGenerator {
 
         // Examiner report (build the model once, render the chosen formats).
         if selection.wantsReport {
-            let model = ReportModelBuilder.build(from: inputs)
+            let model = ReportModelBuilder.build(from: inputs,
+                                                 severities: selection.reportSeverities)
             if selection.reportMarkdown {
                 let markdown = MarkdownReportRenderer.render(model)
                 files.append(ExportedFile(filename: "\(prefix)-report.md",

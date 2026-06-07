@@ -18,8 +18,15 @@ public nonisolated enum MarkdownReportRenderer {
         out += "| Report generated | \(ReportFormat.display(model.generatedAt)) |\n"
         out += "| Hosts | \(model.hostSections.count) |\n"
         out += "| Total findings | \(model.totalFindings) |\n"
-        out += "| Total IOC matches | \(model.totalIOCMatches) |\n\n"
-        out += "_All timestamps are ISO-8601 / UTC._\n\n"
+        out += "| Total IOC matches | \(model.totalIOCMatches) |\n"
+        if let note = model.severityFilterNote {
+            out += "| Severity filter | \(note) |\n"
+        }
+        out += "\n_All timestamps are ISO-8601 / UTC._\n"
+        if let note = model.severityFilterNote {
+            out += "_Findings limited to severities: \(note)._\n"
+        }
+        out += "\n"
 
         if !model.caseSeverityCounts.isEmpty {
             out += "## Case severity summary\n\n"

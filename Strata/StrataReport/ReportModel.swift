@@ -45,4 +45,8 @@ public nonisolated struct ReportModel: Sendable {
     public let totalIOCMatches: Int
     /// Case-wide severity rollup, high → low, non-zero only.
     public let caseSeverityCounts: [SeverityCount]
+    /// Set when the report was filtered to a subset of severities, e.g.
+    /// "High, Critical". `nil` when every severity is included - the renderers
+    /// surface it so the reader knows the findings are a filtered view.
+    public let severityFilterNote: String?
 }
