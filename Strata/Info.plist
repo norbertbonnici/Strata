@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Open .strata packages in place (iCloud Drive, Files, SMB share) rather
+	     than copying them into the iOS app container. The Case Library is a
+	     user-chosen folder accessed via security-scoped bookmarks; evidence
+	     must never be silently duplicated. -->
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<!-- A .strata case is a directory bundle; declare it as a package document
 	     type so Finder / Files / iCloud Drive treat each case as one item and
 	     both apps can open it directly. -->

@@ -4,7 +4,7 @@ import Foundation
 /// values that `parseRegistry()` already extracted. Nothing is persisted -
 /// the registry is the source of truth, this struct is just a typed
 /// projection over it.
-public struct HostProfile: Sendable {
+public nonisolated struct HostProfile: Sendable {
     public var hostname: String?
     public var domain: String?
     public var osProductName: String?     // "Windows 10 Pro"
