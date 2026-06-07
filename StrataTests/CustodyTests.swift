@@ -55,6 +55,18 @@ struct CustodyTests {
         #expect(result.sha256 == Self.hex(SHA256.hash(data: data)))
     }
 
+    @Test func progressIsThrottledNotPerChunk() throws {
+        // 256 KiB with a 1 KiB chunk = 256 reads, but progress must be throttled
+        // to roughly per-1%, so it fires far fewer times than once per chunk.
+        // (A per-chunk callback is what floods the caller and blows up memory.)
+        let url = try Self.tempFile(Data(count: 256 << 10))
+        defer { try? FileManager.default.removeItem(at: url) }
+        final class Counter: @unchecked Sendable { var n = 0 }
+        let counter = Counter()
+        _ = try FileHasher.hash(fileAt: url, chunkSize: 1024) { _, _ in counter.n += 1 }
+        #expect(counter.n <= 110)   // ~101 (per-1%) + final tick, never ~256
+    }
+
     @Test func hashHonoursCancellation() async throws {
         // 8 MiB with 4 KiB chunks => ~2048 iterations; the pre-cancelled task
         // throws at the first checkCancellation before finishing.

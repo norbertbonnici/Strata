@@ -47,19 +47,38 @@ public nonisolated enum FileHasher {
         var md5 = Insecure.MD5()
         var sha = SHA256()
         var read: Int64 = 0
+        var lastPercent = -1
+        var lastReportedBytes: Int64 = 0
 
         while true {
             try Task.checkCancellation()
-            // `read(upToCount:)` returns nil or empty Data at EOF.
-            guard let chunk = try handle.read(upToCount: chunkSize), !chunk.isEmpty else {
-                break
+            // Each `read(upToCount:)` returns an autoreleased NSData-backed
+            // buffer. This loop runs on a background task with no run loop, so
+            // without an explicit pool those buffers accumulate for the whole
+            // (multi-GB) image and exhaust memory. Drain per chunk.
+            let eof = try autoreleasepool { () throws -> Bool in
+                guard let chunk = try handle.read(upToCount: chunkSize),
+                      !chunk.isEmpty else { return true }
+                md5.update(data: chunk)
+                sha.update(data: chunk)
+                read += Int64(chunk.count)
+                // Throttle progress: at most once per 1% (known size) or per
+                // 32 MiB (unknown size). A per-chunk callback floods the caller
+                // (which hops to the main actor each time).
+                if let progress {
+                    if total > 0 {
+                        let percent = Int((read * 100) / total)
+                        if percent != lastPercent { lastPercent = percent; progress(read, total) }
+                    } else if read - lastReportedBytes >= (32 << 20) {
+                        lastReportedBytes = read; progress(read, total)
+                    }
+                }
+                return false
             }
-            md5.update(data: chunk)
-            sha.update(data: chunk)
-            read += Int64(chunk.count)
-            progress?(read, total)
+            if eof { break }
         }
 
+        progress?(read, total)   // final 100% tick
         return Result(md5: hex(md5.finalize()), sha256: hex(sha.finalize()))
     }
 
