@@ -1,12 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<dict>
-	<key>aps-environment</key>
-	<string>development</string>
-	<key>com.apple.developer.aps-environment</key>
-	<string>development</string>
-	<key>com.apple.developer.icloud-container-identifiers</key>
-	<array/>
-</dict>
+<!-- Intentionally empty. Strata is non-sandboxed (it reads raw disk images);
+     Full Disk Access is a user-granted TCC permission, not an entitlement, and
+     the iCloud Drive case sync works with plain file access (no container). The
+     previous iCloud / CloudKit / Push entitlements were unused template cruft. -->
+<dict/>
 </plist>
