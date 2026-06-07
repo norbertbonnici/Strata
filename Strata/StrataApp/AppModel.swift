@@ -1509,7 +1509,23 @@ final class AppModel: ObservableObject {
             }
             total += results.count
         }
-        statusMessage = total == 0 ? "No detections." : "Surfaced \(total) findings."
+        // `total` is case-wide, but the findings / kill-chain views render
+        // `model.findings`, which is scoped to `activeEvidenceID`. If the active
+        // host produced nothing while another did, the views would sit empty
+        // even though we just announced findings - so drop to the combined "All"
+        // scope to surface them instead of silently hiding the result.
+        var switchedScope = false
+        if let id = activeEvidenceID, states[id]?.findings.isEmpty ?? true, total > 0 {
+            activeEvidenceID = nil
+            switchedScope = true
+        }
+        if total == 0 {
+            statusMessage = "No detections."
+        } else if switchedScope {
+            statusMessage = "Surfaced \(total) findings (showing all evidence)."
+        } else {
+            statusMessage = "Surfaced \(total) findings."
+        }
         appendCustody(.analysed,
                       detail: "Ran detection analyzers across \(evidenceList.count) host\(evidenceList.count == 1 ? "" : "s") → \(total) finding\(total == 1 ? "" : "s").")
     }

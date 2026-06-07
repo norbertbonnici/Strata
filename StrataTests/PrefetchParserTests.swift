@@ -108,13 +108,39 @@ struct PrefetchAnalyzerTests {
         #expect(pathFinding?.technique?.attackID == "T1204.002")
     }
 
-    @Test func flagsLOLBinExecution() {
-        let entry = PrefetchEntry(executableName: "RUNDLL32.EXE",
-                                  executablePath: #"\VOLUME{1}\WINDOWS\SYSTEM32\RUNDLL32.EXE"#,
+    @Test func flagsRareLOLBinExecution() {
+        // A genuinely-rare-on-endpoints tool (mshta) is worth surfacing on a
+        // bare execution.
+        let entry = PrefetchEntry(executableName: "MSHTA.EXE",
+                                  executablePath: #"\VOLUME{1}\WINDOWS\SYSTEM32\MSHTA.EXE"#,
                                   runCount: 5, lastRunTimes: [Date()], sourceFile: "x.pf")
         let findings = PrefetchAnalyzer().analyze(context: context([entry]))
         let lolbin = try? #require(findings.first { $0.title.contains("LOLBin") })
-        #expect(lolbin?.technique?.attackID == "T1218.011")
+        #expect(lolbin?.technique?.attackID == "T1218.005")
+    }
+
+    @Test func ignoresUbiquitousLOLBinFromSystem32() {
+        // rundll32 / powershell run constantly on every host - a bare execution
+        // from System32 must NOT flood the findings with noise.
+        for name in ["RUNDLL32.EXE", "POWERSHELL.EXE", "WMIC.EXE", "SCHTASKS.EXE"] {
+            let entry = PrefetchEntry(executableName: name,
+                                      executablePath: #"\VOLUME{1}\WINDOWS\SYSTEM32\"# + name,
+                                      runCount: 9, lastRunTimes: [Date()], sourceFile: "x.pf")
+            #expect(PrefetchAnalyzer().analyze(context: context([entry])).isEmpty,
+                    "bare \(name) from System32 should not be flagged")
+        }
+    }
+
+    @Test func flagsUbiquitousLOLBinFromSuspiciousPath() {
+        // ...but the same binary run from a staging location IS flagged - via
+        // the path rule, not the LOLBin rule.
+        let entry = PrefetchEntry(executableName: "POWERSHELL.EXE",
+                                  executablePath: #"\VOLUME{1}\WINDOWS\TEMP\POWERSHELL.EXE"#,
+                                  runCount: 1, lastRunTimes: [Date()], sourceFile: "x.pf")
+        let findings = PrefetchAnalyzer().analyze(context: context([entry]))
+        let pathFinding = try? #require(findings.first { $0.title.contains("suspicious path") })
+        #expect(pathFinding?.severity == .high)
+        #expect(pathFinding?.technique?.attackID == "T1204.002")
     }
 
     @Test func ignoresBenignSystemExecutable() {
