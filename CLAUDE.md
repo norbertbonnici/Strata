@@ -62,7 +62,7 @@ Per-release notes live in `docs/releases/`; keep `CHANGELOG.md` updated.
 | `StrataEVTX` | Parse `.evtx` via `evtxexport` |
 | `StrataRegistry` | Parse hives via `regfexport` |
 | `StrataTimeline` | MACB timeline + gap/session analysis |
-| `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **15 analyzers**, IOC matcher, lateral graph |
+| `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **17 analyzers**, IOC matcher, lateral graph |
 | `StrataApp` | SwiftUI app. `AppModel` (the store), `CaseStore` (.strata bundle layout), `CaseLibrary`, `RecentCases`, `Views/` (macOS) + `Views/iOS/` |
 
 `.strata` case bundle = a directory: `case.json`, `hosts.json`,
@@ -113,7 +113,7 @@ treat it as one item. The macOS-only ingest code is gated `#if os(macOS)`.
 
 Ingestion (E01/VHD/raw + loose KAPE folders), file tree (volume-grouped, deleted
 & slack toggles), MACB timeline (histogram drag-select, gap analysis), EVTX +
-registry parsing → host profile, 15 ATT&CK analyzers → kill chain, IOC matching,
+registry + Amcache/Shimcache parsing → host profile, 17 ATT&CK analyzers → kill chain, IOC matching,
 interactive lateral graph, multi-host `.strata` cases, iOS viewer, Case
 Library / iCloud-Drive sync, case reporting & export (HTML/Markdown examiner
 report + CSV/JSON data exports; per-endpoint selection + report severity filter),
@@ -161,8 +161,19 @@ Two betas shipped. A full 56-issue view review was completed and remediated.
    `matches`) live on `RegistryValue`. **Known v1 limit:** hives sharing a label
    (several users' `NTUSER`) merge under one node, since `hive` is a logical label.
 4. **More artifact parsers/analyzers** (each plugs into the `Analyzer` protocol):
-   Prefetch, Amcache/Shimcache, USN journal (`$J`), LNK/JumpLists, SRUM, browser
-   history, WMI persistence.
+   - ~~**Amcache/Shimcache**~~ — **shipped.** Both reuse the vendored
+     `regfexport` (no `build-tsk.sh` change). Amcache: `Amcache.hve` added to
+     `discoverHives` (label `AMCACHE`); pure `AmcacheEntry.reconstruct(from:
+     [RegistryValue])` maps `InventoryApplicationFile` + legacy `Root\File`
+     keys, recovering SHA-1 from `FileId`. Shimcache: pure `ShimcacheParser`
+     byte-decodes the SYSTEM `AppCompatCache` blob (already captured in
+     `RegistryValue.data` as hex), version-aware (Win10/8.1/8/7). Both: per-host
+     `amcache.json`/`shimcache.json`, derived in `parseRegistry`, `AmcacheAnalyzer`
+     + `ShimcacheAnalyzer` (suspicious-path gated; **presence, not execution**),
+     macOS views + iOS drills. **Shimcache decoder validated against synthetic
+     fixtures only** — confirm against a real SYSTEM hive.
+   - Still pending: Prefetch (PR pending), USN journal (`$J`), LNK/JumpLists,
+     SRUM, browser history, WMI persistence.
 5. **Super-timeline + tagging/notes** — unify FS MACB + EVTX + registry (+ future
    artifacts) into one pivotable timeline; bookmark/tag findings, analyst notes,
    case narrative.

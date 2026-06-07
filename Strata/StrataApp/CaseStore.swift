@@ -23,6 +23,7 @@ public enum CaseStore {
     private static let eventsFilename     = "events.json"
     private static let registryFilename   = "registry.json"
     private static let amcacheFilename     = "amcache.json"
+    private static let shimcacheFilename    = "shimcache.json"
     private static let findingsFilename   = "findings.json"
     private static let iocsFilename       = "iocs.json"
     private static let iocMatchesFilename = "iocmatches.json"
@@ -157,6 +158,16 @@ public enum CaseStore {
     public static func writeAmcache(_ entries: [AmcacheEntry],
                                     forHostID id: UUID, in bundle: URL) throws {
         try writeArray(entries, at: amcacheFileURL(forHostID: id, in: bundle))
+    }
+    public static func shimcacheFileURL(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle).appendingPathComponent(shimcacheFilename)
+    }
+    public static func readShimcache(forHostID id: UUID, in bundle: URL) throws -> [ShimcacheEntry]? {
+        try readArrayIfPresent(at: shimcacheFileURL(forHostID: id, in: bundle))
+    }
+    public static func writeShimcache(_ entries: [ShimcacheEntry],
+                                      forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(entries, at: shimcacheFileURL(forHostID: id, in: bundle))
     }
     public static func readFindings(forHostID id: UUID, in bundle: URL) throws -> [Finding]? {
         try readArrayIfPresent(at: findingsFileURL(forHostID: id, in: bundle))

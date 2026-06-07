@@ -714,4 +714,88 @@ struct AmcacheDrillView: View {
         return f
     }()
 }
+
+// MARK: - Shimcache drill view
+
+/// Read-only AppCompatCache list for the active scope, in cache order. Proves
+/// presence, not execution. Paged for busy hosts.
+struct ShimcacheDrillView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var displayLimit = 200
+    private let pageSize = 200
+
+    var body: some View {
+        let entries = model.shimcache
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitle(title: "Shimcache",
+                           subtitle: "\(human(entries.count)) path\(entries.count == 1 ? "" : "s") · presence, not execution")
+
+                if entries.isEmpty {
+                    ContentUnavailableView(
+                        "No Shimcache",
+                        systemImage: "rectangle.stack.badge.clock",
+                        description: Text("Parse the registry on the macOS app to decode AppCompatCache here."))
+                        .padding(.top, 60)
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Card { rows(entries) }.padding(.top, 10)
+                }
+
+                Spacer(minLength: 26)
+            }
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+    }
+
+    @ViewBuilder private func rows(_ entries: [ShimcacheEntry]) -> some View {
+        ForEach(entries.prefix(displayLimit)) { entry in
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 11) {
+                    Image(systemName: "rectangle.stack.badge.clock")
+                        .font(.system(size: 16)).frame(width: 22).foregroundStyle(Theme.teal2)
+                    Text(entry.name)
+                        .font(.system(size: 13.5, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    if let modified = entry.lastModified {
+                        Text(Self.dateFmt.string(from: modified))
+                            .font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text3)
+                    }
+                }
+                Text(entry.path)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(Theme.text3).lineLimit(1).truncationMode(.middle)
+                    .padding(.leading, 33)
+            }
+            .padding(.horizontal, 15).padding(.vertical, 11)
+            .overlay(alignment: .bottom) { Divider().background(Theme.hair2) }
+        }
+        if entries.count > displayLimit {
+            Button { displayLimit += pageSize } label: {
+                Text("Show \(min(pageSize, entries.count - displayLimit)) more · \(human(entries.count - displayLimit)) hidden")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Theme.teal)
+                    .frame(maxWidth: .infinity).padding(.vertical, 13)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func human(_ n: Int) -> String {
+        let f = NumberFormatter(); f.numberStyle = .decimal
+        return f.string(from: NSNumber(value: n)) ?? "\(n)"
+    }
+
+    private static let dateFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")   // forensic timestamps are UTC
+        return f
+    }()
+}
 #endif
