@@ -5,7 +5,12 @@ import Combine
 /// Per-evidence working set. One of these exists for every `Evidence` the
 /// user has ingested in the current session. AppModel composes views across
 /// any subset.
-struct EvidenceState {
+///
+/// `nonisolated` + `Sendable` (all stored fields are Sendable value types) so a
+/// host's working set can be assembled off the main actor in
+/// `AppModel.loadEvidenceState` and published back without copying through
+/// MainActor isolation.
+nonisolated struct EvidenceState: Sendable {
     /// TSK SQLite location, or nil for loose-folder hosts that have no image
     /// to back a TSK database - their files are read straight off disk.
     var dbURL: URL?
@@ -181,9 +186,15 @@ final class AppModel: ObservableObject {
 
     /// Open an existing bundle and rehydrate per-host state. Event-log and
     /// registry parsing are NOT replayed - the user clicks Parse on the
-    /// Events / Overview screen to do that. File listings (cheap SQLite
-    /// reads) are loaded immediately so the Evidence and Timeline tabs
-    /// aren't empty.
+    /// Events / Overview screen to do that.
+    ///
+    /// `case.json` / `hosts.json` are tiny, so the case window, host picker, and
+    /// tabs render immediately. The expensive part - re-reading the TSK file
+    /// listing, building the MACB timeline (200k+ files × 4 stamps = millions of
+    /// events), and decoding the per-host events/registry/findings JSON - runs
+    /// off the main actor in `loadEvidenceState`, and each host is published as
+    /// it finishes. So a case opens to a responsive (if briefly empty) UI that
+    /// fills in progressively, instead of freezing until everything is parsed.
     func openCase(at bundleURL: URL) async {
         errorMessage = nil
         isWorking = true
@@ -195,95 +206,129 @@ final class AppModel: ObservableObject {
             currentCaseBundleURL = bundleURL
             evidenceList = hosts
             states = [:]
-            // iOS memory is tight enough that we cannot replay the macOS load
-            // path verbatim: dropping the trailing-slack pseudo-entries and
-            // skipping the full file-MACB timeline (200k+ files × 4 stamps =
-            // millions of TimelineEvents) is the difference between opening
-            // a real case and an OOM kill. macOS keeps the full fidelity.
-            for evidence in hosts {
-                do {
-                    // Rebuild the file listing from the source, mirroring how it
-                    // was first ingested: re-walk a loose folder, or re-read the
-                    // TSK database for an image. Either way the listing is cheap
-                    // and reproducible, so it's never persisted in the bundle.
-                    var state: EvidenceState
-                    var timeline: [TimelineEvent]
-                    if evidence.kind == .kapeLooseFolder {
-                        let root = evidence.sourceURL
-                        guard FileManager.default.fileExists(atPath: root.path) else {
-                            statusMessage = "\(evidence.displayName): source folder missing at \(root.path)"
-                            continue
-                        }
-                        var files = KapeFolderIngestor().ingest(folderAt: root)
-                        #if !os(macOS)
-                        files.removeAll(where: TimelineBuilder.isSlackEntry)
-                        #endif
-                        state = EvidenceState(dbURL: nil)
-                        state.files = files
-                        #if os(macOS)
-                        timeline = TimelineBuilder.build(from: files)
-                        #else
-                        timeline = []
-                        #endif
-                    } else {
-                        let dbURL = CaseStore.tskDatabaseURL(forHostID: evidence.id, in: bundleURL)
-                        guard FileManager.default.fileExists(atPath: dbURL.path) else { continue }
-                        let database = try TSKDatabase(path: dbURL)
-                        var files = try database.fetchFiles()
-                        #if !os(macOS)
-                        files.removeAll(where: TimelineBuilder.isSlackEntry)
-                        #endif
-                        state = EvidenceState(dbURL: dbURL)
-                        state.files = files
-                        state.volumes = (try? database.fetchVolumes()) ?? []
-                        #if os(macOS)
-                        timeline = TimelineBuilder.build(from: files)
-                        #else
-                        timeline = []
-                        #endif
-                    }
-                    // Rehydrate cached parse output. Missing files mean the
-                    // user hasn't run Parse on this host yet (or pre-dates
-                    // the caching format) - either way, fall back to empty.
-                    // Lean mode drops the per-event XML payload (the bulk of
-                    // each EventLogRecord's footprint) so the events array
-                    // fits even for million-event cases.
-                    #if os(macOS)
-                    state.events = (try? CaseStore.readEvents(forHostID: evidence.id,
-                                                              in: bundleURL)) ?? []
-                    #else
-                    state.events = (try? CaseStore.readEventsLite(forHostID: evidence.id,
-                                                                  in: bundleURL)) ?? []
-                    #endif
-                    // Fold evtx records back into the timeline so the
-                    // sessions panel and Source filter work without
-                    // re-parsing on every case open.
-                    if !state.events.isEmpty {
-                        timeline.append(contentsOf: TimelineBuilder.build(from: state.events))
-                        timeline.sort { $0.date < $1.date }
-                    }
-                    state.timeline = timeline
-                    state.registryValues = (try? CaseStore.readRegistry(forHostID: evidence.id,
-                                                                        in: bundleURL)) ?? []
-                    state.findings = (try? CaseStore.readFindings(forHostID: evidence.id,
-                                                                  in: bundleURL)) ?? []
-                    state.iocMatches = (try? CaseStore.readIOCMatches(forHostID: evidence.id,
-                                                                      in: bundleURL)) ?? []
+            // Show the first host's (briefly empty) scope right away; its
+            // working set streams in below.
+            activeEvidenceID = hosts.first?.id
+
+            // Load hosts one at a time off the main actor. Sequential rather
+            // than a task group: a multi-host case loading every TSK DB +
+            // events.json in parallel can spike memory hard (and OOM-kill iOS),
+            // and the UI stays responsive either way since nothing blocks main.
+            for (index, evidence) in hosts.enumerated() {
+                statusMessage = hosts.count > 1
+                    ? "Loading \(evidence.displayName) (\(index + 1) of \(hosts.count))…"
+                    : "Loading \(evidence.displayName)…"
+                let outcome = await Task.detached(priority: .userInitiated) {
+                    Self.loadEvidenceState(for: evidence, in: bundleURL)
+                }.value
+                switch outcome {
+                case .loaded(let state):
                     states[evidence.id] = state
-                } catch {
-                    // Skip this host but keep going so a single corrupted DB
-                    // doesn't block the whole case from opening.
-                    statusMessage = "Failed to load \(evidence.displayName): \(error.localizedDescription)"
+                case .skippedSilently:
+                    break
+                case .skipped(let message):
+                    statusMessage = message
                 }
             }
-            iocs = (try? CaseStore.readIOCs(in: bundleURL)) ?? []
-            custodyLog = (try? CaseStore.readCustody(in: bundleURL)) ?? []
-            activeEvidenceID = hosts.first?.id
+
+            // Case-wide indicators + custody ledger, also decoded off-main.
+            let caseWide = await Task.detached(priority: .userInitiated) {
+                (iocs: (try? CaseStore.readIOCs(in: bundleURL)) ?? [],
+                 custody: (try? CaseStore.readCustody(in: bundleURL)) ?? [])
+            }.value
+            iocs = caseWide.iocs
+            custodyLog = caseWide.custody
+
             RecentCases.record(bundleURL)
             recentCases = RecentCases.load()
             statusMessage = "Loaded case '\(theCase.name)' (\(hosts.count) host\(hosts.count == 1 ? "" : "s"))."
         } catch {
             errorMessage = "Failed to open case: \(error.localizedDescription)"
+        }
+    }
+
+    /// Outcome of assembling one host's working set off the main actor.
+    /// `skippedSilently` covers a host whose TSK DB is simply absent (nothing to
+    /// report); `skipped(_)` carries a user-facing reason (missing source folder
+    /// or a load error) for the status bar.
+    private nonisolated enum HostLoadOutcome: Sendable {
+        case loaded(EvidenceState)
+        case skippedSilently
+        case skipped(String)
+    }
+
+    /// Build one host's working set entirely off the main actor: re-read the TSK
+    /// file listing (or re-walk the loose folder - both cheap and reproducible,
+    /// so neither is persisted in the bundle), build the MACB timeline, and
+    /// decode the cached events/registry/findings/IOC-match JSON. All inputs are
+    /// value types and the result is `Sendable`, so the caller just publishes it.
+    ///
+    /// iOS can't replay the macOS path verbatim: it drops the trailing-slack
+    /// pseudo-entries and skips the full file-MACB timeline - on a real case
+    /// that's the difference between opening and an OOM kill. macOS keeps full
+    /// fidelity. The cached event JSON is read "lite" on iOS (no per-event XML
+    /// payload, the bulk of each record's footprint) for the same reason.
+    private nonisolated static func loadEvidenceState(for evidence: Evidence,
+                                                      in bundleURL: URL) -> HostLoadOutcome {
+        do {
+            var state: EvidenceState
+            var timeline: [TimelineEvent]
+            if evidence.kind == .kapeLooseFolder {
+                let root = evidence.sourceURL
+                guard FileManager.default.fileExists(atPath: root.path) else {
+                    return .skipped("\(evidence.displayName): source folder missing at \(root.path)")
+                }
+                var files = KapeFolderIngestor().ingest(folderAt: root)
+                #if !os(macOS)
+                files.removeAll(where: TimelineBuilder.isSlackEntry)
+                #endif
+                state = EvidenceState(dbURL: nil)
+                state.files = files
+                #if os(macOS)
+                timeline = TimelineBuilder.build(from: files)
+                #else
+                timeline = []
+                #endif
+            } else {
+                let dbURL = CaseStore.tskDatabaseURL(forHostID: evidence.id, in: bundleURL)
+                guard FileManager.default.fileExists(atPath: dbURL.path) else { return .skippedSilently }
+                let database = try TSKDatabase(path: dbURL)
+                var files = try database.fetchFiles()
+                #if !os(macOS)
+                files.removeAll(where: TimelineBuilder.isSlackEntry)
+                #endif
+                state = EvidenceState(dbURL: dbURL)
+                state.files = files
+                state.volumes = (try? database.fetchVolumes()) ?? []
+                #if os(macOS)
+                timeline = TimelineBuilder.build(from: files)
+                #else
+                timeline = []
+                #endif
+            }
+            // Rehydrate cached parse output. Missing files mean the user hasn't
+            // run Parse on this host yet (or it pre-dates the caching format) -
+            // either way, fall back to empty.
+            #if os(macOS)
+            state.events = (try? CaseStore.readEvents(forHostID: evidence.id, in: bundleURL)) ?? []
+            #else
+            state.events = (try? CaseStore.readEventsLite(forHostID: evidence.id, in: bundleURL)) ?? []
+            #endif
+            // Fold evtx records back into the timeline so the sessions panel and
+            // Source filter work without re-parsing on every case open.
+            if !state.events.isEmpty {
+                timeline.append(contentsOf: TimelineBuilder.build(from: state.events))
+                timeline.sort { $0.date < $1.date }
+            }
+            state.timeline = timeline
+            state.registryValues = (try? CaseStore.readRegistry(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.findings = (try? CaseStore.readFindings(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.iocMatches = (try? CaseStore.readIOCMatches(forHostID: evidence.id, in: bundleURL)) ?? []
+            return .loaded(state)
+        } catch {
+            // Skip this host but keep going so a single corrupted DB doesn't
+            // block the whole case from opening.
+            return .skipped("Failed to load \(evidence.displayName): \(error.localizedDescription)")
         }
     }
 
