@@ -30,23 +30,34 @@ public nonisolated struct PrefetchAnalyzer: Analyzer {
         #"\downloads\"#,
     ]
 
-    /// Living-off-the-land binaries that are *rare on a normal endpoint*, so a
-    /// bare execution is itself worth surfacing. Deliberately curated: the
-    /// ubiquitous interpreters/proxies (powershell, rundll32, regsvr32, wmic,
-    /// schtasks, cscript, wscript) run constantly on every Windows host, so
-    /// flagging their mere execution buries the signal under thousands of
-    /// near-zero-value findings - they're still caught by the suspicious-path
-    /// rule above when they run from a staging location. Keyed by lowercased
-    /// executable name; severity reflects how load-bearing the signal is.
+    /// Living-off-the-land / dual-use binaries worth surfacing on execution,
+    /// each with its ATT&CK technique and a severity reflecting how load-bearing
+    /// the signal is. Keyed by lowercased executable name.
+    ///
+    /// These are kept low severity rather than dropped, even for the ubiquitous
+    /// ones (powershell, rundll32, regsvr32, wmic, schtasks): prefetch volume is
+    /// naturally bounded (~1024 .pf, most of them ordinary apps not in this map),
+    /// so this yields dozens of findings per host - not a flood - and the kill
+    /// chain collapses them by technique. The "this ran, at this time" signal is
+    /// genuinely useful in triage even for a bare execution; the suspicious-path
+    /// rule above additionally escalates any of them run from a staging location.
     private static let lolbins: [String: (AttackTechnique, Severity)] = [
         "psexesvc.exe":  (AttackTechnique(attackID: "T1569.002", name: "System Services: Service Execution"), .medium),
         "psexec.exe":    (AttackTechnique(attackID: "T1569.002", name: "System Services: Service Execution"), .medium),
+        "wmic.exe":      (AttackTechnique(attackID: "T1047", name: "Windows Management Instrumentation"), .low),
         "mshta.exe":     (AttackTechnique(attackID: "T1218.005", name: "System Binary Proxy Execution: Mshta"), .low),
+        "rundll32.exe":  (AttackTechnique(attackID: "T1218.011", name: "System Binary Proxy Execution: Rundll32"), .low),
+        "regsvr32.exe":  (AttackTechnique(attackID: "T1218.010", name: "System Binary Proxy Execution: Regsvr32"), .low),
         "installutil.exe": (AttackTechnique(attackID: "T1218.004", name: "System Binary Proxy Execution: InstallUtil"), .low),
         "cmstp.exe":     (AttackTechnique(attackID: "T1218.003", name: "System Binary Proxy Execution: CMSTP"), .low),
         "msbuild.exe":   (AttackTechnique(attackID: "T1127.001", name: "Trusted Developer Utilities Proxy Execution: MSBuild"), .low),
         "certutil.exe":  (AttackTechnique(attackID: "T1105", name: "Ingress Tool Transfer"), .low),
         "bitsadmin.exe": (AttackTechnique(attackID: "T1197", name: "BITS Jobs"), .low),
+        "powershell.exe": (AttackTechnique(attackID: "T1059.001", name: "Command and Scripting Interpreter: PowerShell"), .low),
+        "pwsh.exe":      (AttackTechnique(attackID: "T1059.001", name: "Command and Scripting Interpreter: PowerShell"), .low),
+        "cscript.exe":   (AttackTechnique(attackID: "T1059", name: "Command and Scripting Interpreter"), .low),
+        "wscript.exe":   (AttackTechnique(attackID: "T1059", name: "Command and Scripting Interpreter"), .low),
+        "schtasks.exe":  (AttackTechnique(attackID: "T1053.005", name: "Scheduled Task/Job: Scheduled Task"), .low),
     ]
 
     public func analyze(context: AnalysisContext) -> [Finding] {

@@ -108,32 +108,31 @@ struct PrefetchAnalyzerTests {
         #expect(pathFinding?.technique?.attackID == "T1204.002")
     }
 
-    @Test func flagsRareLOLBinExecution() {
-        // A genuinely-rare-on-endpoints tool (mshta) is worth surfacing on a
-        // bare execution.
-        let entry = PrefetchEntry(executableName: "MSHTA.EXE",
-                                  executablePath: #"\VOLUME{1}\WINDOWS\SYSTEM32\MSHTA.EXE"#,
+    @Test func flagsLOLBinExecution() {
+        // A LOLBin (here rundll32, a classic proxy-execution binary) is surfaced
+        // on execution with its ATT&CK technique, even from System32.
+        let entry = PrefetchEntry(executableName: "RUNDLL32.EXE",
+                                  executablePath: #"\VOLUME{1}\WINDOWS\SYSTEM32\RUNDLL32.EXE"#,
                                   runCount: 5, lastRunTimes: [Date()], sourceFile: "x.pf")
         let findings = PrefetchAnalyzer().analyze(context: context([entry]))
         let lolbin = try? #require(findings.first { $0.title.contains("LOLBin") })
-        #expect(lolbin?.technique?.attackID == "T1218.005")
+        #expect(lolbin?.technique?.attackID == "T1218.011")
     }
 
-    @Test func ignoresUbiquitousLOLBinFromSystem32() {
-        // rundll32 / powershell run constantly on every host - a bare execution
-        // from System32 must NOT flood the findings with noise.
-        for name in ["RUNDLL32.EXE", "POWERSHELL.EXE", "WMIC.EXE", "SCHTASKS.EXE"] {
-            let entry = PrefetchEntry(executableName: name,
-                                      executablePath: #"\VOLUME{1}\WINDOWS\SYSTEM32\"# + name,
-                                      runCount: 9, lastRunTimes: [Date()], sourceFile: "x.pf")
-            #expect(PrefetchAnalyzer().analyze(context: context([entry])).isEmpty,
-                    "bare \(name) from System32 should not be flagged")
-        }
+    @Test func psexecIsMediumSeverity() {
+        // Remote-exec tooling carries more weight than the .low interpreters.
+        let entry = PrefetchEntry(executableName: "PSEXESVC.EXE",
+                                  executablePath: #"\VOLUME{1}\WINDOWS\PSEXESVC.EXE"#,
+                                  runCount: 1, lastRunTimes: [Date()], sourceFile: "x.pf")
+        let findings = PrefetchAnalyzer().analyze(context: context([entry]))
+        let lolbin = try? #require(findings.first { $0.title.contains("LOLBin") })
+        #expect(lolbin?.severity == .medium)
+        #expect(lolbin?.technique?.attackID == "T1569.002")
     }
 
-    @Test func flagsUbiquitousLOLBinFromSuspiciousPath() {
-        // ...but the same binary run from a staging location IS flagged - via
-        // the path rule, not the LOLBin rule.
+    @Test func lolbinFromSuspiciousPathYieldsBothLenses() {
+        // A LOLBin run from a staging location triggers BOTH rules: the
+        // suspicious-path escalation (high) and the LOLBin execution finding.
         let entry = PrefetchEntry(executableName: "POWERSHELL.EXE",
                                   executablePath: #"\VOLUME{1}\WINDOWS\TEMP\POWERSHELL.EXE"#,
                                   runCount: 1, lastRunTimes: [Date()], sourceFile: "x.pf")
@@ -141,6 +140,7 @@ struct PrefetchAnalyzerTests {
         let pathFinding = try? #require(findings.first { $0.title.contains("suspicious path") })
         #expect(pathFinding?.severity == .high)
         #expect(pathFinding?.technique?.attackID == "T1204.002")
+        #expect(findings.contains { $0.title.contains("LOLBin") })
     }
 
     @Test func ignoresBenignSystemExecutable() {
