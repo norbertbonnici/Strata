@@ -2,7 +2,10 @@ import Foundation
 
 /// Expands FileEntry timestamps into discrete timeline events - the same model
 /// TSK's `mactime` uses: one event per non-empty MACB timestamp.
-public enum TimelineBuilder {
+///
+/// `nonisolated` so the (pure, value-in/value-out) build can run off the main
+/// actor during case load - see `AppModel.loadEvidenceState`.
+public nonisolated enum TimelineBuilder {
 
     /// TSK emits a `<name>-slack` pseudo-entry for every allocated cluster's
     /// trailing slack space. These carry 1980-epoch timestamps and inflate
