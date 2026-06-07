@@ -61,8 +61,9 @@ Per-release notes live in `docs/releases/`; keep `CHANGELOG.md` updated.
 | `StrataTSK` | Vendored TSK binaries, `tsk_loaddb` → SQLite (read via GRDB), `icat` extraction, KAPE source classification, loose-folder walk (`KapeFolderIngestor`) |
 | `StrataEVTX` | Parse `.evtx` via `evtxexport` |
 | `StrataRegistry` | Parse hives via `regfexport` |
+| `StrataSCCA` | Parse Windows Prefetch (`.pf`) via `sccainfo` (libscca) |
 | `StrataTimeline` | MACB timeline + gap/session analysis |
-| `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **15 analyzers**, IOC matcher, lateral graph |
+| `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **16 analyzers**, IOC matcher, lateral graph |
 | `StrataApp` | SwiftUI app. `AppModel` (the store), `CaseStore` (.strata bundle layout), `CaseLibrary`, `RecentCases`, `Views/` (macOS) + `Views/iOS/` |
 
 `.strata` case bundle = a directory: `case.json`, `hosts.json`,
@@ -113,7 +114,7 @@ treat it as one item. The macOS-only ingest code is gated `#if os(macOS)`.
 
 Ingestion (E01/VHD/raw + loose KAPE folders), file tree (volume-grouped, deleted
 & slack toggles), MACB timeline (histogram drag-select, gap analysis), EVTX +
-registry parsing → host profile, 15 ATT&CK analyzers → kill chain, IOC matching,
+registry + prefetch parsing → host profile, 16 ATT&CK analyzers → kill chain, IOC matching,
 interactive lateral graph, multi-host `.strata` cases, iOS viewer, Case
 Library / iCloud-Drive sync, case reporting & export (HTML/Markdown examiner
 report + CSV/JSON data exports; per-endpoint selection + report severity filter),
@@ -161,8 +162,15 @@ Two betas shipped. A full 56-issue view review was completed and remediated.
    `matches`) live on `RegistryValue`. **Known v1 limit:** hives sharing a label
    (several users' `NTUSER`) merge under one node, since `hive` is a logical label.
 4. **More artifact parsers/analyzers** (each plugs into the `Analyzer` protocol):
-   Prefetch, Amcache/Shimcache, USN journal (`$J`), LNK/JumpLists, SRUM, browser
-   history, WMI persistence.
+   - ~~**Prefetch**~~ — **shipped.** `StrataSCCA` parses `.pf` via libscca's
+     `sccainfo` (added to `build-tsk.sh`; needs a `pkg-config` shim since the
+     newer libscca configure hard-requires it). `PrefetchEntry` (`StrataCore`)
+     persisted per host as `prefetch.json`; `AppModel.parsePrefetch()` mirrors
+     `parseEventLogs` (icat-extract for images, in-place for loose folders);
+     `PrefetchAnalyzer` flags suspicious-path + LOLBin execution (T1204.002 /
+     T1218 / T1059). macOS `PrefetchView` + iOS `PrefetchDrillView`.
+   - Still pending: Amcache/Shimcache, USN journal (`$J`), LNK/JumpLists, SRUM,
+     browser history, WMI persistence.
 5. **Super-timeline + tagging/notes** — unify FS MACB + EVTX + registry (+ future
    artifacts) into one pivotable timeline; bookmark/tag findings, analyst notes,
    case narrative.

@@ -19,6 +19,7 @@ nonisolated struct EvidenceState: Sendable {
     var events: [EventLogRecord] = []
     var timeline: [TimelineEvent] = []
     var registryValues: [RegistryValue] = []
+    var prefetch: [PrefetchEntry] = []
     var findings: [Finding] = []
     var iocMatches: [IOCMatch] = []
 }
@@ -322,6 +323,7 @@ final class AppModel: ObservableObject {
             }
             state.timeline = timeline
             state.registryValues = (try? CaseStore.readRegistry(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.prefetch = (try? CaseStore.readPrefetch(forHostID: evidence.id, in: bundleURL)) ?? []
             state.findings = (try? CaseStore.readFindings(forHostID: evidence.id, in: bundleURL)) ?? []
             state.iocMatches = (try? CaseStore.readIOCMatches(forHostID: evidence.id, in: bundleURL)) ?? []
             return .loaded(state)
@@ -620,6 +622,7 @@ final class AppModel: ObservableObject {
         var timeline: [TimelineEvent] = []
         var findings: [Finding] = []
         var registryValues: [RegistryValue] = []
+        var prefetch: [PrefetchEntry] = []
         var iocMatches: [IOCMatch] = []
     }
     private var derivedCache: Derived?
@@ -666,6 +669,7 @@ final class AppModel: ObservableObject {
             d.timeline = s.timeline
             d.findings = s.findings
             d.registryValues = s.registryValues
+            d.prefetch = s.prefetch
             d.iocMatches = s.iocMatches
             return d
         }
@@ -677,11 +681,13 @@ final class AppModel: ObservableObject {
             d.timeline.append(contentsOf: s.timeline)
             d.findings.append(contentsOf: s.findings)
             d.registryValues.append(contentsOf: s.registryValues)
+            d.prefetch.append(contentsOf: s.prefetch)
             d.iocMatches.append(contentsOf: s.iocMatches)
         }
         d.events.sort { $0.writtenAt < $1.writtenAt }
         d.timeline.sort { $0.date < $1.date }
         d.findings.sort { $0.severity > $1.severity }
+        d.prefetch.sort { ($0.lastRun ?? .distantPast) > ($1.lastRun ?? .distantPast) }
         return d
     }
 
@@ -696,6 +702,7 @@ final class AppModel: ObservableObject {
     var timeline: [TimelineEvent] { derived().timeline }
     var findings: [Finding] { derived().findings }
     var registryValues: [RegistryValue] { derived().registryValues }
+    var prefetch: [PrefetchEntry] { derived().prefetch }
     var iocMatches: [IOCMatch] { derived().iocMatches }
 
     // Count-only accessors: sum per-host counts without building or sorting the
@@ -705,6 +712,7 @@ final class AppModel: ObservableObject {
     var timelineCount: Int { scopedCount(\.timeline.count) }
     var findingCount: Int { scopedCount(\.findings.count) }
     var registryValueCount: Int { scopedCount(\.registryValues.count) }
+    var prefetchCount: Int { scopedCount(\.prefetch.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
     private func scopedCount(_ kp: KeyPath<EvidenceState, Int>) -> Int {
@@ -1053,11 +1061,12 @@ final class AppModel: ObservableObject {
 
     #if os(macOS)
 
-    /// One-stop button: parse event logs and registry hives, then run the
-    /// detection engine over the combined evidence.
+    /// One-stop button: parse event logs, registry hives, and prefetch, then
+    /// run the detection engine over the combined evidence.
     func parseArtifacts() async {
         await parseEventLogs()
         await parseRegistry()
+        await parsePrefetch()
         await runAnalyzers()
     }
 
@@ -1362,6 +1371,119 @@ final class AppModel: ObservableObject {
         return parts[usersIdx + 1]
     }
 
+    // MARK: - Prefetch parsing
+
+    /// Parse every `.pf` under `\Windows\Prefetch\` in every loaded evidence
+    /// that doesn't already have prefetch - extracting with icat for image
+    /// hosts, or reading the collected file in place for loose folders. Each
+    /// `.pf` yields one `PrefetchEntry`. Does NOT run analyzers; use
+    /// `parseArtifacts()` for the full pipeline.
+    func parsePrefetch() async {
+        guard !evidenceList.isEmpty else {
+            errorMessage = "No evidence loaded."
+            return
+        }
+        errorMessage = nil
+        isWorking = true
+        defer {
+            isWorking = false
+            progress = nil
+        }
+
+        func candidates(_ state: EvidenceState) -> [FileEntry] {
+            state.files.filter {
+                $0.fileExtension == "pf" && !$0.isDirectory && !$0.isDeleted && $0.size > 0
+                    && $0.fullPath.lowercased().contains("/prefetch/")
+            }
+        }
+
+        let totalCandidates = evidenceList.reduce(0) { acc, evidence in
+            guard let state = states[evidence.id], state.prefetch.isEmpty else { return acc }
+            return acc + candidates(state).count
+        }
+        guard totalCandidates > 0 else {
+            statusMessage = "No new prefetch files to parse."
+            return
+        }
+        progress = ProgressInfo(current: 0, total: totalCandidates, label: "Parsing prefetch")
+        var completed = 0
+
+        do {
+            let tskEnv = try TSKEnvironment.discover()
+            let prefetchEnv = try PrefetchEnvironment.discover()
+            let parser = PrefetchParser(environment: prefetchEnv)
+
+            for evidence in evidenceList {
+                guard var state = states[evidence.id] else { continue }
+                if !state.prefetch.isEmpty { continue }
+
+                let found = candidates(state)
+                guard !found.isEmpty else { continue }
+
+                // Image hosts need TSK to pull each .pf out of the image;
+                // loose folders read the file in place, so skip all of that.
+                let isLoose = evidence.kind == .kapeLooseFolder
+                var database: TSKDatabase?
+                var extractor: TSKFileExtractor?
+                var scratch: URL?
+                if !isLoose {
+                    guard let dbURL = state.dbURL else { continue }
+                    database = try TSKDatabase(path: dbURL)
+                    extractor = TSKFileExtractor(
+                        environment: tskEnv,
+                        imageURL: evidence.sourceURL,
+                        imageType: TSKImageIngestor.imageType(for: evidence.sourceURL))
+                    guard let bundleURL = currentCaseBundleURL else { continue }
+                    let dir = CaseStore.prefetchScratchDirectory(forHostID: evidence.id, in: bundleURL)
+                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    scratch = dir
+                }
+
+                var collected: [PrefetchEntry] = []
+                for entry in found {
+                    progress = ProgressInfo(
+                        current: completed,
+                        total: totalCandidates,
+                        label: "\(evidence.displayName): \(entry.name)")
+                    let fileURL: URL
+                    if isLoose {
+                        guard let disk = entry.diskURL,
+                              FileManager.default.fileExists(atPath: disk.path) else {
+                            completed += 1; continue
+                        }
+                        fileURL = disk
+                    } else {
+                        guard let info = try database!.fetchExtractInfo(forFileID: entry.id) else {
+                            completed += 1; continue
+                        }
+                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name)")
+                        try await extractor!.extract(metaAddr: info.metaAddr,
+                                                     imageOffsetSectors: info.imageOffsetSectors,
+                                                     to: outURL)
+                        fileURL = outURL
+                    }
+                    // A malformed .pf shouldn't abort the whole run.
+                    if let parsed = try? await parser.parse(fileAt: fileURL) {
+                        collected.append(parsed)
+                    }
+                    completed += 1
+                }
+                // Most-recent execution first.
+                collected.sort { ($0.lastRun ?? .distantPast) > ($1.lastRun ?? .distantPast) }
+                state.prefetch = collected
+                states[evidence.id] = state
+                if let bundleURL = currentCaseBundleURL {
+                    try? CaseStore.writePrefetch(collected, forHostID: evidence.id, in: bundleURL)
+                }
+            }
+            progress = ProgressInfo(current: completed, total: totalCandidates,
+                                    label: "Prefetch parse complete")
+        } catch {
+            self.errorMessage = error.localizedDescription
+            self.statusMessage = ""
+        }
+    }
+
     #endif
 
     // MARK: - Analysis
@@ -1377,7 +1499,8 @@ final class AppModel: ObservableObject {
             let context = AnalysisContext(files: state.files,
                                           events: state.events,
                                           timeline: state.timeline,
-                                          registryValues: state.registryValues)
+                                          registryValues: state.registryValues,
+                                          prefetch: state.prefetch)
             let results = await analysisEngine.run(on: context)
             state.findings = results
             states[evidence.id] = state

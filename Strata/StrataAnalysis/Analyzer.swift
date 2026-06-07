@@ -8,13 +8,16 @@ public nonisolated struct AnalysisContext: Sendable {
     public let events: [EventLogRecord]
     public let timeline: [TimelineEvent]
     public let registryValues: [RegistryValue]
+    public let prefetch: [PrefetchEntry]
 
     public init(files: [FileEntry], events: [EventLogRecord],
-                timeline: [TimelineEvent], registryValues: [RegistryValue]) {
+                timeline: [TimelineEvent], registryValues: [RegistryValue],
+                prefetch: [PrefetchEntry] = []) {
         self.files = files
         self.events = events
         self.timeline = timeline
         self.registryValues = registryValues
+        self.prefetch = prefetch
     }
 }
 
