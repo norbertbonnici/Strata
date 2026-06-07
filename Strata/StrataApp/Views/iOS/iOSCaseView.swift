@@ -244,6 +244,15 @@ struct MoreTab: View {
                     Divider().background(Theme.hair2).padding(.leading, 50)
 
                     NavigationLink {
+                        AmcacheDrillView()
+                    } label: {
+                        moreRow(icon: "shippingbox.and.arrow.backward", title: "Amcache",
+                                trailing: counter(model.amcacheCount))
+                    }
+                    .buttonStyle(.plain)
+                    Divider().background(Theme.hair2).padding(.leading, 50)
+
+                    NavigationLink {
                         LateralDrillView()
                     } label: {
                         moreRow(icon: "point.3.connected.trianglepath.dotted",
