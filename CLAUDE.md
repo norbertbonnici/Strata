@@ -61,8 +61,9 @@ Per-release notes live in `docs/releases/`; keep `CHANGELOG.md` updated.
 | `StrataTSK` | Vendored TSK binaries, `tsk_loaddb` → SQLite (read via GRDB), `icat` extraction, KAPE source classification, loose-folder walk (`KapeFolderIngestor`) |
 | `StrataEVTX` | Parse `.evtx` via `evtxexport` |
 | `StrataRegistry` | Parse hives via `regfexport` |
+| `StrataLNK` | Parse `.lnk` shortcuts via `lnkinfo` (liblnk) |
 | `StrataTimeline` | MACB timeline + gap/session analysis |
-| `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **17 analyzers**, IOC matcher, lateral graph |
+| `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **18 analyzers**, IOC matcher, lateral graph |
 | `StrataApp` | SwiftUI app. `AppModel` (the store), `CaseStore` (.strata bundle layout), `CaseLibrary`, `RecentCases`, `Views/` (macOS) + `Views/iOS/` |
 
 `.strata` case bundle = a directory: `case.json`, `hosts.json`,
@@ -113,7 +114,7 @@ treat it as one item. The macOS-only ingest code is gated `#if os(macOS)`.
 
 Ingestion (E01/VHD/raw + loose KAPE folders), file tree (volume-grouped, deleted
 & slack toggles), MACB timeline (histogram drag-select, gap analysis), EVTX +
-registry + Amcache/Shimcache parsing → host profile, 17 ATT&CK analyzers → kill chain, IOC matching,
+registry + Amcache/Shimcache + LNK parsing → host profile, 18 ATT&CK analyzers → kill chain, IOC matching,
 interactive lateral graph, multi-host `.strata` cases, iOS viewer, Case
 Library / iCloud-Drive sync, case reporting & export (HTML/Markdown examiner
 report + CSV/JSON data exports; per-endpoint selection + report severity filter),
@@ -172,8 +173,17 @@ Two betas shipped. A full 56-issue view review was completed and remediated.
      + `ShimcacheAnalyzer` (suspicious-path gated; **presence, not execution**),
      macOS views + iOS drills. **Shimcache decoder validated against synthetic
      fixtures only** — confirm against a real SYSTEM hive.
-   - Still pending: Prefetch (PR pending), USN journal (`$J`), LNK/JumpLists,
-     SRUM, browser history, WMI persistence.
+   - ~~**LNK shortcuts**~~ — **shipped.** `StrataLNK` parses `.lnk` via liblnk's
+     `lnkinfo` (added to `build-tsk.sh` + the app Copy-Files phase). `LnkEntry`
+     (`StrataCore`); `LnkParser` shells out, splits each line on the first `": "`
+     and **un-doubles** the backslashes lnkinfo escapes. `parseLnk()` mirrors
+     `parseEventLogs` (icat-extract / loose read); per-host `lnk.json`;
+     `LnkAnalyzer` flags shortcuts carrying command-line args (lure) + targets in
+     suspicious paths. macOS `LnkView` + iOS `LnkDrillView`. Parser validated
+     against **real lnkinfo output** (crafted MS-SHLLINK sample). **JumpLists are
+     the follow-on** (OLE compound `*.automaticDestinations-ms` + embedded LNKs).
+   - Still pending: Prefetch (PR pending), JumpLists, USN journal (`$J`), SRUM,
+     browser history, WMI persistence.
 5. **Super-timeline + tagging/notes** — unify FS MACB + EVTX + registry (+ future
    artifacts) into one pivotable timeline; bookmark/tag findings, analyst notes,
    case narrative.

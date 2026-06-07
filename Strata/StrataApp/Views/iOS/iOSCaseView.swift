@@ -262,6 +262,15 @@ struct MoreTab: View {
                     Divider().background(Theme.hair2).padding(.leading, 50)
 
                     NavigationLink {
+                        LnkDrillView()
+                    } label: {
+                        moreRow(icon: "arrowshape.turn.up.right", title: "Shortcuts (LNK)",
+                                trailing: counter(model.lnkCount))
+                    }
+                    .buttonStyle(.plain)
+                    Divider().background(Theme.hair2).padding(.leading, 50)
+
+                    NavigationLink {
                         LateralDrillView()
                     } label: {
                         moreRow(icon: "point.3.connected.trianglepath.dotted",

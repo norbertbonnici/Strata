@@ -24,6 +24,7 @@ LIBVHDI_VERSION="${LIBVHDI_VERSION:-20240509}"
 LIBVMDK_VERSION="${LIBVMDK_VERSION:-20240510}"
 LIBEVTX_VERSION="${LIBEVTX_VERSION:-20240504}"
 LIBREGF_VERSION="${LIBREGF_VERSION:-20240421}"
+LIBLNK_VERSION="${LIBLNK_VERSION:-20240423}"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="$ROOT/.build-tsk"
@@ -31,7 +32,7 @@ OUT="$ROOT/Vendor/tsk"
 SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
 DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
 
-TOOLS=(tsk_loaddb fls icat mmls fsstat blkstat istat evtxexport evtxinfo regfexport regfinfo ewfinfo ewfverify)
+TOOLS=(tsk_loaddb fls icat mmls fsstat blkstat istat evtxexport evtxinfo regfexport regfinfo lnkinfo ewfinfo ewfverify)
 
 download() {
     local url="$1" dest="$2"
@@ -126,6 +127,21 @@ build_arch() {
     extract "$BUILD/libregf.tar.gz" "$BUILD/libregf-$arch"
     if [ ! -f "$prefix/bin/regfexport" ]; then
         (cd "$BUILD/libregf-$arch" && \
+            ./configure --host="$host" --prefix="$prefix" \
+                --enable-static --disable-shared \
+                --disable-python --without-libfuse && \
+            make -j"$(sysctl -n hw.ncpu)" && \
+            make install)
+    fi
+
+    # liblnk (Windows Shell Link / .lnk parsing). 2024-era libyal tag, so its
+    # configure tolerates a missing pkg-config the same way libevtx/libregf do
+    # (no shim needed, unlike the newer libscca).
+    download "https://github.com/libyal/liblnk/releases/download/$LIBLNK_VERSION/liblnk-alpha-$LIBLNK_VERSION.tar.gz" \
+             "$BUILD/liblnk.tar.gz"
+    extract "$BUILD/liblnk.tar.gz" "$BUILD/liblnk-$arch"
+    if [ ! -f "$prefix/bin/lnkinfo" ]; then
+        (cd "$BUILD/liblnk-$arch" && \
             ./configure --host="$host" --prefix="$prefix" \
                 --enable-static --disable-shared \
                 --disable-python --without-libfuse && \

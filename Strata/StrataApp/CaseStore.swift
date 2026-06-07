@@ -24,6 +24,7 @@ public enum CaseStore {
     private static let registryFilename   = "registry.json"
     private static let amcacheFilename     = "amcache.json"
     private static let shimcacheFilename    = "shimcache.json"
+    private static let lnkFilename          = "lnk.json"
     private static let findingsFilename   = "findings.json"
     private static let iocsFilename       = "iocs.json"
     private static let iocMatchesFilename = "iocmatches.json"
@@ -51,6 +52,11 @@ public enum CaseStore {
     public static func eventScratchDirectory(forHostID id: UUID, in bundle: URL) -> URL {
         hostDirectory(forHostID: id, in: bundle)
             .appendingPathComponent("events", isDirectory: true)
+    }
+
+    public static func lnkScratchDirectory(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent("lnk", isDirectory: true)
     }
 
     public static func registryScratchDirectory(forHostID id: UUID, in bundle: URL) -> URL {
@@ -168,6 +174,16 @@ public enum CaseStore {
     public static func writeShimcache(_ entries: [ShimcacheEntry],
                                       forHostID id: UUID, in bundle: URL) throws {
         try writeArray(entries, at: shimcacheFileURL(forHostID: id, in: bundle))
+    }
+    public static func lnkFileURL(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle).appendingPathComponent(lnkFilename)
+    }
+    public static func readLnk(forHostID id: UUID, in bundle: URL) throws -> [LnkEntry]? {
+        try readArrayIfPresent(at: lnkFileURL(forHostID: id, in: bundle))
+    }
+    public static func writeLnk(_ entries: [LnkEntry],
+                                forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(entries, at: lnkFileURL(forHostID: id, in: bundle))
     }
     public static func readFindings(forHostID id: UUID, in bundle: URL) throws -> [Finding]? {
         try readArrayIfPresent(at: findingsFileURL(forHostID: id, in: bundle))

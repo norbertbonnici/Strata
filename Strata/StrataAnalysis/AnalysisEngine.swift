@@ -39,5 +39,6 @@ public nonisolated struct AnalysisEngine: Sendable {
         CredentialPivotAnalyzer(),
         AmcacheAnalyzer(),
         ShimcacheAnalyzer(),
+        LnkAnalyzer(),
     ]
 }
