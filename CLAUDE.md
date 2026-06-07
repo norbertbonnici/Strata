@@ -135,16 +135,29 @@ completed and remediated.
 1. **Case reporting & export** — examiner report (PDF/HTML/Markdown) of host
    profile + kill chain + findings + timeline excerpts; CSV/JSON export of
    timeline / findings / IOC matches.
-2. **More artifact parsers/analyzers** (each plugs into the `Analyzer` protocol):
+2. **Chain-of-custody & evidence integrity** — capture acquisition metadata
+   (examiner, acquisition method/tool, date/time, case #) and **source hashes**
+   per evidence item, with a verification status and a custody log (acquired /
+   added / analysed / exported, each with who + when). Produce a formal **CoC
+   report** (PDF). For E01, read the format's *embedded* acquisition MD5/SHA-1
+   rather than rehashing a huge image (add `ewfinfo`/`ewfverify` to the vendored
+   tools in `build-tsk.sh` — libewf is already built); compute for raw/VHD.
+   This is the legal-weight record, separate from the CTI enrichment audit log.
+3. **Registry explorer** — interactive hive → key → value tree browser
+   (SYSTEM/SOFTWARE/SAM/SECURITY/NTUSER/UsrClass…), with key last-write times,
+   typed value decoding (REG_SZ/DWORD/BINARY/MULTI_SZ…), and search. Build the
+   tree from the already-parsed `RegistryValue` set the way `FileNode.buildTree`
+   builds the file tree; add a "Registry" sidebar tab (+ iOS drill view).
+4. **More artifact parsers/analyzers** (each plugs into the `Analyzer` protocol):
    Prefetch, Amcache/Shimcache, USN journal (`$J`), LNK/JumpLists, SRUM, browser
    history, WMI persistence.
-3. **Super-timeline + tagging/notes** — unify FS MACB + EVTX + registry (+ future
+5. **Super-timeline + tagging/notes** — unify FS MACB + EVTX + registry (+ future
    artifacts) into one pivotable timeline; bookmark/tag findings, analyst notes,
    case narrative.
-4. **Global search** across files/events/registry/timeline.
-5. **`$MFT` / `$FN` parsing → timestomping detection** (also unlocks true
+6. **Global search** across files/events/registry/timeline.
+7. **`$MFT` / `$FN` parsing → timestomping detection** (also unlocks true
    loose-folder MACB).
-6. **Multi-host correlation** — case-wide lateral movement across hosts.
+8. **Multi-host correlation** — case-wide lateral movement across hosts.
 
 ### CTI enrichment (tiered hash/IOC lookup)
 Goal: enrich case IOCs while **minimising VirusTotal API calls** and keeping data
@@ -167,4 +180,5 @@ Design principles:
   limits.
 - Record **provenance** on every enrichment (which tier/source produced it).
 - IPs / domains / URLs (no NSRL tier): cascade is MISP / OpenCTI → VT.
-- **Chain-of-custody audit log** of enrichment lookups per case.
+- Enrichment lookups are recorded in the per-case audit trail that feeds the
+  Chain-of-custody feature (#2).
