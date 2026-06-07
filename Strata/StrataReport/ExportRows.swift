@@ -44,10 +44,38 @@ public nonisolated struct IOCMatchExportRow: Codable, Sendable {
     public let host: String
 }
 
+/// Chain-of-custody columns:
+/// `timestamp,action,actor,detail,evidence`.
+public nonisolated struct CustodyExportRow: Codable, Sendable {
+    public let timestamp: Date
+    public let action: String
+    public let actor: String
+    public let detail: String
+    public let evidence: String   // host display name, or "" for case-level events
+}
+
 /// Flattens the per-host `ReportInputs` into tagged export rows. Every row
 /// carries its `host` so attribution survives the case-wide roll-up (the
 /// in-memory `TimelineEvent`/`Finding`/`IOCMatch` types have no host field).
 public nonisolated enum ExportRowBuilder {
+
+    /// Flatten the case custody ledger, resolving each event's `evidenceID` to a
+    /// host display name. Sorted chronologically (the ledger order).
+    public static func custodyRows(from log: [CustodyEvent],
+                                   hosts: [ReportInputs.Host]) -> [CustodyExportRow] {
+        let nameByID: [UUID: String] = Dictionary(
+            hosts.compactMap { host in host.evidenceID.map { ($0, host.displayName) } },
+            uniquingKeysWith: { first, _ in first })
+        return log.sorted { $0.timestamp < $1.timestamp }.map { event in
+            CustodyExportRow(
+                timestamp: event.timestamp,
+                action: event.action.label,
+                actor: event.actor,
+                detail: event.detail,
+                evidence: event.evidenceID.flatMap { nameByID[$0] } ?? "")
+        }
+    }
+
     public static func timelineRows(from hosts: [ReportInputs.Host]) -> [TimelineExportRow] {
         hosts.flatMap { host in
             host.timeline.map { event in

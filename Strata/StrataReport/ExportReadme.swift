@@ -26,7 +26,7 @@ nonisolated enum ExportReadme {
             out += "  \(name)\(describe(name))\n"
         }
 
-        if filenames.contains(where: { $0.hasSuffix("-report.html") }) {
+        if filenames.contains(where: { $0.hasSuffix("-report.html") || $0.hasSuffix("-chain-of-custody.html") }) {
             out += "\nGenerating a PDF\n----------------\n"
             out += "Strata exports a print-ready HTML report rather than rendering PDF\n"
             out += "itself. To produce a PDF, open the .html report in a web browser and\n"
@@ -47,6 +47,10 @@ nonisolated enum ExportReadme {
         if name.hasSuffix("-findings.json")   { return "  — findings (JSON)" }
         if name.hasSuffix("-iocmatches.csv")  { return "  — IOC matches (CSV)" }
         if name.hasSuffix("-iocmatches.json") { return "  — IOC matches (JSON)" }
+        if name.hasSuffix("-chain-of-custody.md")   { return "  — chain-of-custody report (Markdown)" }
+        if name.hasSuffix("-chain-of-custody.html") { return "  — chain-of-custody report (HTML; print to PDF)" }
+        if name.hasSuffix("-custody.csv")     { return "  — custody log (CSV)" }
+        if name.hasSuffix("-custody.json")    { return "  — custody log (JSON)" }
         return ""
     }
 }

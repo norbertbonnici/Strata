@@ -251,6 +251,15 @@ struct MoreTab: View {
                                 trailing: counter(model.iocs.count))
                     }
                     .buttonStyle(.plain)
+                    Divider().background(Theme.hair2).padding(.leading, 50)
+
+                    NavigationLink {
+                        CustodyDrillView()
+                    } label: {
+                        moreRow(icon: "checkmark.seal", title: "Chain of custody",
+                                trailing: counter(model.custodyLog.count))
+                    }
+                    .buttonStyle(.plain)
                 }
 
                 SectionHeader(label: "Case").padding(.top, 14)

@@ -21,11 +21,19 @@ public nonisolated struct ReportInputs: Sendable {
         public let timeline: [TimelineEvent]
         public let fileCount: Int
         public let eventCount: Int
+        // Chain-of-custody fields. Defaulted so non-CoC callers (and tests) need
+        // not supply them; `evidenceID` lets the CoC report tie ledger entries
+        // back to a host.
+        public let evidenceID: UUID?
+        public let acquisition: AcquisitionInfo?
+        public let sourceHashes: [SourceHash]
 
         public init(displayName: String, kindLabel: String, sourcePath: String,
                     registryValues: [RegistryValue], findings: [Finding],
                     iocMatches: [IOCMatch], timeline: [TimelineEvent],
-                    fileCount: Int, eventCount: Int) {
+                    fileCount: Int, eventCount: Int,
+                    evidenceID: UUID? = nil, acquisition: AcquisitionInfo? = nil,
+                    sourceHashes: [SourceHash] = []) {
             self.displayName = displayName
             self.kindLabel = kindLabel
             self.sourcePath = sourcePath
@@ -35,6 +43,9 @@ public nonisolated struct ReportInputs: Sendable {
             self.timeline = timeline
             self.fileCount = fileCount
             self.eventCount = eventCount
+            self.evidenceID = evidenceID
+            self.acquisition = acquisition
+            self.sourceHashes = sourceHashes
         }
     }
 
@@ -43,13 +54,17 @@ public nonisolated struct ReportInputs: Sendable {
     public let createdAt: Date
     public let generatedAt: Date
     public let hosts: [Host]
+    /// Case-wide custody ledger, for the chain-of-custody report. Defaulted
+    /// empty for callers that only export the examiner report / data.
+    public let custodyLog: [CustodyEvent]
 
     public init(caseName: String, examiner: String, createdAt: Date,
-                generatedAt: Date, hosts: [Host]) {
+                generatedAt: Date, hosts: [Host], custodyLog: [CustodyEvent] = []) {
         self.caseName = caseName
         self.examiner = examiner
         self.createdAt = createdAt
         self.generatedAt = generatedAt
         self.hosts = hosts
+        self.custodyLog = custodyLog
     }
 }

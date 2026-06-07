@@ -59,4 +59,12 @@ public nonisolated enum CSVExporter {
                  r.locationType, r.locationDetail, r.context, r.host]
             })
     }
+
+    public static func custody(_ rows: [CustodyExportRow]) -> String {
+        assemble(
+            header: ["timestamp_iso", "action", "actor", "detail", "evidence"],
+            rows: rows.map { r in
+                [ReportFormat.iso(r.timestamp), r.action, r.actor, r.detail, r.evidence]
+            })
+    }
 }

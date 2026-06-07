@@ -63,6 +63,31 @@ public nonisolated enum ExportGenerator {
             }
         }
 
+        // Chain-of-custody report (acquisition + hashes + ledger).
+        if selection.wantsCoC {
+            let model = CoCReportModelBuilder.build(from: inputs)
+            if selection.cocMarkdown {
+                files.append(ExportedFile(filename: "\(prefix)-chain-of-custody.md",
+                                          data: Data(CoCReportRenderer.markdown(model).utf8)))
+            }
+            if selection.cocHTML {
+                files.append(ExportedFile(filename: "\(prefix)-chain-of-custody.html",
+                                          data: Data(CoCReportRenderer.html(model).utf8)))
+            }
+        }
+
+        // Custody-log data export.
+        if selection.custodyCSV || selection.custodyJSON {
+            let rows = ExportRowBuilder.custodyRows(from: inputs.custodyLog, hosts: inputs.hosts)
+            if selection.custodyCSV {
+                files.append(ExportedFile(filename: "\(prefix)-custody.csv",
+                                          data: Data(CSVExporter.custody(rows).utf8)))
+            }
+            if selection.custodyJSON, let data = try? JSONExporter.encode(rows) {
+                files.append(ExportedFile(filename: "\(prefix)-custody.json", data: data))
+            }
+        }
+
         // Document the set (and the print-to-PDF path) once we know what it holds.
         if !files.isEmpty {
             let readme = ExportReadme.render(inputs: inputs, filenames: files.map(\.filename))

@@ -7,6 +7,22 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ### Added
 
+- **Chain of custody & evidence integrity** (new **Custody** tab) — a
+  legal-weight, append-only record of each case:
+  - **Acquisition metadata** per evidence item (examiner, tool, method,
+    acquisition date, case #, media serial, notes), editable in-app. For **E01**
+    images this is auto-extracted from the container header via the vendored
+    `ewfinfo`.
+  - **Source hashes** with a verification status. E01 **embedded** MD5/SHA-1 are
+    read from the header (no rehashing the image) and can be re-checked with
+    `ewfverify`; raw/VHD images get on-demand, cancellable **MD5 + SHA-256**
+    computation with a progress bar.
+  - **Custody log** — every acquire / add / analyse / hash / verify / enrich /
+    export action is recorded with who + when, persisted to `custody.json`.
+  - **Chain-of-custody report** (HTML + Markdown) and a **custody-log CSV/JSON**
+    export, wired into the existing Export sheet. The iOS viewer gains a
+    read-only custody screen.
+  - Vendored `ewfinfo` / `ewfverify` added to the TSK toolchain build.
 - **Case reporting & export** (Tools ▸ Export…, ⇧⌘E) — generate an examiner
   report and data exports in one pass, written as a timestamped set into a
   chosen folder:

@@ -9,6 +9,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case lateral = "Lateral"
     case killChain = "Kill Chain"
     case iocs = "IOCs"
+    case custody = "Custody"
 
     var id: String { rawValue }
     var symbol: String {
@@ -20,6 +21,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .lateral:   return "point.3.connected.trianglepath.dotted"
         case .killChain: return "link"
         case .iocs:      return "scope"
+        case .custody:   return "checkmark.seal"
         }
     }
 }
@@ -66,10 +68,17 @@ struct ContentView: View {
                 #else
                 EmptyView()
                 #endif
+            case .acquisitionEditor(let id):
+                #if os(macOS)
+                AcquisitionEditorSheet(evidenceID: id).environmentObject(model)
+                #else
+                EmptyView()
+                #endif
             }
         }
     }
 
+    #if os(macOS)
     private var caseBody: some View {
         NavigationSplitView {
             List(SidebarItem.allCases, selection: $item) { entry in
@@ -92,6 +101,7 @@ struct ContentView: View {
                 case .lateral:   LateralMovementView()
                 case .killChain: KillChainView()
                 case .iocs:      IOCView()
+                case .custody:   ChainOfCustodyView()
                 }
             }
             .background(Theme.bg)
@@ -139,6 +149,7 @@ struct ContentView: View {
             #endif
         }
     }
+    #endif
 
     @ViewBuilder
     private var statusBar: some View {
