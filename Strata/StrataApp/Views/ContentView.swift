@@ -6,6 +6,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case evidence = "Evidence"
     case timeline = "Timeline"
     case events = "Events"
+    case registry = "Registry"
     case lateral = "Lateral"
     case killChain = "Kill Chain"
     case iocs = "IOCs"
@@ -18,6 +19,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .evidence:  return "folder"
         case .timeline:  return "clock"
         case .events:    return "doc.text.magnifyingglass"
+        case .registry:  return "list.bullet.indent"
         case .lateral:   return "point.3.connected.trianglepath.dotted"
         case .killChain: return "link"
         case .iocs:      return "scope"
@@ -98,6 +100,7 @@ struct ContentView: View {
                 case .evidence:  EvidenceTreeView()
                 case .timeline:  TimelineView()
                 case .events:    EventsView()
+                case .registry:  RegistryView()
                 case .lateral:   LateralMovementView()
                 case .killChain: KillChainView()
                 case .iocs:      IOCView()
