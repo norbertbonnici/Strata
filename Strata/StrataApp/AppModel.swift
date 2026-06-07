@@ -35,10 +35,17 @@ final class AppModel: ObservableObject {
     /// iocs.json inside the bundle. Empty by default - IOC matching never
     /// runs unless the user has loaded at least one.
     @Published var iocs: [IOC] = []
-    /// The welcome screen observes this and presents `.fileImporter` when it
-    /// flips to true. Used on both platforms now that the file dialog is
-    /// SwiftUI-driven rather than AppKit-driven.
-    @Published var showOpenCasePicker = false
+    /// Which picker WelcomeView should present. A SINGLE `.fileImporter` is
+    /// driven off this: SwiftUI only honors one `.fileImporter` per view tree,
+    /// so separate per-button flags silently no-op (that's why "Set Case
+    /// Library Folder" did nothing).
+    enum FileImport: Equatable { case openCase, setLibrary }
+    /// Mode and presentation are kept SEPARATE: SwiftUI clears an isPresented
+    /// binding on dismiss, which races onCompletion - if the mode lived in the
+    /// presentation binding it would read back nil there (that's why picking a
+    /// library folder silently did nothing).
+    @Published var fileImportMode: FileImport = .openCase
+    @Published var fileImportPresented = false
     /// Toggled by the "Add Host..." toolbar item so ContentView can drive a
     /// `.fileImporter`. On iOS the toolbar item is hidden and this flag
     /// stays false.
@@ -50,8 +57,6 @@ final class AppModel: ObservableObject {
     /// Cases discovered in the library folder (incl. not-yet-downloaded iCloud
     /// placeholders).
     @Published private(set) var libraryCases: [LibraryCase] = []
-    /// Drives the WelcomeView folder picker for choosing the library.
-    @Published var showLibraryPicker = false
 
     enum ActiveSheet: Identifiable {
         case newCase
@@ -403,14 +408,15 @@ final class AppModel: ObservableObject {
     /// state if the open fails partway through. The actual file dialog is
     /// presented by WelcomeView via SwiftUI's `.fileImporter`.
     func requestOpenCase() {
+        fileImportMode = .openCase
         if currentCase != nil {
             closeCase()
             // Let WelcomeView (which hosts the .fileImporter) mount before we
-            // flip the flag - otherwise the binding is already true at insertion
-            // and SwiftUI can silently drop the presentation.
-            Task { @MainActor in showOpenCasePicker = true }
+            // present - otherwise the binding is already true at insertion and
+            // SwiftUI can silently drop the presentation.
+            Task { @MainActor in fileImportPresented = true }
         } else {
-            showOpenCasePicker = true
+            fileImportPresented = true
         }
     }
 

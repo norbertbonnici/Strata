@@ -71,21 +71,26 @@ struct WelcomeView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.bg)
         .onAppear { model.refreshLibrary() }
-        // A `.strata` bundle is a directory on disk - the picker accepts a
-        // folder selection on both platforms. We hold a security-scoped
-        // resource for the duration of the open, then release.
+        // A SINGLE .fileImporter for both open-case and set-library: SwiftUI
+        // only honors one per view tree (a second silently no-ops), so both are
+        // routed through model.fileImport. .strataCase is the registered package
+        // (.folder is the library folder + a fallback for legacy bundles).
         .fileImporter(
-            isPresented: $model.showOpenCasePicker,
-            // .strataCase once registered (a package); .folder as a fallback for
-            // bundles created before the type was registered.
-            allowedContentTypes: [.strataCase, .folder],
+            isPresented: $model.fileImportPresented,
+            allowedContentTypes: model.fileImportMode == .openCase ? [.strataCase, .folder] : [.folder],
             allowsMultipleSelection: false
         ) { result in
+            let kind = model.fileImportMode   // separate from the presented flag, so still valid here
             guard case .success(let urls) = result, let url = urls.first else { return }
-            let didStart = url.startAccessingSecurityScopedResource()
-            Task {
-                await model.openCase(at: url)
-                if didStart { url.stopAccessingSecurityScopedResource() }
+            switch kind {
+            case .openCase:
+                let didStart = url.startAccessingSecurityScopedResource()
+                Task {
+                    await model.openCase(at: url)
+                    if didStart { url.stopAccessingSecurityScopedResource() }
+                }
+            case .setLibrary:
+                model.setCaseLibrary(url)
             }
         }
     }
@@ -139,7 +144,7 @@ struct WelcomeView: View {
                 Text("Case Library").font(.headline).foregroundStyle(Theme.text2)
                 Spacer()
                 if model.libraryURL != nil {
-                    Button("Change…") { model.showLibraryPicker = true }
+                    Button("Change…") { model.fileImportMode = .setLibrary; model.fileImportPresented = true }
                         .font(.caption).buttonStyle(.plain).foregroundStyle(Theme.teal2)
                 }
             }
@@ -158,7 +163,7 @@ struct WelcomeView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
             } else {
-                Button { model.showLibraryPicker = true } label: {
+                Button { model.fileImportMode = .setLibrary; model.fileImportPresented = true } label: {
                     Label("Set Case Library Folder…", systemImage: "folder.badge.gearshape")
                 }
                 Text("Pick a folder in iCloud Drive (or a shared / network location) to keep cases in sync across your Mac and iOS devices.")
@@ -167,12 +172,6 @@ struct WelcomeView: View {
         }
         .padding(.horizontal, 40)
         .frame(maxWidth: 560)
-        .fileImporter(isPresented: $model.showLibraryPicker,
-                      allowedContentTypes: [.folder],
-                      allowsMultipleSelection: false) { result in
-            guard case .success(let urls) = result, let url = urls.first else { return }
-            model.setCaseLibrary(url)
-        }
     }
 
     @ViewBuilder
