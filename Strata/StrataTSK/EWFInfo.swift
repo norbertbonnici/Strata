@@ -236,7 +236,11 @@ public actor EWFInfo {
 /// XMLParser delegate that flattens leaf element text + hashdigest attributes
 /// into dictionaries. Last value wins per element name, which is fine for the
 /// flat acquiry/media sections of ewfinfo's dfxml.
-private final class DFXMLCollector: NSObject, XMLParserDelegate {
+// `nonisolated`: a synchronous XMLParser accumulator used inside the
+// (nonisolated) pure parser. XMLParser drives its delegate on the parse thread,
+// not the main actor, so main-actor isolation here was both wrong and the source
+// of "cannot be referenced from a nonisolated context" warnings.
+private nonisolated final class DFXMLCollector: NSObject, XMLParserDelegate {
     var elements: [String: String] = [:]
     var hashes: [String: String] = [:]   // keyed by lowercased `type` attribute
 
