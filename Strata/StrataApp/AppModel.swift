@@ -20,6 +20,8 @@ nonisolated struct EvidenceState: Sendable {
     var timeline: [TimelineEvent] = []
     var registryValues: [RegistryValue] = []
     var prefetch: [PrefetchEntry] = []
+    var amcache: [AmcacheEntry] = []
+    var shimcache: [ShimcacheEntry] = []
     var findings: [Finding] = []
     var iocMatches: [IOCMatch] = []
 }
@@ -324,6 +326,8 @@ final class AppModel: ObservableObject {
             state.timeline = timeline
             state.registryValues = (try? CaseStore.readRegistry(forHostID: evidence.id, in: bundleURL)) ?? []
             state.prefetch = (try? CaseStore.readPrefetch(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.amcache = (try? CaseStore.readAmcache(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.shimcache = (try? CaseStore.readShimcache(forHostID: evidence.id, in: bundleURL)) ?? []
             state.findings = (try? CaseStore.readFindings(forHostID: evidence.id, in: bundleURL)) ?? []
             state.iocMatches = (try? CaseStore.readIOCMatches(forHostID: evidence.id, in: bundleURL)) ?? []
             return .loaded(state)
@@ -623,6 +627,8 @@ final class AppModel: ObservableObject {
         var findings: [Finding] = []
         var registryValues: [RegistryValue] = []
         var prefetch: [PrefetchEntry] = []
+        var amcache: [AmcacheEntry] = []
+        var shimcache: [ShimcacheEntry] = []
         var iocMatches: [IOCMatch] = []
     }
     private var derivedCache: Derived?
@@ -670,6 +676,8 @@ final class AppModel: ObservableObject {
             d.findings = s.findings
             d.registryValues = s.registryValues
             d.prefetch = s.prefetch
+            d.amcache = s.amcache
+            d.shimcache = s.shimcache
             d.iocMatches = s.iocMatches
             return d
         }
@@ -682,12 +690,17 @@ final class AppModel: ObservableObject {
             d.findings.append(contentsOf: s.findings)
             d.registryValues.append(contentsOf: s.registryValues)
             d.prefetch.append(contentsOf: s.prefetch)
+            d.amcache.append(contentsOf: s.amcache)
+            d.shimcache.append(contentsOf: s.shimcache)
             d.iocMatches.append(contentsOf: s.iocMatches)
         }
         d.events.sort { $0.writtenAt < $1.writtenAt }
         d.timeline.sort { $0.date < $1.date }
         d.findings.sort { $0.severity > $1.severity }
         d.prefetch.sort { ($0.lastRun ?? .distantPast) > ($1.lastRun ?? .distantPast) }
+        d.amcache.sort { ($0.registeredAt ?? .distantPast) > ($1.registeredAt ?? .distantPast) }
+        // insertionOrder is per-host; across hosts order by last-modified instead.
+        d.shimcache.sort { ($0.lastModified ?? .distantPast) > ($1.lastModified ?? .distantPast) }
         return d
     }
 
@@ -703,6 +716,8 @@ final class AppModel: ObservableObject {
     var findings: [Finding] { derived().findings }
     var registryValues: [RegistryValue] { derived().registryValues }
     var prefetch: [PrefetchEntry] { derived().prefetch }
+    var amcache: [AmcacheEntry] { derived().amcache }
+    var shimcache: [ShimcacheEntry] { derived().shimcache }
     var iocMatches: [IOCMatch] { derived().iocMatches }
 
     // Count-only accessors: sum per-host counts without building or sorting the
@@ -713,6 +728,8 @@ final class AppModel: ObservableObject {
     var findingCount: Int { scopedCount(\.findings.count) }
     var registryValueCount: Int { scopedCount(\.registryValues.count) }
     var prefetchCount: Int { scopedCount(\.prefetch.count) }
+    var amcacheCount: Int { scopedCount(\.amcache.count) }
+    var shimcacheCount: Int { scopedCount(\.shimcache.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
     private func scopedCount(_ kp: KeyPath<EvidenceState, Int>) -> Int {
@@ -1311,9 +1328,18 @@ final class AppModel: ObservableObject {
                     completed += 1
                 }
                 state.registryValues = collected
+                // Reconstruct Amcache entries from the AMCACHE-tagged values
+                // (pure; no extra extraction). Shimcache is derived the same way
+                // from the SYSTEM AppCompatCache blob.
+                let amcache = AmcacheEntry.reconstruct(from: collected)
+                state.amcache = amcache
+                let shimcache = ShimcacheParser.fromRegistry(collected)
+                state.shimcache = shimcache
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
                     try? CaseStore.writeRegistry(collected, forHostID: evidence.id, in: bundleURL)
+                    try? CaseStore.writeAmcache(amcache, forHostID: evidence.id, in: bundleURL)
+                    try? CaseStore.writeShimcache(shimcache, forHostID: evidence.id, in: bundleURL)
                 }
                 if !collected.isEmpty { hostsCollected += 1 }
             }
@@ -1357,6 +1383,10 @@ final class AppModel: ObservableObject {
                 out.append(.init(entry: entry, label: "NTUSER (\(user))"))
             } else if upperName == "USRCLASS.DAT", let user = extractUser(from: entry.fullPath) {
                 out.append(.init(entry: entry, label: "USRCLASS (\(user))"))
+            } else if lowerPath.hasSuffix("/windows/appcompat/programs/amcache.hve") {
+                // Amcache rides the same regfexport pipeline; its values are
+                // tagged AMCACHE and reconstructed into AmcacheEntry after parse.
+                out.append(.init(entry: entry, label: "AMCACHE"))
             }
         }
         return out
@@ -1500,7 +1530,9 @@ final class AppModel: ObservableObject {
                                           events: state.events,
                                           timeline: state.timeline,
                                           registryValues: state.registryValues,
-                                          prefetch: state.prefetch)
+                                          prefetch: state.prefetch,
+                                          amcache: state.amcache,
+                                          shimcache: state.shimcache)
             let results = await analysisEngine.run(on: context)
             state.findings = results
             states[evidence.id] = state

@@ -9,15 +9,20 @@ public nonisolated struct AnalysisContext: Sendable {
     public let timeline: [TimelineEvent]
     public let registryValues: [RegistryValue]
     public let prefetch: [PrefetchEntry]
+    public let amcache: [AmcacheEntry]
+    public let shimcache: [ShimcacheEntry]
 
     public init(files: [FileEntry], events: [EventLogRecord],
                 timeline: [TimelineEvent], registryValues: [RegistryValue],
-                prefetch: [PrefetchEntry] = []) {
+                prefetch: [PrefetchEntry] = [], amcache: [AmcacheEntry] = [],
+                shimcache: [ShimcacheEntry] = []) {
         self.files = files
         self.events = events
         self.timeline = timeline
         self.registryValues = registryValues
         self.prefetch = prefetch
+        self.amcache = amcache
+        self.shimcache = shimcache
     }
 }
 
