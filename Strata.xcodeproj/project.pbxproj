@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		091F03A72FD5E755003DE1CC /* sccainfo in CopyFiles */ = {isa = PBXBuildFile; fileRef = 091F03A62FD5E755003DE1CC /* sccainfo */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		099DBE0B2FCF60530042FE85 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 099DBE0A2FCF60530042FE85 /* GRDB */; };
 		09A474812FD1466C009D5CCA /* fls in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A474762FD1466C009D5CCA /* fls */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		09A474822FD1466C009D5CCA /* fsstat in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A474772FD1466C009D5CCA /* fsstat */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
@@ -48,6 +49,7 @@
 			dstPath = tsk/bin;
 			dstSubfolderSpec = 7;
 			files = (
+				091F03A72FD5E755003DE1CC /* sccainfo in CopyFiles */,
 				09A474812FD1466C009D5CCA /* fls in CopyFiles */,
 				09A474822FD1466C009D5CCA /* fsstat in CopyFiles */,
 				09A474832FD1466C009D5CCA /* istat in CopyFiles */,
@@ -68,6 +70,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		091F03A62FD5E755003DE1CC /* sccainfo */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = sccainfo; path = Vendor/tsk/bin/arm64/sccainfo; sourceTree = "<group>"; };
 		099DBDAF2FCF54B80042FE85 /* Strata.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Strata.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		099DBDC02FCF54B90042FE85 /* StrataTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = StrataTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		099DBDCA2FCF54B90042FE85 /* StrataUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = StrataUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -148,6 +151,7 @@
 		099DBDA62FCF54B80042FE85 = {
 			isa = PBXGroup;
 			children = (
+				091F03A62FD5E755003DE1CC /* sccainfo */,
 				09A474802FD1466C009D5CCA /* blkstat */,
 				09A4747A2FD1466C009D5CCA /* evtxexport */,
 				09A4747B2FD1466C009D5CCA /* evtxinfo */,

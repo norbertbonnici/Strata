@@ -244,6 +244,15 @@ struct MoreTab: View {
                     Divider().background(Theme.hair2).padding(.leading, 50)
 
                     NavigationLink {
+                        PrefetchDrillView()
+                    } label: {
+                        moreRow(icon: "bolt.badge.clock", title: "Prefetch",
+                                trailing: counter(model.prefetchCount))
+                    }
+                    .buttonStyle(.plain)
+                    Divider().background(Theme.hair2).padding(.leading, 50)
+
+                    NavigationLink {
                         AmcacheDrillView()
                     } label: {
                         moreRow(icon: "shippingbox.and.arrow.backward", title: "Amcache",
