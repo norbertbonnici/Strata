@@ -108,6 +108,29 @@ public nonisolated struct TSKDatabase {
         }
     }
 
+    /// Like `fetchExtractInfo`, but also returns the file's NTFS attribute
+    /// type + id so a *named* alternate data stream (e.g. `$UsnJrnl:$J`) can be
+    /// extracted - icat needs the `meta-type-id` address form, since the bare
+    /// meta_addr selects only the (often empty) default `$DATA` stream.
+    public func fetchAttrExtractInfo(forFileID id: Int64)
+        throws -> (imageOffsetSectors: Int64, metaAddr: Int64, attrType: Int64, attrId: Int64)?
+    {
+        let sql = """
+            SELECT fs.img_offset, f.meta_addr, f.attr_type, f.attr_id
+            FROM tsk_files f
+            JOIN tsk_fs_info fs ON f.fs_obj_id = fs.obj_id
+            WHERE f.obj_id = ?
+            """
+        return try dbQueue.read { db in
+            guard let row = try Row.fetchOne(db, sql: sql, arguments: [id]) else { return nil }
+            let bytes: Int64 = row["img_offset"] ?? 0
+            return (imageOffsetSectors: bytes / 512,
+                    metaAddr: row["meta_addr"] ?? 0,
+                    attrType: row["attr_type"] ?? 128,
+                    attrId: row["attr_id"] ?? 0)
+        }
+    }
+
     /// TSK stores epoch seconds; 0 (or negative) means "no timestamp recorded".
     private static func date(_ value: Int64?) -> Date? {
         guard let value, value > 0 else { return nil }

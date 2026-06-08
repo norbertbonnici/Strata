@@ -24,15 +24,34 @@ public actor TSKFileExtractor {
     public func extract(metaAddr: Int64,
                         imageOffsetSectors: Int64,
                         to destination: URL) async throws {
+        try await run(address: "\(metaAddr)", imageOffsetSectors: imageOffsetSectors,
+                      to: destination, suppressHoles: false)
+    }
+
+    /// Extract a specific NTFS attribute (a named alternate data stream) using
+    /// icat's `meta-type-id` address form. `suppressHoles` adds `-h` so a huge
+    /// sparse stream (the USN journal's `$J`) doesn't materialise gigabytes of
+    /// zeros.
+    public func extractStream(metaAddr: Int64, attrType: Int64, attrId: Int64,
+                              imageOffsetSectors: Int64, to destination: URL,
+                              suppressHoles: Bool = true) async throws {
+        try await run(address: "\(metaAddr)-\(attrType)-\(attrId)",
+                      imageOffsetSectors: imageOffsetSectors, to: destination,
+                      suppressHoles: suppressHoles)
+    }
+
+    private func run(address: String, imageOffsetSectors: Int64,
+                     to destination: URL, suppressHoles: Bool) async throws {
         let tool = try environment.url(for: "icat")
         try? FileManager.default.removeItem(at: destination)
         FileManager.default.createFile(atPath: destination.path, contents: nil)
 
         var args: [String] = []
+        if suppressHoles { args.append("-h") }   // don't emit sparse holes
         if let imageType { args.append(contentsOf: ["-i", imageType]) }
         if imageOffsetSectors > 0 { args.append(contentsOf: ["-o", "\(imageOffsetSectors)"]) }
         args.append(imageURL.path)
-        args.append("\(metaAddr)")
+        args.append(address)
 
         let process = Process()
         process.executableURL = tool

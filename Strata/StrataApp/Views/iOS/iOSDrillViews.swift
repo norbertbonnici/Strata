@@ -1073,4 +1073,105 @@ struct JumpListDrillView: View {
         return f
     }()
 }
+
+// MARK: - USN journal drill view
+
+/// Read-only USN change-journal list for the active scope. Colour-codes the
+/// high-signal change classes (create / delete / rename) and recovers names of
+/// files the live filesystem no longer shows. Paged.
+struct UsnDrillView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var displayLimit = 200
+    private let pageSize = 200
+
+    var body: some View {
+        let records = model.usn
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitle(title: "USN Journal",
+                           subtitle: "\(human(records.count)) record\(records.count == 1 ? "" : "s")")
+
+                if records.isEmpty {
+                    ContentUnavailableView(
+                        "No USN journal",
+                        systemImage: "doc.badge.clock",
+                        description: Text("Parse the USN journal on the macOS app to browse it here."))
+                        .padding(.top, 60)
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Card { rows(records) }.padding(.top, 10)
+                }
+
+                Spacer(minLength: 26)
+            }
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+    }
+
+    @ViewBuilder private func rows(_ records: [UsnRecord]) -> some View {
+        ForEach(records.prefix(displayLimit)) { r in
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 11) {
+                    Image(systemName: icon(for: r))
+                        .font(.system(size: 16)).frame(width: 22)
+                        .foregroundStyle(tint(for: r))
+                    Text(r.fileName)
+                        .font(.system(size: 13.5, weight: .medium))
+                        .foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    if let t = r.timestamp {
+                        Text(Self.dateFmt.string(from: t))
+                            .font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text3)
+                    }
+                }
+                Text(r.reasonSummary)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(Theme.text3).lineLimit(1).truncationMode(.tail)
+                    .padding(.leading, 33)
+            }
+            .padding(.horizontal, 15).padding(.vertical, 11)
+            .overlay(alignment: .bottom) { Divider().background(Theme.hair2) }
+        }
+        if records.count > displayLimit {
+            Button { displayLimit += pageSize } label: {
+                Text("Show \(min(pageSize, records.count - displayLimit)) more · \(human(records.count - displayLimit)) hidden")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Theme.teal)
+                    .frame(maxWidth: .infinity).padding(.vertical, 13)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func icon(for r: UsnRecord) -> String {
+        if r.isDelete { return "trash" }
+        if r.isCreate { return "plus.circle" }
+        if r.isRename { return "arrow.triangle.2.circlepath" }
+        return r.isDirectory ? "folder" : "doc"
+    }
+
+    private func tint(for r: UsnRecord) -> Color {
+        if r.isDelete { return Theme.crit }
+        if r.isCreate { return Theme.teal2 }
+        if r.isRename { return Theme.amber }
+        return Theme.text3
+    }
+
+    private func human(_ n: Int) -> String {
+        let f = NumberFormatter(); f.numberStyle = .decimal
+        return f.string(from: NSNumber(value: n)) ?? "\(n)"
+    }
+
+    private static let dateFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")   // forensic timestamps are UTC
+        return f
+    }()
+}
+
 #endif

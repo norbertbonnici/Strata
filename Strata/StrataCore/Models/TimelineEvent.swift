@@ -24,11 +24,13 @@ public enum MACBKind: String, CaseIterable, Sendable, Codable {
 public enum TimelineSource: String, CaseIterable, Sendable, Codable {
     case filesystem = "FS"
     case evtx       = "EVTX"
+    case usn        = "USN"
 
     public var label: String {
         switch self {
         case .filesystem: return "Filesystem"
         case .evtx:       return "Event Log"
+        case .usn:        return "USN Journal"
         }
     }
 }

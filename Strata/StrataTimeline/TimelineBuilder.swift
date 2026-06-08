@@ -69,4 +69,24 @@ public nonisolated enum TimelineBuilder {
         }
         return events.sorted { $0.date < $1.date }
     }
+
+    /// Project USN journal records onto the timeline. `kind` reflects the change
+    /// (.born for create, .changed otherwise); the path encodes the filename +
+    /// reasons so the row reads well and free-text search matches; `isDeleted`
+    /// surfaces deletes. Records without a timestamp are dropped.
+    public static func build(from records: [UsnRecord]) -> [TimelineEvent] {
+        var events: [TimelineEvent] = []
+        events.reserveCapacity(records.count)
+        for record in records {
+            guard let date = record.timestamp else { continue }
+            events.append(TimelineEvent(date: date,
+                                        kind: record.isCreate ? .born : .changed,
+                                        source: .usn,
+                                        fileID: 0,
+                                        path: "\(record.fileName)  [\(record.reasonSummary)]",
+                                        size: 0,
+                                        isDeleted: record.isDelete))
+        }
+        return events.sorted { $0.date < $1.date }
+    }
 }

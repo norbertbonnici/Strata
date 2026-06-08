@@ -27,6 +27,7 @@ public nonisolated enum CaseStore {
     private static let shimcacheFilename    = "shimcache.json"
     private static let lnkFilename          = "lnk.json"
     private static let jumplistFilename     = "jumplist.json"
+    private static let usnFilename          = "usn.json"
     private static let findingsFilename   = "findings.json"
     private static let iocsFilename       = "iocs.json"
     private static let iocMatchesFilename = "iocmatches.json"
@@ -64,6 +65,11 @@ public nonisolated enum CaseStore {
     public static func jumpListScratchDirectory(forHostID id: UUID, in bundle: URL) -> URL {
         hostDirectory(forHostID: id, in: bundle)
             .appendingPathComponent("jumplist", isDirectory: true)
+    }
+
+    public static func usnScratchDirectory(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent("usn", isDirectory: true)
     }
 
     public static func registryScratchDirectory(forHostID id: UUID, in bundle: URL) -> URL {
@@ -216,6 +222,16 @@ public nonisolated enum CaseStore {
     public static func writeJumpList(_ entries: [JumpListEntry],
                                      forHostID id: UUID, in bundle: URL) throws {
         try writeArray(entries, at: jumpListFileURL(forHostID: id, in: bundle))
+    }
+    public static func usnFileURL(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle).appendingPathComponent(usnFilename)
+    }
+    public static func readUsn(forHostID id: UUID, in bundle: URL) throws -> [UsnRecord]? {
+        try readArrayIfPresent(at: usnFileURL(forHostID: id, in: bundle))
+    }
+    public static func writeUsn(_ records: [UsnRecord],
+                                forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(records, at: usnFileURL(forHostID: id, in: bundle))
     }
     public static func readFindings(forHostID id: UUID, in bundle: URL) throws -> [Finding]? {
         try readArrayIfPresent(at: findingsFileURL(forHostID: id, in: bundle))
