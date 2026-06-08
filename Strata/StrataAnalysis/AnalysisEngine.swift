@@ -41,6 +41,7 @@ public nonisolated struct AnalysisEngine: Sendable {
         AmcacheAnalyzer(),
         ShimcacheAnalyzer(),
         LnkAnalyzer(),
+        JumpListAnalyzer(),
         UsnAnalyzer(),
     ]
 }

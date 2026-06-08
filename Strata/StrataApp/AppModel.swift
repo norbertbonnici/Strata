@@ -23,6 +23,7 @@ nonisolated struct EvidenceState: Sendable {
     var amcache: [AmcacheEntry] = []
     var shimcache: [ShimcacheEntry] = []
     var lnk: [LnkEntry] = []
+    var jumpList: [JumpListEntry] = []
     var usn: [UsnRecord] = []
     var findings: [Finding] = []
     var iocMatches: [IOCMatch] = []
@@ -344,6 +345,7 @@ final class AppModel: ObservableObject {
                 state.shimcache = ShimcacheParser.fromRegistry(state.registryValues)
             }
             state.lnk = (try? CaseStore.readLnk(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.jumpList = (try? CaseStore.readJumpList(forHostID: evidence.id, in: bundleURL)) ?? []
             state.usn = (try? CaseStore.readUsn(forHostID: evidence.id, in: bundleURL)) ?? []
             // Fold USN journal rows back into the timeline so the Source filter
             // works without re-parsing on every case open (mirrors the evtx splice).
@@ -653,6 +655,7 @@ final class AppModel: ObservableObject {
         var amcache: [AmcacheEntry] = []
         var shimcache: [ShimcacheEntry] = []
         var lnk: [LnkEntry] = []
+        var jumpList: [JumpListEntry] = []
         var usn: [UsnRecord] = []
         var iocMatches: [IOCMatch] = []
     }
@@ -704,6 +707,7 @@ final class AppModel: ObservableObject {
             d.amcache = s.amcache
             d.shimcache = s.shimcache
             d.lnk = s.lnk
+            d.jumpList = s.jumpList
             d.usn = s.usn
             d.iocMatches = s.iocMatches
             return d
@@ -720,6 +724,7 @@ final class AppModel: ObservableObject {
             d.amcache.append(contentsOf: s.amcache)
             d.shimcache.append(contentsOf: s.shimcache)
             d.lnk.append(contentsOf: s.lnk)
+            d.jumpList.append(contentsOf: s.jumpList)
             d.usn.append(contentsOf: s.usn)
             d.iocMatches.append(contentsOf: s.iocMatches)
         }
@@ -731,6 +736,7 @@ final class AppModel: ObservableObject {
         // insertionOrder is per-host; across hosts order by last-modified instead.
         d.shimcache.sort { ($0.lastModified ?? .distantPast) > ($1.lastModified ?? .distantPast) }
         d.lnk.sort { ($0.targetModified ?? .distantPast) > ($1.targetModified ?? .distantPast) }
+        d.jumpList.sort { ($0.lastAccessed ?? .distantPast) > ($1.lastAccessed ?? .distantPast) }
         d.usn.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
         return d
     }
@@ -750,6 +756,7 @@ final class AppModel: ObservableObject {
     var amcache: [AmcacheEntry] { derived().amcache }
     var shimcache: [ShimcacheEntry] { derived().shimcache }
     var lnk: [LnkEntry] { derived().lnk }
+    var jumpList: [JumpListEntry] { derived().jumpList }
     var usn: [UsnRecord] { derived().usn }
     var iocMatches: [IOCMatch] { derived().iocMatches }
 
@@ -764,6 +771,7 @@ final class AppModel: ObservableObject {
     var amcacheCount: Int { scopedCount(\.amcache.count) }
     var shimcacheCount: Int { scopedCount(\.shimcache.count) }
     var lnkCount: Int { scopedCount(\.lnk.count) }
+    var jumpListCount: Int { scopedCount(\.jumpList.count) }
     var usnCount: Int { scopedCount(\.usn.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
@@ -1120,6 +1128,7 @@ final class AppModel: ObservableObject {
         await parseRegistry()
         await parsePrefetch()
         await parseLnk()
+        await parseJumpList()
         await parseUsn()
         await runAnalyzers()
     }
@@ -1352,6 +1361,119 @@ final class AppModel: ObservableObject {
                  targetAccessed: entry.targetAccessed, driveType: entry.driveType,
                  volumeLabel: entry.volumeLabel, volumeSerial: entry.volumeSerial,
                  machineIdentifier: entry.machineIdentifier)
+    }
+
+    // MARK: - JumpList parsing
+
+    /// Parse every JumpList (*.automaticDestinations-ms / *.customDestinations-ms)
+    /// in every loaded evidence that doesn't already have results. Automatic lists
+    /// are cracked with olecfexport (OLE) and their embedded LNKs + DestList
+    /// metadata merged; custom lists are a flat LNK sequence. Each file yields
+    /// multiple JumpListEntry. Mirrors parseLnk; does NOT run analyzers.
+    func parseJumpList() async {
+        guard !evidenceList.isEmpty else {
+            errorMessage = "No evidence loaded."
+            return
+        }
+        errorMessage = nil
+        isWorking = true
+        defer {
+            isWorking = false
+            progress = nil
+        }
+
+        func candidates(_ state: EvidenceState) -> [FileEntry] {
+            state.files.filter {
+                let ext = $0.fileExtension
+                return (ext == "automaticdestinations-ms" || ext == "customdestinations-ms")
+                    && !$0.isDirectory && !$0.isDeleted && $0.size > 0
+            }
+        }
+
+        let totalCandidates = evidenceList.reduce(0) { acc, evidence in
+            guard let state = states[evidence.id], state.jumpList.isEmpty else { return acc }
+            return acc + candidates(state).count
+        }
+        guard totalCandidates > 0 else {
+            statusMessage = "No new JumpLists to parse."
+            return
+        }
+        progress = ProgressInfo(current: 0, total: totalCandidates, label: "Parsing JumpLists")
+        var completed = 0
+
+        do {
+            let tskEnv = try TSKEnvironment.discover()
+            let lnkEnv = try LnkEnvironment.discover()
+            let jlEnv = try JumpListEnvironment.discover()
+            let parser = JumpListParser(environment: jlEnv, lnkParser: LnkParser(environment: lnkEnv))
+
+            for evidence in evidenceList {
+                guard var state = states[evidence.id] else { continue }
+                if !state.jumpList.isEmpty { continue }
+
+                let found = candidates(state)
+                guard !found.isEmpty else { continue }
+
+                let isLoose = evidence.kind == .kapeLooseFolder
+                var database: TSKDatabase?
+                var extractor: TSKFileExtractor?
+                var scratch: URL?
+                if !isLoose {
+                    guard let dbURL = state.dbURL else { continue }
+                    database = try TSKDatabase(path: dbURL)
+                    extractor = TSKFileExtractor(
+                        environment: tskEnv,
+                        imageURL: evidence.sourceURL,
+                        imageType: TSKImageIngestor.imageType(for: evidence.sourceURL))
+                    guard let bundleURL = currentCaseBundleURL else { continue }
+                    let dir = CaseStore.jumpListScratchDirectory(forHostID: evidence.id, in: bundleURL)
+                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    scratch = dir
+                }
+
+                var collected: [JumpListEntry] = []
+                for entry in found {
+                    progress = ProgressInfo(current: completed, total: totalCandidates,
+                                            label: "\(evidence.displayName): \(entry.name)")
+                    let fileURL: URL
+                    if isLoose {
+                        guard let disk = entry.diskURL,
+                              FileManager.default.fileExists(atPath: disk.path) else {
+                            completed += 1; continue
+                        }
+                        fileURL = disk
+                    } else {
+                        guard let info = try database!.fetchExtractInfo(forFileID: entry.id) else {
+                            completed += 1; continue
+                        }
+                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name)")
+                        try await extractor!.extract(metaAddr: info.metaAddr,
+                                                     imageOffsetSectors: info.imageOffsetSectors,
+                                                     to: outURL)
+                        fileURL = outURL
+                    }
+                    let appID = JumpListAppID.appID(fromFilename: entry.name)
+                    let isAutomatic = entry.fileExtension == "automaticdestinations-ms"
+                    if let parsed = try? await parser.parse(fileAt: fileURL, appID: appID,
+                                                            sourceFile: entry.fullPath,
+                                                            isAutomatic: isAutomatic) {
+                        collected.append(contentsOf: parsed)
+                    }
+                    completed += 1
+                }
+                collected.sort { ($0.lastAccessed ?? .distantPast) > ($1.lastAccessed ?? .distantPast) }
+                state.jumpList = collected
+                states[evidence.id] = state
+                if let bundleURL = currentCaseBundleURL {
+                    try? CaseStore.writeJumpList(collected, forHostID: evidence.id, in: bundleURL)
+                }
+            }
+            progress = ProgressInfo(current: completed, total: totalCandidates,
+                                    label: "JumpList parse complete")
+        } catch {
+            self.errorMessage = error.localizedDescription
+            self.statusMessage = ""
+        }
     }
 
     // MARK: - USN journal parsing
@@ -1826,6 +1948,7 @@ final class AppModel: ObservableObject {
                                           amcache: state.amcache,
                                           shimcache: state.shimcache,
                                           lnk: state.lnk,
+                                          jumpList: state.jumpList,
                                           usn: state.usn)
             let results = await analysisEngine.run(on: context)
             state.findings = results

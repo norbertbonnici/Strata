@@ -23,6 +23,7 @@
 		09A474C32FD1466C009D5CCA /* ewfinfo in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A474C12FD1466C009D5CCA /* ewfinfo */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		09A474C42FD1466C009D5CCA /* ewfverify in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A474C22FD1466C009D5CCA /* ewfverify */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		A1B2C3D40000000000000001 /* lnkinfo in CopyFiles */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000002 /* lnkinfo */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		A1B2C3D40000000000000003 /* olecfexport in CopyFiles */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000004 /* olecfexport */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -58,6 +59,7 @@
 				09A474862FD1466C009D5CCA /* evtxinfo in CopyFiles */,
 				09A474872FD1466C009D5CCA /* regfexport in CopyFiles */,
 				A1B2C3D40000000000000001 /* lnkinfo in CopyFiles */,
+				A1B2C3D40000000000000003 /* olecfexport in CopyFiles */,
 				09A474882FD1466C009D5CCA /* icat in CopyFiles */,
 				09A474892FD1466C009D5CCA /* regfinfo in CopyFiles */,
 				09A4748A2FD1466C009D5CCA /* tsk_loaddb in CopyFiles */,
@@ -71,7 +73,7 @@
 
 /* Begin PBXFileReference section */
 		091F03A62FD5E755003DE1CC /* sccainfo */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = sccainfo; path = Vendor/tsk/bin/arm64/sccainfo; sourceTree = "<group>"; };
-		099DBDAF2FCF54B80042FE85 /* Strata.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Strata.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		099DBDAF2FCF54B80042FE85 /* StrataDFIR.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = StrataDFIR.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		099DBDC02FCF54B90042FE85 /* StrataTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = StrataTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		099DBDCA2FCF54B90042FE85 /* StrataUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = StrataUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		099DBE0C2FCF67870042FE85 /* tsk_loaddb */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = tsk_loaddb; path = Vendor/tsk/bin/arm64/tsk_loaddb; sourceTree = "<group>"; };
@@ -89,6 +91,7 @@
 		09A474C12FD1466C009D5CCA /* ewfinfo */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = ewfinfo; path = Vendor/tsk/bin/arm64/ewfinfo; sourceTree = "<group>"; };
 		09A474C22FD1466C009D5CCA /* ewfverify */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = ewfverify; path = Vendor/tsk/bin/arm64/ewfverify; sourceTree = "<group>"; };
 		A1B2C3D40000000000000002 /* lnkinfo */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = lnkinfo; path = Vendor/tsk/bin/arm64/lnkinfo; sourceTree = "<group>"; };
+		A1B2C3D40000000000000004 /* olecfexport */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = olecfexport; path = Vendor/tsk/bin/arm64/olecfexport; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -164,6 +167,7 @@
 				09A474792FD1466C009D5CCA /* mmls */,
 				09A4747C2FD1466C009D5CCA /* regfexport */,
 				A1B2C3D40000000000000002 /* lnkinfo */,
+				A1B2C3D40000000000000004 /* olecfexport */,
 				09A4747E2FD1466C009D5CCA /* regfinfo */,
 				09A4747F2FD1466C009D5CCA /* tsk_loaddb */,
 				099DBDB12FCF54B80042FE85 /* Strata */,
@@ -177,7 +181,7 @@
 		099DBDB02FCF54B80042FE85 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				099DBDAF2FCF54B80042FE85 /* Strata.app */,
+				099DBDAF2FCF54B80042FE85 /* StrataDFIR.app */,
 				099DBDC02FCF54B90042FE85 /* StrataTests.xctest */,
 				099DBDCA2FCF54B90042FE85 /* StrataUITests.xctest */,
 			);
@@ -216,7 +220,7 @@
 				099DBE0A2FCF60530042FE85 /* GRDB */,
 			);
 			productName = Strata;
-			productReference = 099DBDAF2FCF54B80042FE85 /* Strata.app */;
+			productReference = 099DBDAF2FCF54B80042FE85 /* StrataDFIR.app */;
 			productType = "com.apple.product-type.application";
 		};
 		099DBDBF2FCF54B90042FE85 /* StrataTests */ = {
@@ -407,7 +411,8 @@
 				MACOSX_DEPLOYMENT_TARGET = 26.5;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bonnicilabs.Strata;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_MODULE_NAME = Strata;
+				PRODUCT_NAME = StrataDFIR;
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -456,7 +461,8 @@
 				MACOSX_DEPLOYMENT_TARGET = 26.5;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bonnicilabs.Strata;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_MODULE_NAME = Strata;
+				PRODUCT_NAME = StrataDFIR;
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -609,7 +615,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2,7";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Strata.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Strata";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/StrataDFIR.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/StrataDFIR";
 				XROS_DEPLOYMENT_TARGET = 26.5;
 			};
 			name = Debug;
@@ -635,7 +641,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2,7";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Strata.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Strata";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/StrataDFIR.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/StrataDFIR";
 				XROS_DEPLOYMENT_TARGET = 26.5;
 			};
 			name = Release;

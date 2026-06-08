@@ -26,6 +26,7 @@ public nonisolated enum CaseStore {
     private static let amcacheFilename     = "amcache.json"
     private static let shimcacheFilename    = "shimcache.json"
     private static let lnkFilename          = "lnk.json"
+    private static let jumplistFilename     = "jumplist.json"
     private static let usnFilename          = "usn.json"
     private static let findingsFilename   = "findings.json"
     private static let iocsFilename       = "iocs.json"
@@ -59,6 +60,11 @@ public nonisolated enum CaseStore {
     public static func lnkScratchDirectory(forHostID id: UUID, in bundle: URL) -> URL {
         hostDirectory(forHostID: id, in: bundle)
             .appendingPathComponent("lnk", isDirectory: true)
+    }
+
+    public static func jumpListScratchDirectory(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent("jumplist", isDirectory: true)
     }
 
     public static func usnScratchDirectory(forHostID id: UUID, in bundle: URL) -> URL {
@@ -206,6 +212,16 @@ public nonisolated enum CaseStore {
     public static func writeLnk(_ entries: [LnkEntry],
                                 forHostID id: UUID, in bundle: URL) throws {
         try writeArray(entries, at: lnkFileURL(forHostID: id, in: bundle))
+    }
+    public static func jumpListFileURL(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle).appendingPathComponent(jumplistFilename)
+    }
+    public static func readJumpList(forHostID id: UUID, in bundle: URL) throws -> [JumpListEntry]? {
+        try readArrayIfPresent(at: jumpListFileURL(forHostID: id, in: bundle))
+    }
+    public static func writeJumpList(_ entries: [JumpListEntry],
+                                     forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(entries, at: jumpListFileURL(forHostID: id, in: bundle))
     }
     public static func usnFileURL(forHostID id: UUID, in bundle: URL) -> URL {
         hostDirectory(forHostID: id, in: bundle).appendingPathComponent(usnFilename)
