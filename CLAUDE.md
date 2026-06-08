@@ -63,8 +63,9 @@ Per-release notes live in `docs/releases/`; keep `CHANGELOG.md` updated.
 | `StrataRegistry` | Parse hives via `regfexport` |
 | `StrataSCCA` | Parse Windows Prefetch (`.pf`) via `sccainfo` (libscca) |
 | `StrataLNK` | Parse `.lnk` shortcuts via `lnkinfo` (liblnk) |
+| `StrataJumpList` | Parse JumpLists - OLE via `olecfexport` (libolecf) + reused `lnkinfo` + a pure DestList decoder |
 | `StrataTimeline` | MACB timeline + gap/session analysis |
-| `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **19 analyzers**, IOC matcher, lateral graph |
+| `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **20 analyzers**, IOC matcher, lateral graph |
 | `StrataApp` | SwiftUI app. `AppModel` (the store), `CaseStore` (.strata bundle layout), `CaseLibrary`, `RecentCases`, `Views/` (macOS) + `Views/iOS/` |
 
 `.strata` case bundle = a directory: `case.json`, `hosts.json`,
@@ -115,7 +116,7 @@ treat it as one item. The macOS-only ingest code is gated `#if os(macOS)`.
 
 Ingestion (E01/VHD/raw + loose KAPE folders), file tree (volume-grouped, deleted
 & slack toggles), MACB timeline (histogram drag-select, gap analysis), EVTX +
-registry + prefetch + Amcache/Shimcache + LNK parsing → host profile, 19 ATT&CK analyzers → kill chain, IOC matching,
+registry + prefetch + Amcache/Shimcache + LNK + JumpList parsing → host profile, 20 ATT&CK analyzers → kill chain, IOC matching,
 interactive lateral graph, multi-host `.strata` cases, iOS viewer, Case
 Library / iCloud-Drive sync, case reporting & export (HTML/Markdown examiner
 report + CSV/JSON data exports; per-endpoint selection + report severity filter),
@@ -188,10 +189,22 @@ Two betas shipped. A full 56-issue view review was completed and remediated.
      `parseEventLogs` (icat-extract / loose read); per-host `lnk.json`;
      `LnkAnalyzer` flags shortcuts carrying command-line args (lure) + targets in
      suspicious paths. macOS `LnkView` + iOS `LnkDrillView`. Parser validated
-     against **real lnkinfo output** (crafted MS-SHLLINK sample). **JumpLists are
-     the follow-on** (OLE compound `*.automaticDestinations-ms` + embedded LNKs).
-   - Still pending: JumpLists, USN journal (`$J`), SRUM, browser history,
-     WMI persistence.
+     against **real lnkinfo output** (crafted MS-SHLLINK sample).
+   - ~~**JumpLists**~~ — **shipped.** `StrataJumpList`. AutomaticDestinations
+     (`*.automaticDestinations-ms`) are OLE compound files: `olecfexport`
+     (libolecf, added to `build-tsk.sh` + Copy-Files; no pkg-config shim - 2024
+     tag) cracks them to `<base>.export/<stream>/StreamData.bin`; each hex stream
+     is fed to the reused `lnkinfo`/`LnkParser`, and the `DestList` stream is
+     byte-decoded by a pure version-aware `DestListParser` (last-access FILETIME,
+     access count, NetBIOS host, pin), joined to its LNK by entry ID.
+     CustomDestinations are carved by `ShellLinkCarver` (scan for the SHLLINK
+     signature) → `lnkinfo`. `JumpListEntry`/`JumpListAppID` (`StrataCore`);
+     per-host `jumplist.json`; `JumpListAnalyzer` flags suspicious-path targets +
+     **RDP (mstsc) destinations as lateral movement (T1021.001)**. macOS
+     `JumpListView` + iOS `JumpListDrillView`. **DestList decoder validated
+     against synthetic fixtures + a hand-built OLE container** (olecfexport's
+     `StreamData.bin`-per-dir output confirmed) — confirm against a real jumplist.
+   - Still pending: USN journal (`$J`), SRUM, browser history, WMI persistence.
 5. **Super-timeline + tagging/notes** — unify FS MACB + EVTX + registry (+ future
    artifacts) into one pivotable timeline; bookmark/tag findings, analyst notes,
    case narrative.
