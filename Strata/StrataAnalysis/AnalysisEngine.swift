@@ -37,5 +37,6 @@ public nonisolated struct AnalysisEngine: Sendable {
         RMMToolAnalyzer(),
         PasswordSprayAnalyzer(),
         CredentialPivotAnalyzer(),
+        PrefetchAnalyzer(),
     ]
 }

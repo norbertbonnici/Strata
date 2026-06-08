@@ -22,6 +22,7 @@ public enum CaseStore {
     private static let tskFilename      = "tsk.db"
     private static let eventsFilename     = "events.json"
     private static let registryFilename   = "registry.json"
+    private static let prefetchFilename   = "prefetch.json"
     private static let findingsFilename   = "findings.json"
     private static let iocsFilename       = "iocs.json"
     private static let iocMatchesFilename = "iocmatches.json"
@@ -54,6 +55,11 @@ public enum CaseStore {
     public static func registryScratchDirectory(forHostID id: UUID, in bundle: URL) -> URL {
         hostDirectory(forHostID: id, in: bundle)
             .appendingPathComponent("registry", isDirectory: true)
+    }
+
+    public static func prefetchScratchDirectory(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent("prefetch", isDirectory: true)
     }
 
     // MARK: - Create / load
@@ -146,6 +152,16 @@ public enum CaseStore {
     public static func writeRegistry(_ values: [RegistryValue],
                                      forHostID id: UUID, in bundle: URL) throws {
         try writeArray(values, at: registryFileURL(forHostID: id, in: bundle))
+    }
+    public static func prefetchFileURL(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle).appendingPathComponent(prefetchFilename)
+    }
+    public static func readPrefetch(forHostID id: UUID, in bundle: URL) throws -> [PrefetchEntry]? {
+        try readArrayIfPresent(at: prefetchFileURL(forHostID: id, in: bundle))
+    }
+    public static func writePrefetch(_ entries: [PrefetchEntry],
+                                     forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(entries, at: prefetchFileURL(forHostID: id, in: bundle))
     }
     public static func readFindings(forHostID id: UUID, in bundle: URL) throws -> [Finding]? {
         try readArrayIfPresent(at: findingsFileURL(forHostID: id, in: bundle))
