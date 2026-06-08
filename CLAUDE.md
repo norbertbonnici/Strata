@@ -63,8 +63,9 @@ Per-release notes live in `docs/releases/`; keep `CHANGELOG.md` updated.
 | `StrataRegistry` | Parse hives via `regfexport` |
 | `StrataSCCA` | Parse Windows Prefetch (`.pf`) via `sccainfo` (libscca) |
 | `StrataLNK` | Parse `.lnk` shortcuts via `lnkinfo` (liblnk) |
+| `StrataCore` (USN) | Pure-Swift NTFS USN change-journal byte-parser (`UsnJournalParser`, `UsnRecord`) — no vendored tool; reads the `$Extend\$UsnJrnl:$J` ADS extracted via icat |
 | `StrataTimeline` | MACB timeline + gap/session analysis |
-| `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **19 analyzers**, IOC matcher, lateral graph |
+| `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **20 analyzers**, IOC matcher, lateral graph |
 | `StrataApp` | SwiftUI app. `AppModel` (the store), `CaseStore` (.strata bundle layout), `CaseLibrary`, `RecentCases`, `Views/` (macOS) + `Views/iOS/` |
 
 `.strata` case bundle = a directory: `case.json`, `hosts.json`,
@@ -115,7 +116,7 @@ treat it as one item. The macOS-only ingest code is gated `#if os(macOS)`.
 
 Ingestion (E01/VHD/raw + loose KAPE folders), file tree (volume-grouped, deleted
 & slack toggles), MACB timeline (histogram drag-select, gap analysis), EVTX +
-registry + prefetch + Amcache/Shimcache + LNK parsing → host profile, 19 ATT&CK analyzers → kill chain, IOC matching,
+registry + prefetch + Amcache/Shimcache + LNK + USN-journal parsing → host profile, 20 ATT&CK analyzers → kill chain, IOC matching,
 interactive lateral graph, multi-host `.strata` cases, iOS viewer, Case
 Library / iCloud-Drive sync, case reporting & export (HTML/Markdown examiner
 report + CSV/JSON data exports; per-endpoint selection + report severity filter),
@@ -190,8 +191,21 @@ Two betas shipped. A full 56-issue view review was completed and remediated.
      suspicious paths. macOS `LnkView` + iOS `LnkDrillView`. Parser validated
      against **real lnkinfo output** (crafted MS-SHLLINK sample). **JumpLists are
      the follow-on** (OLE compound `*.automaticDestinations-ms` + embedded LNKs).
-   - Still pending: JumpLists, USN journal (`$J`), SRUM, browser history,
-     WMI persistence.
+   - ~~**USN journal**~~ — **shipped.** Pure-Swift byte-parser (no vendored tool):
+     `UsnJournalParser` (`StrataCore`) decodes `USN_RECORD` V2/V3/V4 from the
+     `$Extend\$UsnJrnl:$J` sparse named ADS, skipping the leading sparse-zero gap
+     (skip-forward to the next non-zero 8-byte boundary — a naive stop-on-zero
+     would truncate the parse). `$J` is extracted with icat's `meta-type-id` ADS
+     address form + `-h` (suppress sparse holes) via new
+     `TSKDatabase.fetchAttrExtractInfo` + `TSKFileExtractor.extractStream`;
+     `parseUsn()` reads the (100 MB+) stream and parses it **off-main**
+     (`Task.detached`); per-host `usn.json`; spliced onto the timeline
+     (`TimelineSource.usn`). `UsnAnalyzer` correlates 3 high-signal sequences:
+     created-then-deleted executable (T1070.004), rename-into-executable
+     (T1036.003), mass-deletion burst (T1070.004). macOS `UsnView` + iOS
+     `UsnDrillView`. **Parser validated against synthetic V2/V3 fixtures only** —
+     real `$J` parse-validation is pending a mounted source image.
+   - Still pending: JumpLists, SRUM, browser history, WMI persistence.
 5. **Super-timeline + tagging/notes** — unify FS MACB + EVTX + registry (+ future
    artifacts) into one pivotable timeline; bookmark/tag findings, analyst notes,
    case narrative.

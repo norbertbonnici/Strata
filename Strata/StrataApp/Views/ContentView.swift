@@ -11,6 +11,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case amcache = "Amcache"
     case shimcache = "Shimcache"
     case lnk = "Shortcuts"
+    case usn = "USN Journal"
     case lateral = "Lateral"
     case killChain = "Kill Chain"
     case iocs = "IOCs"
@@ -28,6 +29,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .amcache:   return "shippingbox.and.arrow.backward"
         case .shimcache: return "clock.arrow.circlepath"
         case .lnk:       return "arrowshape.turn.up.right"
+        case .usn:       return "doc.badge.clock"
         case .lateral:   return "point.3.connected.trianglepath.dotted"
         case .killChain: return "link"
         case .iocs:      return "scope"
@@ -113,6 +115,7 @@ struct ContentView: View {
                 case .amcache:   AmcacheView()
                 case .shimcache: ShimcacheView()
                 case .lnk:       LnkView()
+                case .usn:       UsnView()
                 case .lateral:   LateralMovementView()
                 case .killChain: KillChainView()
                 case .iocs:      IOCView()

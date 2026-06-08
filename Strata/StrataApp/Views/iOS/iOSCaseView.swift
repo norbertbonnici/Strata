@@ -280,6 +280,15 @@ struct MoreTab: View {
                     Divider().background(Theme.hair2).padding(.leading, 50)
 
                     NavigationLink {
+                        UsnDrillView()
+                    } label: {
+                        moreRow(icon: "doc.badge.clock", title: "USN Journal",
+                                trailing: counter(model.usnCount))
+                    }
+                    .buttonStyle(.plain)
+                    Divider().background(Theme.hair2).padding(.leading, 50)
+
+                    NavigationLink {
                         LateralDrillView()
                     } label: {
                         moreRow(icon: "point.3.connected.trianglepath.dotted",

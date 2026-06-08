@@ -23,6 +23,7 @@ nonisolated struct EvidenceState: Sendable {
     var amcache: [AmcacheEntry] = []
     var shimcache: [ShimcacheEntry] = []
     var lnk: [LnkEntry] = []
+    var usn: [UsnRecord] = []
     var findings: [Finding] = []
     var iocMatches: [IOCMatch] = []
 }
@@ -343,6 +344,13 @@ final class AppModel: ObservableObject {
                 state.shimcache = ShimcacheParser.fromRegistry(state.registryValues)
             }
             state.lnk = (try? CaseStore.readLnk(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.usn = (try? CaseStore.readUsn(forHostID: evidence.id, in: bundleURL)) ?? []
+            // Fold USN journal rows back into the timeline so the Source filter
+            // works without re-parsing on every case open (mirrors the evtx splice).
+            if !state.usn.isEmpty {
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.usn))
+                state.timeline.sort { $0.date < $1.date }
+            }
             state.findings = (try? CaseStore.readFindings(forHostID: evidence.id, in: bundleURL)) ?? []
             state.iocMatches = (try? CaseStore.readIOCMatches(forHostID: evidence.id, in: bundleURL)) ?? []
             return .loaded(state)
@@ -645,6 +653,7 @@ final class AppModel: ObservableObject {
         var amcache: [AmcacheEntry] = []
         var shimcache: [ShimcacheEntry] = []
         var lnk: [LnkEntry] = []
+        var usn: [UsnRecord] = []
         var iocMatches: [IOCMatch] = []
     }
     private var derivedCache: Derived?
@@ -695,6 +704,7 @@ final class AppModel: ObservableObject {
             d.amcache = s.amcache
             d.shimcache = s.shimcache
             d.lnk = s.lnk
+            d.usn = s.usn
             d.iocMatches = s.iocMatches
             return d
         }
@@ -710,6 +720,7 @@ final class AppModel: ObservableObject {
             d.amcache.append(contentsOf: s.amcache)
             d.shimcache.append(contentsOf: s.shimcache)
             d.lnk.append(contentsOf: s.lnk)
+            d.usn.append(contentsOf: s.usn)
             d.iocMatches.append(contentsOf: s.iocMatches)
         }
         d.events.sort { $0.writtenAt < $1.writtenAt }
@@ -720,6 +731,7 @@ final class AppModel: ObservableObject {
         // insertionOrder is per-host; across hosts order by last-modified instead.
         d.shimcache.sort { ($0.lastModified ?? .distantPast) > ($1.lastModified ?? .distantPast) }
         d.lnk.sort { ($0.targetModified ?? .distantPast) > ($1.targetModified ?? .distantPast) }
+        d.usn.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
         return d
     }
 
@@ -738,6 +750,7 @@ final class AppModel: ObservableObject {
     var amcache: [AmcacheEntry] { derived().amcache }
     var shimcache: [ShimcacheEntry] { derived().shimcache }
     var lnk: [LnkEntry] { derived().lnk }
+    var usn: [UsnRecord] { derived().usn }
     var iocMatches: [IOCMatch] { derived().iocMatches }
 
     // Count-only accessors: sum per-host counts without building or sorting the
@@ -751,6 +764,7 @@ final class AppModel: ObservableObject {
     var amcacheCount: Int { scopedCount(\.amcache.count) }
     var shimcacheCount: Int { scopedCount(\.shimcache.count) }
     var lnkCount: Int { scopedCount(\.lnk.count) }
+    var usnCount: Int { scopedCount(\.usn.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
     private func scopedCount(_ kp: KeyPath<EvidenceState, Int>) -> Int {
@@ -1106,6 +1120,7 @@ final class AppModel: ObservableObject {
         await parseRegistry()
         await parsePrefetch()
         await parseLnk()
+        await parseUsn()
         await runAnalyzers()
     }
 
@@ -1337,6 +1352,140 @@ final class AppModel: ObservableObject {
                  targetAccessed: entry.targetAccessed, driveType: entry.driveType,
                  volumeLabel: entry.volumeLabel, volumeSerial: entry.volumeSerial,
                  machineIdentifier: entry.machineIdentifier)
+    }
+
+    // MARK: - USN journal parsing
+
+    /// Is this tsk_files / loose-folder name the NTFS change journal's `$J`
+    /// data stream? On an image it appears as the named ADS `$UsnJrnl:$J`;
+    /// KAPE collections name it `$J` or URL-encode the colon (`$UsnJrnl%3A$J`).
+    private nonisolated static func isUsnJournalName(_ name: String) -> Bool {
+        let n = name.lowercased()
+        return n == "$j"
+            || n == "$usnjrnl:$j" || n.hasSuffix("$usnjrnl:$j")
+            || n == "$usnjrnl%3a$j" || n.hasSuffix("$usnjrnl%3a$j")
+    }
+
+    /// Parse the NTFS USN change journal (`$Extend\$UsnJrnl:$J`) for every
+    /// loaded evidence that doesn't already have USN results. The journal is a
+    /// single (often huge, sparse) named alternate data stream per volume, so:
+    ///  - image hosts extract it with icat's `meta-type-id` ADS address form,
+    ///    using `-h` so the leading sparse region isn't materialised as zeros;
+    ///  - loose folders read the collected `$J` in place.
+    /// The byte-parse runs OFF the main actor (`$J` can be 100 MB+). Mirrors
+    /// `parseEventLogs` for timeline splicing; does NOT run analyzers.
+    func parseUsn() async {
+        guard !evidenceList.isEmpty else {
+            errorMessage = "No evidence loaded."
+            return
+        }
+        errorMessage = nil
+        isWorking = true
+        defer {
+            isWorking = false
+            progress = nil
+        }
+
+        func candidates(_ state: EvidenceState) -> [FileEntry] {
+            state.files.filter {
+                !$0.isDirectory && $0.size > 0 && Self.isUsnJournalName($0.name)
+            }
+        }
+
+        let totalCandidates = evidenceList.reduce(0) { acc, evidence in
+            guard let state = states[evidence.id], state.usn.isEmpty else { return acc }
+            return acc + candidates(state).count
+        }
+        guard totalCandidates > 0 else {
+            statusMessage = "No new USN journal to parse."
+            return
+        }
+        progress = ProgressInfo(current: 0, total: totalCandidates, label: "Parsing USN journal")
+        var completed = 0
+
+        do {
+            let tskEnv = try TSKEnvironment.discover()
+
+            for evidence in evidenceList {
+                guard var state = states[evidence.id] else { continue }
+                if !state.usn.isEmpty { continue }
+
+                let found = candidates(state)
+                guard !found.isEmpty else { continue }
+
+                let isLoose = evidence.kind == .kapeLooseFolder
+                var database: TSKDatabase?
+                var extractor: TSKFileExtractor?
+                var scratch: URL?
+                if !isLoose {
+                    guard let dbURL = state.dbURL else { continue }
+                    database = try TSKDatabase(path: dbURL)
+                    extractor = TSKFileExtractor(
+                        environment: tskEnv,
+                        imageURL: evidence.sourceURL,
+                        imageType: TSKImageIngestor.imageType(for: evidence.sourceURL))
+                    guard let bundleURL = currentCaseBundleURL else { continue }
+                    let dir = CaseStore.usnScratchDirectory(forHostID: evidence.id, in: bundleURL)
+                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    scratch = dir
+                }
+
+                var collected: [UsnRecord] = []
+                for entry in found {
+                    progress = ProgressInfo(current: completed, total: totalCandidates,
+                                            label: "\(evidence.displayName): \(entry.name)")
+                    let fileURL: URL
+                    if isLoose {
+                        guard let disk = entry.diskURL,
+                              FileManager.default.fileExists(atPath: disk.path) else {
+                            completed += 1; continue
+                        }
+                        fileURL = disk
+                    } else {
+                        guard let info = try database!.fetchAttrExtractInfo(forFileID: entry.id) else {
+                            completed += 1; continue
+                        }
+                        let outURL = scratch!.appendingPathComponent("\(entry.id)-usnjrnl-J.bin")
+                        try await extractor!.extractStream(metaAddr: info.metaAddr,
+                                                           attrType: info.attrType,
+                                                           attrId: info.attrId,
+                                                           imageOffsetSectors: info.imageOffsetSectors,
+                                                           to: outURL)
+                        fileURL = outURL
+                    }
+
+                    // Read the (potentially huge) stream and parse it off the
+                    // main actor so the UI stays responsive.
+                    guard let data = try? Data(contentsOf: fileURL, options: .mappedIfSafe) else {
+                        completed += 1; continue
+                    }
+                    let bytes = [UInt8](data)
+                    let source = entry.fullPath
+                    let parsed = await Task.detached(priority: .userInitiated) {
+                        UsnJournalParser.parse(bytes: bytes, sourceFile: source)
+                    }.value
+                    collected.append(contentsOf: parsed)
+                    completed += 1
+                }
+
+                collected.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+                state.usn = collected
+                // Drop any prior USN slice (paranoia for re-parses) and splice the
+                // freshly built USN timeline back in, sorted.
+                state.timeline.removeAll { $0.source == .usn }
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: collected))
+                state.timeline.sort { $0.date < $1.date }
+                states[evidence.id] = state
+                if let bundleURL = currentCaseBundleURL {
+                    try? CaseStore.writeUsn(collected, forHostID: evidence.id, in: bundleURL)
+                }
+            }
+            progress = ProgressInfo(current: completed, total: totalCandidates,
+                                    label: "USN journal parse complete")
+        } catch {
+            self.errorMessage = error.localizedDescription
+            self.statusMessage = ""
+        }
     }
 
     // MARK: - Registry parsing
@@ -1676,7 +1825,8 @@ final class AppModel: ObservableObject {
                                           prefetch: state.prefetch,
                                           amcache: state.amcache,
                                           shimcache: state.shimcache,
-                                          lnk: state.lnk)
+                                          lnk: state.lnk,
+                                          usn: state.usn)
             let results = await analysisEngine.run(on: context)
             state.findings = results
             states[evidence.id] = state
