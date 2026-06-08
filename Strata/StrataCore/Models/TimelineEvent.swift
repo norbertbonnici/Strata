@@ -35,7 +35,11 @@ public enum TimelineSource: String, CaseIterable, Sendable, Codable {
 
 /// A single point on the timeline: one timestamp of one file.
 /// Each FileEntry expands into up to four of these (the mactime model).
-public struct TimelineEvent: Identifiable, Hashable, Sendable {
+///
+/// `nonisolated` so the (pure) value type and its memberwise init can be
+/// constructed off the main actor - `TimelineBuilder.build` runs nonisolated
+/// during off-main case load.
+public nonisolated struct TimelineEvent: Identifiable, Hashable, Sendable {
     public let id: UUID
     public let date: Date
     public let kind: MACBKind
