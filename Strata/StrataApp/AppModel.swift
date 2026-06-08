@@ -329,6 +329,19 @@ final class AppModel: ObservableObject {
             state.prefetch = (try? CaseStore.readPrefetch(forHostID: evidence.id, in: bundleURL)) ?? []
             state.amcache = (try? CaseStore.readAmcache(forHostID: evidence.id, in: bundleURL)) ?? []
             state.shimcache = (try? CaseStore.readShimcache(forHostID: evidence.id, in: bundleURL)) ?? []
+            // Backfill the registry-derived artifacts: a case whose registry was
+            // parsed before Amcache/Shimcache existed (or before they were
+            // persisted) has registry values but no amcache/shimcache JSON. Both
+            // reconstruct purely from the loaded registry values, so regenerate
+            // them here rather than forcing a re-parse. (Amcache still needs a
+            // forced re-parse on pre-feature cases whose registry.json never
+            // captured Amcache.hve - there are simply no AMCACHE values to map.)
+            if state.amcache.isEmpty {
+                state.amcache = AmcacheEntry.reconstruct(from: state.registryValues)
+            }
+            if state.shimcache.isEmpty {
+                state.shimcache = ShimcacheParser.fromRegistry(state.registryValues)
+            }
             state.lnk = (try? CaseStore.readLnk(forHostID: evidence.id, in: bundleURL)) ?? []
             state.findings = (try? CaseStore.readFindings(forHostID: evidence.id, in: bundleURL)) ?? []
             state.iocMatches = (try? CaseStore.readIOCMatches(forHostID: evidence.id, in: bundleURL)) ?? []
@@ -1383,6 +1396,9 @@ final class AppModel: ObservableObject {
             var hostsCollected = 0
             for evidence in evidenceList {
                 guard var state = states[evidence.id] else { continue }
+                // Already parsed: skip the (expensive) re-extraction. The
+                // registry-backed artifacts are kept in sync separately - derived
+                // on case open in loadEvidenceState and in the full parse below.
                 if !force, !state.registryValues.isEmpty { continue }
 
                 let candidates = Self.discoverHives(in: state.files)
