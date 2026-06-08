@@ -16,13 +16,13 @@
 		09A474852FD1466C009D5CCA /* evtxexport in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A4747A2FD1466C009D5CCA /* evtxexport */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		09A474862FD1466C009D5CCA /* evtxinfo in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A4747B2FD1466C009D5CCA /* evtxinfo */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		09A474872FD1466C009D5CCA /* regfexport in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A4747C2FD1466C009D5CCA /* regfexport */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		A1B2C3D40000000000000001 /* lnkinfo in CopyFiles */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000002 /* lnkinfo */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		09A474882FD1466C009D5CCA /* icat in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A4747D2FD1466C009D5CCA /* icat */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		09A474892FD1466C009D5CCA /* regfinfo in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A4747E2FD1466C009D5CCA /* regfinfo */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		09A4748A2FD1466C009D5CCA /* tsk_loaddb in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A4747F2FD1466C009D5CCA /* tsk_loaddb */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		09A4748B2FD1466C009D5CCA /* blkstat in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A474802FD1466C009D5CCA /* blkstat */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		09A474C32FD1466C009D5CCA /* ewfinfo in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A474C12FD1466C009D5CCA /* ewfinfo */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		09A474C42FD1466C009D5CCA /* ewfverify in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A474C22FD1466C009D5CCA /* ewfverify */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		A1B2C3D40000000000000001 /* lnkinfo in CopyFiles */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000002 /* lnkinfo */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -82,13 +82,13 @@
 		09A4747A2FD1466C009D5CCA /* evtxexport */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = evtxexport; path = Vendor/tsk/bin/arm64/evtxexport; sourceTree = "<group>"; };
 		09A4747B2FD1466C009D5CCA /* evtxinfo */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = evtxinfo; path = Vendor/tsk/bin/arm64/evtxinfo; sourceTree = "<group>"; };
 		09A4747C2FD1466C009D5CCA /* regfexport */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = regfexport; path = Vendor/tsk/bin/arm64/regfexport; sourceTree = "<group>"; };
-		A1B2C3D40000000000000002 /* lnkinfo */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = lnkinfo; path = Vendor/tsk/bin/arm64/lnkinfo; sourceTree = "<group>"; };
 		09A4747D2FD1466C009D5CCA /* icat */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = icat; path = Vendor/tsk/bin/arm64/icat; sourceTree = "<group>"; };
 		09A4747E2FD1466C009D5CCA /* regfinfo */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = regfinfo; path = Vendor/tsk/bin/arm64/regfinfo; sourceTree = "<group>"; };
 		09A4747F2FD1466C009D5CCA /* tsk_loaddb */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = tsk_loaddb; path = Vendor/tsk/bin/arm64/tsk_loaddb; sourceTree = "<group>"; };
 		09A474802FD1466C009D5CCA /* blkstat */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = blkstat; path = Vendor/tsk/bin/arm64/blkstat; sourceTree = "<group>"; };
 		09A474C12FD1466C009D5CCA /* ewfinfo */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = ewfinfo; path = Vendor/tsk/bin/arm64/ewfinfo; sourceTree = "<group>"; };
 		09A474C22FD1466C009D5CCA /* ewfverify */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = ewfverify; path = Vendor/tsk/bin/arm64/ewfverify; sourceTree = "<group>"; };
+		A1B2C3D40000000000000002 /* lnkinfo */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = lnkinfo; path = Vendor/tsk/bin/arm64/lnkinfo; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
