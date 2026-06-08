@@ -982,4 +982,95 @@ struct LnkDrillView: View {
         return f
     }()
 }
+
+// MARK: - JumpList drill view
+
+/// Read-only JumpList destinations for the active scope, newest access first.
+/// Each row is a recent/pinned item from an application's jumplist (target +
+/// DestList last-access time). Paged.
+struct JumpListDrillView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var displayLimit = 200
+    private let pageSize = 200
+
+    var body: some View {
+        let entries = model.jumpList
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitle(title: "JumpLists",
+                           subtitle: "\(human(entries.count)) destination\(entries.count == 1 ? "" : "s")")
+
+                if entries.isEmpty {
+                    ContentUnavailableView(
+                        "No JumpLists",
+                        systemImage: "list.star",
+                        description: Text("Parse JumpLists on the macOS app to browse them here."))
+                        .padding(.top, 60)
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Card { rows(entries) }.padding(.top, 10)
+                }
+
+                Spacer(minLength: 26)
+            }
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+    }
+
+    @ViewBuilder private func rows(_ entries: [JumpListEntry]) -> some View {
+        ForEach(entries.prefix(displayLimit)) { entry in
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 11) {
+                    Image(systemName: entry.appID.caseInsensitiveCompare(JumpListAppID.remoteDesktop) == .orderedSame
+                          ? "display" : "list.star")
+                        .font(.system(size: 16)).frame(width: 22).foregroundStyle(Theme.teal2)
+                    Text(entry.name)
+                        .font(.system(size: 13.5, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    if let last = entry.lastAccessed {
+                        Text(Self.dateFmt.string(from: last))
+                            .font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text3)
+                    }
+                }
+                Text(subtitle(entry))
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(Theme.text3).lineLimit(1).truncationMode(.middle)
+                    .padding(.leading, 33)
+            }
+            .padding(.horizontal, 15).padding(.vertical, 11)
+            .overlay(alignment: .bottom) { Divider().background(Theme.hair2) }
+        }
+        if entries.count > displayLimit {
+            Button { displayLimit += pageSize } label: {
+                Text("Show \(min(pageSize, entries.count - displayLimit)) more · \(human(entries.count - displayLimit)) hidden")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Theme.teal)
+                    .frame(maxWidth: .infinity).padding(.vertical, 13)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func subtitle(_ entry: JumpListEntry) -> String {
+        let app = entry.application ?? entry.appID
+        return "\(app) · \(entry.targetPath ?? "—")"
+    }
+
+    private func human(_ n: Int) -> String {
+        let f = NumberFormatter(); f.numberStyle = .decimal
+        return f.string(from: NSNumber(value: n)) ?? "\(n)"
+    }
+
+    private static let dateFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")   // forensic timestamps are UTC
+        return f
+    }()
+}
 #endif

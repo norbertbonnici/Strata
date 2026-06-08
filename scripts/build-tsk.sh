@@ -26,6 +26,7 @@ LIBEVTX_VERSION="${LIBEVTX_VERSION:-20240504}"
 LIBREGF_VERSION="${LIBREGF_VERSION:-20240421}"
 LIBLNK_VERSION="${LIBLNK_VERSION:-20240423}"
 LIBSCCA_VERSION="${LIBSCCA_VERSION:-20250915}"
+LIBOLECF_VERSION="${LIBOLECF_VERSION:-20240427}"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="$ROOT/.build-tsk"
@@ -33,7 +34,7 @@ OUT="$ROOT/Vendor/tsk"
 SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
 DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
 
-TOOLS=(tsk_loaddb fls icat mmls fsstat blkstat istat evtxexport evtxinfo regfexport regfinfo lnkinfo sccainfo ewfinfo ewfverify)
+TOOLS=(tsk_loaddb fls icat mmls fsstat blkstat istat evtxexport evtxinfo regfexport regfinfo lnkinfo olecfexport sccainfo ewfinfo ewfverify)
 
 download() {
     local url="$1" dest="$2"
@@ -143,6 +144,23 @@ build_arch() {
     extract "$BUILD/liblnk.tar.gz" "$BUILD/liblnk-$arch"
     if [ ! -f "$prefix/bin/lnkinfo" ]; then
         (cd "$BUILD/liblnk-$arch" && \
+            ./configure --host="$host" --prefix="$prefix" \
+                --enable-static --disable-shared \
+                --disable-python --without-libfuse && \
+            make -j"$(sysctl -n hw.ncpu)" && \
+            make install)
+    fi
+
+    # libolecf (OLE2 Compound File parsing). Cracks AutomaticDestinations
+    # JumpLists (*.automaticDestinations-ms are CFB containers) into their
+    # streams via olecfexport; each numbered stream is a Shell Link we then feed
+    # to lnkinfo. 2024-era tag - its configure uses AC_PATH_PROG, not the
+    # hard-aborting PKG_PROG_PKG_CONFIG, so no pkg-config shim is needed.
+    download "https://github.com/libyal/libolecf/releases/download/$LIBOLECF_VERSION/libolecf-alpha-$LIBOLECF_VERSION.tar.gz" \
+             "$BUILD/libolecf.tar.gz"
+    extract "$BUILD/libolecf.tar.gz" "$BUILD/libolecf-$arch"
+    if [ ! -f "$prefix/bin/olecfexport" ]; then
+        (cd "$BUILD/libolecf-$arch" && \
             ./configure --host="$host" --prefix="$prefix" \
                 --enable-static --disable-shared \
                 --disable-python --without-libfuse && \
