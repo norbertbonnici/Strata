@@ -26,7 +26,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .registry:  return "list.bullet.indent"
         case .prefetch:  return "bolt.badge.clock"
         case .amcache:   return "shippingbox.and.arrow.backward"
-        case .shimcache: return "rectangle.stack.badge.clock"
+        case .shimcache: return "clock.arrow.circlepath"
         case .lnk:       return "arrowshape.turn.up.right"
         case .lateral:   return "point.3.connected.trianglepath.dotted"
         case .killChain: return "link"

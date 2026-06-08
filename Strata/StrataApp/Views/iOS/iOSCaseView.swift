@@ -264,7 +264,7 @@ struct MoreTab: View {
                     NavigationLink {
                         ShimcacheDrillView()
                     } label: {
-                        moreRow(icon: "rectangle.stack.badge.clock", title: "Shimcache",
+                        moreRow(icon: "clock.arrow.circlepath", title: "Shimcache",
                                 trailing: counter(model.shimcacheCount))
                     }
                     .buttonStyle(.plain)

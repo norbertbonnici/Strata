@@ -3,7 +3,7 @@ import Foundation
 /// Persisted to `case.json` inside a .strata bundle. `evidence` is excluded
 /// from the on-disk representation; the host list lives in `hosts.json` so
 /// host membership can be edited without rewriting case metadata.
-public struct ForensicCase: Identifiable, Hashable, Sendable, Codable {
+public nonisolated struct ForensicCase: Identifiable, Hashable, Sendable, Codable {
     public let id: UUID
     public var name: String
     public var examiner: String
@@ -39,7 +39,7 @@ public enum EvidenceKind: String, Sendable, Codable {
 /// Persisted to `hosts.json` inside a .strata bundle. `tskDatabaseURL` is
 /// excluded from the on-disk form because it's a bundle-relative location
 /// reconstructed on load - that keeps the bundle portable across paths.
-public struct Evidence: Identifiable, Hashable, Sendable, Codable {
+public nonisolated struct Evidence: Identifiable, Hashable, Sendable, Codable {
     public let id: UUID
     public var displayName: String
     public var sourceURL: URL        // path to the .E01 / .vhd / folder

@@ -18,7 +18,7 @@ struct ShimcacheView: View {
         return Group {
             if entries.isEmpty {
                 ContentUnavailableView {
-                    Label("No Shimcache parsed yet", systemImage: "rectangle.stack.badge.clock")
+                    Label("No Shimcache parsed yet", systemImage: "clock.arrow.circlepath")
                 } description: {
                     Text(model.files.isEmpty
                          ? "Ingest evidence first, then come back here."
@@ -122,7 +122,7 @@ private struct ShimcacheDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         } else {
-            ContentUnavailableView("Select a Shimcache entry", systemImage: "rectangle.stack.badge.clock")
+            ContentUnavailableView("Select a Shimcache entry", systemImage: "clock.arrow.circlepath")
         }
     }
 }

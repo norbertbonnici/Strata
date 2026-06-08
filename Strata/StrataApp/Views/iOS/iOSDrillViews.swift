@@ -828,7 +828,7 @@ struct ShimcacheDrillView: View {
                 if entries.isEmpty {
                     ContentUnavailableView(
                         "No Shimcache",
-                        systemImage: "rectangle.stack.badge.clock",
+                        systemImage: "clock.arrow.circlepath",
                         description: Text("Parse the registry on the macOS app to decode AppCompatCache here."))
                         .padding(.top, 60)
                         .frame(maxWidth: .infinity)
@@ -849,7 +849,7 @@ struct ShimcacheDrillView: View {
         ForEach(entries.prefix(displayLimit)) { entry in
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 11) {
-                    Image(systemName: "rectangle.stack.badge.clock")
+                    Image(systemName: "clock.arrow.circlepath")
                         .font(.system(size: 16)).frame(width: 22).foregroundStyle(Theme.teal2)
                     Text(entry.name)
                         .font(.system(size: 13.5, weight: .medium, design: .monospaced))

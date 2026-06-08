@@ -13,7 +13,7 @@ import Foundation
 ///     tsk.db                 SQLite produced by tsk_loaddb
 ///     events/                scratch dir for extracted .evtx files
 ///     registry/              scratch dir for extracted hives
-public enum CaseStore {
+public nonisolated enum CaseStore {
     public static let bundleExtension = "strata"
 
     private static let caseFilename     = "case.json"
@@ -295,7 +295,7 @@ public enum CaseStore {
 /// String for the value - the saving on a 1M-event case is in the hundreds
 /// of MB. `materialize()` rebuilds a real EventLogRecord with empty payload
 /// so downstream views and analyzers continue to compile.
-private struct EventLogRecordLite: Decodable {
+private nonisolated struct EventLogRecordLite: Decodable {
     let id: UUID
     let recordNumber: UInt64
     let writtenAt: Date
