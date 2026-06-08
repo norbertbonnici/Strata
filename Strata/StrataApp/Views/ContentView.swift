@@ -7,6 +7,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case timeline = "Timeline"
     case events = "Events"
     case registry = "Registry"
+    case prefetch = "Prefetch"
     case amcache = "Amcache"
     case shimcache = "Shimcache"
     case lateral = "Lateral"
@@ -22,6 +23,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .timeline:  return "clock"
         case .events:    return "doc.text.magnifyingglass"
         case .registry:  return "list.bullet.indent"
+        case .prefetch:  return "bolt.badge.clock"
         case .amcache:   return "shippingbox.and.arrow.backward"
         case .shimcache: return "rectangle.stack.badge.clock"
         case .lateral:   return "point.3.connected.trianglepath.dotted"
@@ -105,6 +107,7 @@ struct ContentView: View {
                 case .timeline:  TimelineView()
                 case .events:    EventsView()
                 case .registry:  RegistryView()
+                case .prefetch:  PrefetchView()
                 case .amcache:   AmcacheView()
                 case .shimcache: ShimcacheView()
                 case .lateral:   LateralMovementView()

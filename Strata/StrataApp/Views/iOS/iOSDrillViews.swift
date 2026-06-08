@@ -626,6 +626,100 @@ struct RegistryDrillView: View {
     }()
 }
 
+// MARK: - Prefetch drill view
+
+/// Read-only list of parsed prefetch for the active scope - one row per
+/// executable, newest run first. Mirrors the macOS PrefetchView's table in a
+/// thumb-scrollable form; paged because a busy host can carry thousands of .pf.
+struct PrefetchDrillView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var displayLimit = 200
+    private let pageSize = 200
+
+    var body: some View {
+        let entries = model.prefetch
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitle(title: "Prefetch",
+                           subtitle: "\(human(entries.count)) executable\(entries.count == 1 ? "" : "s")")
+
+                if entries.isEmpty {
+                    ContentUnavailableView(
+                        "No prefetch",
+                        systemImage: "bolt.badge.clock",
+                        description: Text("Parse prefetch on the macOS app to browse it here."))
+                        .padding(.top, 60)
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Card { rows(entries) }.padding(.top, 10)
+                }
+
+                Spacer(minLength: 26)
+            }
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+    }
+
+    @ViewBuilder private func rows(_ entries: [PrefetchEntry]) -> some View {
+        ForEach(entries.prefix(displayLimit)) { entry in
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 11) {
+                    Image(systemName: "bolt.badge.clock")
+                        .font(.system(size: 16))
+                        .frame(width: 22)
+                        .foregroundStyle(Theme.teal2)
+                    Text(entry.executableName)
+                        .font(.system(size: 13.5, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Theme.text)
+                        .lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    Text("\(entry.runCount)×")
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(Theme.text3)
+                }
+                Text(subtitle(entry))
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.text3)
+                    .lineLimit(1).truncationMode(.middle)
+                    .padding(.leading, 33)
+            }
+            .padding(.horizontal, 15).padding(.vertical, 11)
+            .overlay(alignment: .bottom) { Divider().background(Theme.hair2) }
+        }
+        if entries.count > displayLimit {
+            Button { displayLimit += pageSize } label: {
+                Text("Show \(min(pageSize, entries.count - displayLimit)) more · \(human(entries.count - displayLimit)) hidden")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Theme.teal)
+                    .frame(maxWidth: .infinity).padding(.vertical, 13)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func subtitle(_ entry: PrefetchEntry) -> String {
+        let last = entry.lastRun.map { "last run \(Self.dateFmt.string(from: $0))" } ?? "no run time"
+        if let path = entry.executablePath { return "\(last) · \(path)" }
+        return last
+    }
+
+    private func human(_ n: Int) -> String {
+        let f = NumberFormatter(); f.numberStyle = .decimal
+        return f.string(from: NSNumber(value: n)) ?? "\(n)"
+    }
+
+    private static let dateFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")   // forensic timestamps are UTC
+        return f
+    }()
+}
+
 // MARK: - Amcache drill view
 
 /// Read-only Amcache program-presence list for the active scope, newest
