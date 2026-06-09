@@ -27,6 +27,7 @@ nonisolated struct EvidenceState: Sendable {
     var usn: [UsnRecord] = []
     var srum: [SrumEntry] = []
     var browserHistory: [BrowserHistoryEntry] = []
+    var mft: [MftEntry] = []
     var findings: [Finding] = []
     var iocMatches: [IOCMatch] = []
 }
@@ -368,6 +369,13 @@ final class AppModel: ObservableObject {
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: state.browserHistory))
                 state.timeline.sort { $0.date < $1.date }
             }
+            state.mft = (try? CaseStore.readMft(forHostID: evidence.id, in: bundleURL)) ?? []
+            // Fold $MFT $SI MACB onto the timeline only for loose folders (an
+            // image's FS source already carries those TSK times); mirrors parseMft.
+            if !state.mft.isEmpty, evidence.kind == .kapeLooseFolder {
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.mft))
+                state.timeline.sort { $0.date < $1.date }
+            }
             state.findings = (try? CaseStore.readFindings(forHostID: evidence.id, in: bundleURL)) ?? []
             state.iocMatches = (try? CaseStore.readIOCMatches(forHostID: evidence.id, in: bundleURL)) ?? []
             return .loaded(state)
@@ -674,6 +682,7 @@ final class AppModel: ObservableObject {
         var usn: [UsnRecord] = []
         var srum: [SrumEntry] = []
         var browserHistory: [BrowserHistoryEntry] = []
+        var mft: [MftEntry] = []
         var iocMatches: [IOCMatch] = []
     }
     private var derivedCache: Derived?
@@ -728,6 +737,7 @@ final class AppModel: ObservableObject {
             d.usn = s.usn
             d.srum = s.srum
             d.browserHistory = s.browserHistory
+            d.mft = s.mft
             d.iocMatches = s.iocMatches
             return d
         }
@@ -747,6 +757,7 @@ final class AppModel: ObservableObject {
             d.usn.append(contentsOf: s.usn)
             d.srum.append(contentsOf: s.srum)
             d.browserHistory.append(contentsOf: s.browserHistory)
+            d.mft.append(contentsOf: s.mft)
             d.iocMatches.append(contentsOf: s.iocMatches)
         }
         d.events.sort { $0.writtenAt < $1.writtenAt }
@@ -761,6 +772,7 @@ final class AppModel: ObservableObject {
         d.usn.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
         d.srum.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
         d.browserHistory.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+        d.mft.sort { $0.recordNumber < $1.recordNumber }
         return d
     }
 
@@ -783,6 +795,7 @@ final class AppModel: ObservableObject {
     var usn: [UsnRecord] { derived().usn }
     var srum: [SrumEntry] { derived().srum }
     var browserHistory: [BrowserHistoryEntry] { derived().browserHistory }
+    var mft: [MftEntry] { derived().mft }
     var iocMatches: [IOCMatch] { derived().iocMatches }
 
     // Count-only accessors: sum per-host counts without building or sorting the
@@ -800,6 +813,7 @@ final class AppModel: ObservableObject {
     var usnCount: Int { scopedCount(\.usn.count) }
     var srumCount: Int { scopedCount(\.srum.count) }
     var browserHistoryCount: Int { scopedCount(\.browserHistory.count) }
+    var mftCount: Int { scopedCount(\.mft.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
     private func scopedCount(_ kp: KeyPath<EvidenceState, Int>) -> Int {
@@ -1159,6 +1173,7 @@ final class AppModel: ObservableObject {
         await parseUsn()
         await parseSrum()
         await parseBrowserHistory()
+        await parseMft()
         await runAnalyzers()
     }
 
@@ -1898,6 +1913,138 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // MARK: - MFT parsing
+
+    /// Parse the NTFS `$MFT` for every loaded evidence that doesn't already have
+    /// results. `$MFT` is an ordinary file (record 0's `$DATA`), so it's extracted
+    /// with the plain icat path that registry/SRUM use. The (large) byte parse runs
+    /// off the main actor in a detached task (like USN). Yields both `$SI` and
+    /// `$FN` MACB so the timestomp analyzer can compare them; spliced onto the
+    /// timeline as the true NTFS file MACB. Mirrors `parseUsn`; does NOT run analyzers.
+    func parseMft() async {
+        guard !evidenceList.isEmpty else {
+            errorMessage = "No evidence loaded."
+            return
+        }
+        errorMessage = nil
+        isWorking = true
+        defer {
+            isWorking = false
+            progress = nil
+        }
+
+        func candidates(_ state: EvidenceState) -> [FileEntry] {
+            state.files.filter {
+                !$0.isDirectory && $0.size > 0 && $0.name.lowercased() == "$mft"
+            }
+        }
+
+        let totalCandidates = evidenceList.reduce(0) { acc, evidence in
+            guard let state = states[evidence.id], state.mft.isEmpty else { return acc }
+            return acc + candidates(state).count
+        }
+        guard totalCandidates > 0 else {
+            statusMessage = "No new $MFT to parse."
+            return
+        }
+        progress = ProgressInfo(current: 0, total: totalCandidates, label: "Parsing $MFT")
+        var completed = 0
+
+        do {
+            let tskEnv = try TSKEnvironment.discover()
+
+            for evidence in evidenceList {
+                guard var state = states[evidence.id] else { continue }
+                if !state.mft.isEmpty { continue }
+
+                let found = candidates(state)
+                guard !found.isEmpty else { continue }
+
+                let isLoose = evidence.kind == .kapeLooseFolder
+                var database: TSKDatabase?
+                var extractor: TSKFileExtractor?
+                var scratch: URL?
+                if !isLoose {
+                    guard let dbURL = state.dbURL else { continue }
+                    database = try TSKDatabase(path: dbURL)
+                    extractor = TSKFileExtractor(
+                        environment: tskEnv,
+                        imageURL: evidence.sourceURL,
+                        imageType: TSKImageIngestor.imageType(for: evidence.sourceURL))
+                    guard let bundleURL = currentCaseBundleURL else { continue }
+                    let dir = CaseStore.mftScratchDirectory(forHostID: evidence.id, in: bundleURL)
+                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    scratch = dir
+                }
+
+                var collected: [MftEntry] = []
+                for entry in found {
+                    progress = ProgressInfo(current: completed, total: totalCandidates,
+                                            label: "\(evidence.displayName): \(entry.name)")
+                    let fileURL: URL
+                    if isLoose {
+                        guard let disk = entry.diskURL,
+                              FileManager.default.fileExists(atPath: disk.path) else {
+                            completed += 1; continue
+                        }
+                        fileURL = disk
+                    } else {
+                        guard let info = try database!.fetchExtractInfo(forFileID: entry.id) else {
+                            completed += 1; continue
+                        }
+                        let outURL = scratch!.appendingPathComponent("\(entry.id)-MFT.bin")
+                        do {
+                            try await extractor!.extract(metaAddr: info.metaAddr,
+                                                         imageOffsetSectors: info.imageOffsetSectors,
+                                                         to: outURL)
+                        } catch {
+                            statusMessage = "\(evidence.displayName): $MFT extract failed (\(error.localizedDescription))"
+                            completed += 1; continue
+                        }
+                        fileURL = outURL
+                    }
+                    // Read the (potentially large) $MFT and parse it off the main
+                    // actor so the UI stays responsive. Scope `data` so the mapped
+                    // region is released before the parse — it isn't held alongside
+                    // the [UInt8] copy and the parser's own allocations.
+                    let bytes: [UInt8]
+                    if let data = try? Data(contentsOf: fileURL, options: .mappedIfSafe) {
+                        bytes = [UInt8](data)
+                    } else {
+                        completed += 1; continue
+                    }
+                    let source = entry.fullPath
+                    let parsed = await Task.detached(priority: .userInitiated) {
+                        MftParser.parse(bytes: bytes, sourceFile: source)
+                    }.value
+                    collected.append(contentsOf: parsed)
+                    completed += 1
+                }
+
+                collected.sort { $0.recordNumber < $1.recordNumber }
+                state.mft = collected
+                // Drop any prior MFT slice (paranoia for re-parses). Splice the $SI
+                // MACB onto the timeline only for loose folders: an image's FS
+                // source already carries those times from TSK, so adding them for
+                // images would just double the (often millions of) rows.
+                state.timeline.removeAll { $0.source == .mft }
+                if isLoose {
+                    state.timeline.append(contentsOf: TimelineBuilder.build(from: collected))
+                    state.timeline.sort { $0.date < $1.date }
+                }
+                states[evidence.id] = state
+                if let bundleURL = currentCaseBundleURL {
+                    try? CaseStore.writeMft(collected, forHostID: evidence.id, in: bundleURL)
+                }
+            }
+            progress = ProgressInfo(current: completed, total: totalCandidates,
+                                    label: "$MFT parse complete")
+        } catch {
+            self.errorMessage = error.localizedDescription
+            self.statusMessage = ""
+        }
+    }
+
     // MARK: - Registry parsing
 
     /// Locate the standard Windows registry hives in each evidence's file
@@ -2277,7 +2424,8 @@ final class AppModel: ObservableObject {
                                           jumpList: state.jumpList,
                                           usn: state.usn,
                                           srum: state.srum,
-                                          browserHistory: state.browserHistory)
+                                          browserHistory: state.browserHistory,
+                                          mft: state.mft)
             let results = await analysisEngine.run(on: context)
             state.findings = results
             states[evidence.id] = state

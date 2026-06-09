@@ -1361,4 +1361,97 @@ struct BrowserHistoryDrillView: View {
     }()
 }
 
+struct MftDrillView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var displayLimit = 200
+    @State private var anomaliesOnly = false
+    private let pageSize = 200
+
+    var body: some View {
+        let all = model.mft
+        let rows = anomaliesOnly ? all.filter { $0.siCreatedPredatesFn } : all
+        let anomalyCount = all.lazy.filter { $0.siCreatedPredatesFn }.count
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitle(title: "MFT",
+                           subtitle: "\(human(all.count)) record\(all.count == 1 ? "" : "s")")
+
+                if all.isEmpty {
+                    ContentUnavailableView(
+                        "No $MFT",
+                        systemImage: "tablecells",
+                        description: Text("Parse the $MFT on the macOS app to browse it here."))
+                        .padding(.top, 60)
+                        .frame(maxWidth: .infinity)
+                } else {
+                    if anomalyCount > 0 {
+                        Toggle(isOn: $anomaliesOnly) {
+                            Label("Timestomp anomalies only (\(anomalyCount))", systemImage: "exclamationmark.triangle")
+                                .font(.system(size: 13, weight: .medium))
+                        }
+                        .tint(Theme.teal)
+                        .padding(.horizontal, 15).padding(.top, 10)
+                    }
+                    Card { rowViews(rows) }.padding(.top, 10)
+                }
+
+                Spacer(minLength: 26)
+            }
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+    }
+
+    @ViewBuilder private func rowViews(_ rows: [MftEntry]) -> some View {
+        ForEach(rows.prefix(displayLimit)) { r in
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 11) {
+                    Image(systemName: r.siCreatedPredatesFn ? "exclamationmark.triangle.fill"
+                                                            : (r.isDirectory ? "folder" : "doc"))
+                        .font(.system(size: 15)).frame(width: 22)
+                        .foregroundStyle(r.siCreatedPredatesFn ? Theme.amber : Theme.text3)
+                    Text(r.fileName ?? "MFT #\(r.recordNumber)")
+                        .font(.system(size: 13.5, weight: .medium))
+                        .foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    if let t = r.siCreated {
+                        Text(Self.dateFmt.string(from: t))
+                            .font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text3)
+                    }
+                }
+                Text(r.fullPath ?? "—")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(Theme.text3).lineLimit(1).truncationMode(.head)
+                    .padding(.leading, 33)
+            }
+            .padding(.horizontal, 15).padding(.vertical, 11)
+            .overlay(alignment: .bottom) { Divider().background(Theme.hair2) }
+        }
+        if rows.count > displayLimit {
+            Button { displayLimit += pageSize } label: {
+                Text("Show \(min(pageSize, rows.count - displayLimit)) more · \(human(rows.count - displayLimit)) hidden")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Theme.teal)
+                    .frame(maxWidth: .infinity).padding(.vertical, 13)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func human(_ n: Int) -> String {
+        let f = NumberFormatter(); f.numberStyle = .decimal
+        return f.string(from: NSNumber(value: n)) ?? "\(n)"
+    }
+
+    private static let dateFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")   // forensic timestamps are UTC
+        return f
+    }()
+}
+
 #endif
