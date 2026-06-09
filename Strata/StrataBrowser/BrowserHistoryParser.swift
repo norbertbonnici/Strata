@@ -11,15 +11,17 @@ import GRDB
 /// we read them directly with GRDB, the same library that backs `TSKDatabase`.
 ///
 /// **Forensic safety.** The database is always copied to a throwaway scratch
-/// location and opened there read-only; the evidence file itself is never opened
-/// by SQLite. The copy also gives SQLite a writable directory for the WAL index
-/// (`-shm`/`-wal`), without which a read-only open of a WAL-mode database — which
-/// Chrome's `History` is — fails outright.
+/// location and SQLite is pointed at that copy — the evidence file itself is
+/// never opened. The copy is opened *read-write* on purpose: a read-only open of
+/// a WAL-mode database (Chrome's `History` and Firefox's `places.sqlite` are
+/// both WAL) fails outright with "unable to open database file", because a
+/// read-only connection cannot create the `-shm` wal-index. The `-wal`/`-shm`
+/// sidecars are copied alongside the main DB when present, so transactions still
+/// in the `-wal` are recovered rather than lost.
 ///
 /// **Known v1 limits:** one row per distinct URL (using its last-visit time),
 /// not one per individual visit; Chromium downloads are parsed, Firefox
-/// downloads (stored as `moz_annos` annotations) are not; data sitting in an
-/// un-checkpointed `-wal` sidecar is not recovered (only the main DB is copied).
+/// downloads (stored as `moz_annos` annotations) are not.
 public nonisolated struct BrowserHistoryParser: Sendable {
     public init() {}
 
@@ -29,11 +31,23 @@ public nonisolated struct BrowserHistoryParser: Sendable {
     /// retained for display and used to classify the browser + profile (the
     /// on-disk name of the extracted copy is meaningless).
     public static func parse(fileAt fileURL: URL, sourceFile: String) throws -> [BrowserHistoryEntry] {
+        // First read with the `-wal`/`-shm` sidecars included, so committed-but-
+        // not-yet-checkpointed history (which lives in the `-wal`) is recovered.
+        // If that throws — a torn or locked `-wal` from a live acquisition can do
+        // that — fall back to the main database alone, which still carries every
+        // checkpointed row.
+        if let rows = try? readDatabase(at: fileURL, sourceFile: sourceFile, includeSidecars: true) {
+            return rows
+        }
+        return try readDatabase(at: fileURL, sourceFile: sourceFile, includeSidecars: false)
+    }
+
+    private static func readDatabase(at fileURL: URL, sourceFile: String,
+                                     includeSidecars: Bool) throws -> [BrowserHistoryEntry] {
         let browser = BrowserHistoryEntry.browser(forPath: sourceFile)
         let profile = BrowserHistoryEntry.profile(forPath: sourceFile)
 
-        // Copy to a private scratch dir: never let SQLite touch the evidence, and
-        // give the WAL index a writable home.
+        // Copy to a private scratch dir: SQLite never touches the evidence file.
         let fm = FileManager.default
         let scratch = fm.temporaryDirectory
             .appendingPathComponent("strata-browser-\(UUID().uuidString)", isDirectory: true)
@@ -42,9 +56,25 @@ public nonisolated struct BrowserHistoryParser: Sendable {
         let copy = scratch.appendingPathComponent("History.db")
         do { try fm.copyItem(at: fileURL, to: copy) } catch { throw BrowserHistoryError.copyFailed }
 
-        var config = Configuration()
-        config.readonly = true
-        let queue = try DatabaseQueue(path: copy.path, configuration: config)
+        // SQLite keys the WAL sidecars off the database filename, so copy any
+        // `<source>-wal` / `<source>-shm` to `History.db-wal` / `History.db-shm`.
+        // The `-wal` holds the most recent transactions; without it they're lost.
+        if includeSidecars {
+            for suffix in ["-wal", "-shm"] {
+                let side = URL(fileURLWithPath: fileURL.path + suffix)
+                if fm.fileExists(atPath: side.path) {
+                    try? fm.copyItem(at: side, to: URL(fileURLWithPath: copy.path + suffix))
+                }
+            }
+        }
+
+        // Open the throwaway copy READ-WRITE. A read-only open of a WAL-mode
+        // database — which Chrome's `History` and Firefox's `places.sqlite` both
+        // are — fails outright with "unable to open database file", because a
+        // read-only connection may not create the `-shm` wal-index. Opening our
+        // private copy read-write sidesteps that (and lets SQLite fold the `-wal`
+        // into the main DB); the evidence file itself is never opened by SQLite.
+        let queue = try DatabaseQueue(path: copy.path)
 
         return try queue.read { db in
             if try db.tableExists("urls") {

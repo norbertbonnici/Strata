@@ -242,21 +242,25 @@ Two betas shipped. A full 56-issue view review was completed and remediated.
    - ~~**Browser history**~~ — **shipped.** `StrataBrowser`. Chromium-family
      (`History`) and Firefox (`places.sqlite`) history are SQLite, so there is no
      vendored tool — `BrowserHistoryParser` (macOS) reads them with GRDB (the lib
-     already backing `TSKDatabase`). It copies the DB to a private scratch dir and
-     opens it **read-only** there: the evidence file is never touched by SQLite,
-     and the copy gives the WAL index a writable home (a read-only open of Chrome's
-     WAL-mode `History` would otherwise fail). One row per distinct URL (visits) +
-     Chromium downloads → `BrowserHistoryEntry` (`StrataCore`, with pure
-     chrome/firefox-epoch + browser/profile/host decoders); per-host
-     `browserhistory.json`; spliced onto the timeline (`TimelineSource.browser`).
-     `BrowserHistoryAnalyzer` flags suspicious downloads (risky ext / suspicious
-     host, T1105), activity to paste/anon-share/raw-IP infrastructure (T1102), and
-     offensive-tool names in URLs/targets (T1588.002). macOS `BrowserHistoryView`
-     + iOS `BrowserHistoryDrillView`. **Parser validated end-to-end** against
-     synthetic Chromium/Firefox SQLite fixtures built in-test via the SQLite3 C
-     API. **Known v1 limits:** one row per URL (not per individual visit); Firefox
-     downloads (stored as `moz_annos`) not parsed; un-checkpointed `-wal` data not
-     recovered.
+     already backing `TSKDatabase`). It copies the DB (and its `-wal`/`-shm`
+     sidecars) to a private scratch dir and opens that copy **read-write** — the
+     evidence file is never opened by SQLite. Read-write is required: Chrome's
+     `History` and Firefox's `places.sqlite` are WAL-mode, and a *read-only* open
+     of a WAL DB fails outright ("unable to open database file") because it can't
+     create the `-shm` wal-index; copying the `-wal` also recovers transactions
+     still pending there (the disk-image path extracts the sidecars too). One row
+     per distinct URL (visits) + Chromium downloads → `BrowserHistoryEntry`
+     (`StrataCore`, with pure chrome/firefox-epoch + browser/profile/host
+     decoders); per-host `browserhistory.json`; spliced onto the timeline
+     (`TimelineSource.browser`). `BrowserHistoryAnalyzer` flags suspicious
+     downloads (risky ext / suspicious host, T1105), activity to
+     paste/anon-share/raw-IP infrastructure (T1102), and offensive-tool names in
+     URLs/targets (T1588.002). macOS `BrowserHistoryView` + iOS
+     `BrowserHistoryDrillView`. **Parser validated end-to-end** against synthetic
+     Chromium/Firefox SQLite fixtures (incl. a WAL-mode regression that reproduces
+     the read-only-open failure) built in-test via the SQLite3 C API. **Known v1
+     limits:** one row per URL (not per individual visit); Firefox downloads
+     (stored as `moz_annos`) not parsed.
    - Still pending: WMI persistence.
 5. **Super-timeline + tagging/notes** — unify FS MACB + EVTX + registry (+ future
    artifacts) into one pivotable timeline; bookmark/tag findings, analyst notes,

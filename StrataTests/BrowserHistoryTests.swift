@@ -179,6 +179,16 @@ struct BrowserHistoryParserTests {
     private static let unix2024 = 1_704_067_200
     private static let webkitOffset = 11_644_473_600
 
+    private func exec(_ handle: OpaquePointer?, _ sql: String) throws {
+        var err: UnsafeMutablePointer<CChar>?
+        let rc = sqlite3_exec(handle, sql, nil, nil, &err)
+        if rc != SQLITE_OK {
+            let msg = err.map { String(cString: $0) } ?? "rc \(rc)"
+            sqlite3_free(err)
+            throw NSError(domain: "sqlite", code: Int(rc), userInfo: [NSLocalizedDescriptionKey: msg])
+        }
+    }
+
     private func writeDB(_ sql: String) throws -> URL {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("strata-bh-test-\(UUID().uuidString)", isDirectory: true)
@@ -268,6 +278,90 @@ struct BrowserHistoryParserTests {
         defer { try? FileManager.default.removeItem(at: dbURL.deletingLastPathComponent()) }
         let entries = try BrowserHistoryParser.parse(fileAt: dbURL, sourceFile: "History")
         #expect(entries.isEmpty)
+    }
+
+    /// Smoke test: a cleanly-checkpointed WAL-mode database (header still marks
+    /// it WAL) parses correctly. The harder dirty-`-wal` case — the actual
+    /// production bug — is covered by `recoversUncheckpointedWalData` below.
+    @Test func parsesWalModeHistory() throws {
+        let chrome2024 = (Self.unix2024 + Self.webkitOffset) * 1_000_000
+        let dbURL = try writeDB("""
+            PRAGMA journal_mode=WAL;
+            CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT, title TEXT,
+                visit_count INTEGER, typed_count INTEGER, last_visit_time INTEGER, hidden INTEGER);
+            INSERT INTO urls VALUES (1, 'https://wal.example.com/x', 'WAL Page', 7, 1, \(chrome2024), 0);
+            """)
+        defer { try? FileManager.default.removeItem(at: dbURL.deletingLastPathComponent()) }
+        let entries = try BrowserHistoryParser.parse(
+            fileAt: dbURL,
+            sourceFile: #"\Users\v\AppData\Local\Google\Chrome\User Data\Default\History"#)
+        #expect(entries.contains { $0.url == "https://wal.example.com/x" })
+    }
+
+    /// The actual production-bug regression. Reproduces an image taken while the
+    /// browser was running: committed history sits in an un-checkpointed `-wal`
+    /// (the main DB references frames that only exist there). The old code copied
+    /// only the main file and opened it read-only — which loses the `-wal` rows
+    /// and, because the main DB references absent WAL frames, fails to open at
+    /// all. The fix copies the `-wal` sidecar and opens read-write, recovering the
+    /// pending row.
+    @Test func recoversUncheckpointedWalData() throws {
+        let chrome2024 = (Self.unix2024 + Self.webkitOffset) * 1_000_000
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("strata-bh-wal-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dbURL = dir.appendingPathComponent("History")
+
+        // Writer: WAL mode, schema checkpointed into the MAIN file so the copy is
+        // recognisably a browser DB. Auto-checkpoint is off.
+        var writer: OpaquePointer?
+        try #require(sqlite3_open(dbURL.path, &writer) == SQLITE_OK)
+        defer { sqlite3_close(writer) }
+        try exec(writer, "PRAGMA journal_mode=WAL;")
+        try exec(writer, "PRAGMA wal_autocheckpoint=0;")
+        try exec(writer, """
+            CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT, title TEXT,
+                visit_count INTEGER, typed_count INTEGER, last_visit_time INTEGER, hidden INTEGER);
+            """)
+        try exec(writer, "PRAGMA wal_checkpoint(TRUNCATE);")   // fold schema into main DB
+
+        // Reader holds a read snapshot taken BEFORE the pending insert. WAL can't
+        // checkpoint frames newer than the oldest active reader, so the row stays
+        // pinned in the -wal — the row exists ONLY there, not in the main file.
+        var reader: OpaquePointer?
+        try #require(sqlite3_open(dbURL.path, &reader) == SQLITE_OK)
+        defer { sqlite3_close(reader) }
+        try exec(reader, "BEGIN")
+        try exec(reader, "SELECT count(*) FROM urls")   // establishes the snapshot
+
+        try exec(writer, "INSERT INTO urls VALUES (1, 'https://pending.example.com/x', 'Pending', 4, 0, \(chrome2024), 0);")
+
+        #expect(FileManager.default.fileExists(atPath: dbURL.path + "-wal"))
+
+        let entries = try BrowserHistoryParser.parse(
+            fileAt: dbURL,
+            sourceFile: #"\Users\v\AppData\Local\Google\Chrome\User Data\Default\History"#)
+        #expect(entries.contains { $0.url == "https://pending.example.com/x" })
+    }
+
+    /// A torn / garbage `-wal` left next to the database must not sink the parse:
+    /// the sidecar-inclusive read fails, and it falls back to the main DB alone.
+    @Test func survivesGarbageWalSidecar() throws {
+        let chrome2024 = (Self.unix2024 + Self.webkitOffset) * 1_000_000
+        let dbURL = try writeDB("""
+            PRAGMA journal_mode=WAL;
+            CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT, title TEXT,
+                visit_count INTEGER, typed_count INTEGER, last_visit_time INTEGER, hidden INTEGER);
+            INSERT INTO urls VALUES (1, 'https://main.example.com/x', 'Main', 3, 0, \(chrome2024), 0);
+            """)
+        defer { try? FileManager.default.removeItem(at: dbURL.deletingLastPathComponent()) }
+        try Data([0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55])
+            .write(to: URL(fileURLWithPath: dbURL.path + "-wal"))
+        let entries = try BrowserHistoryParser.parse(
+            fileAt: dbURL,
+            sourceFile: #"\Users\v\AppData\Local\Google\Chrome\User Data\Default\History"#)
+        #expect(entries.contains { $0.url == "https://main.example.com/x" })
     }
 }
 

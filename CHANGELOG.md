@@ -12,8 +12,9 @@ All notable changes to Strata are documented here. The format loosely follows
   with GRDB (no vendored tool). Surfaces page visits (one row per URL, with
   visit/typed counts and last-visit time) and downloads (target path, bytes,
   originating page), with the browser + profile recovered from the source path.
-  Forensic-safe: the database is copied to scratch and opened read-only — the
-  evidence file is never opened by SQLite. Rows are folded onto the timeline
+  Forensic-safe: the database (with its `-wal`/`-shm` sidecars) is copied to
+  scratch and opened there — the evidence file is never opened by SQLite. Rows
+  are folded onto the timeline
   (Browser History source). A new **Browser History** analyzer flags suspicious
   downloads (executable/script/archive or pulled from a paste / anonymous-sharing
   / tunnel host or raw IP, T1105), activity to suspicious infrastructure (T1102),

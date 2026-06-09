@@ -1796,6 +1796,8 @@ final class AppModel: ObservableObject {
 
         do {
             let tskEnv = try TSKEnvironment.discover()
+            var hostsTouched = 0
+            var hostsCollected = 0
 
             for evidence in evidenceList {
                 guard var state = states[evidence.id] else { continue }
@@ -1803,6 +1805,7 @@ final class AppModel: ObservableObject {
 
                 let found = candidates(state)
                 guard !found.isEmpty else { continue }
+                hostsTouched += 1
 
                 let isLoose = evidence.kind == .kapeLooseFolder
                 var database: TSKDatabase?
@@ -1840,20 +1843,39 @@ final class AppModel: ObservableObject {
                         try await extractor!.extract(metaAddr: info.metaAddr,
                                                      imageOffsetSectors: info.imageOffsetSectors,
                                                      to: outURL)
+                        // Extract the `-wal`/`-shm` sidecars next to the main DB
+                        // (matching names) so the parser can recover history still
+                        // sitting in the `-wal`. Best-effort: absence is normal.
+                        for suffix in ["-wal", "-shm"] {
+                            guard let side = state.files.first(where: {
+                                !$0.isDirectory && $0.parentPath == entry.parentPath
+                                    && $0.name.caseInsensitiveCompare(entry.name + suffix) == .orderedSame
+                            }), let sInfo = try? database!.fetchExtractInfo(forFileID: side.id) else { continue }
+                            try? await extractor!.extract(metaAddr: sInfo.metaAddr,
+                                                          imageOffsetSectors: sInfo.imageOffsetSectors,
+                                                          to: URL(fileURLWithPath: outURL.path + suffix))
+                        }
                         fileURL = outURL
                     }
-                    // The SQLite read copies the DB to a private scratch and opens
-                    // it read-only off the main actor (a dirty/locked DB shouldn't
-                    // abort the whole run).
+                    // The SQLite read copies the DB (+ sidecars) to a private
+                    // scratch and opens it off the main actor. A single unreadable
+                    // DB shouldn't abort the whole run - but surface the failure
+                    // (mirrors parseRegistry) so it isn't indistinguishable from
+                    // "nothing was ever parsed".
                     let source = entry.fullPath
-                    let parsed = (try? await Task.detached(priority: .userInitiated) {
-                        try BrowserHistoryParser.parse(fileAt: fileURL, sourceFile: source)
-                    }.value) ?? []
-                    collected.append(contentsOf: parsed)
+                    do {
+                        let parsed = try await Task.detached(priority: .userInitiated) {
+                            try BrowserHistoryParser.parse(fileAt: fileURL, sourceFile: source)
+                        }.value
+                        collected.append(contentsOf: parsed)
+                    } catch {
+                        statusMessage = "\(evidence.displayName): \(entry.name) failed (\(error.localizedDescription))"
+                    }
                     completed += 1
                 }
 
                 collected.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+                if !collected.isEmpty { hostsCollected += 1 }
                 state.browserHistory = collected
                 // Drop any prior browser slice (paranoia for re-parses) and splice
                 // the freshly built browser-history timeline back in, sorted.
@@ -1867,6 +1889,9 @@ final class AppModel: ObservableObject {
             }
             progress = ProgressInfo(current: completed, total: totalCandidates,
                                     label: "Browser history parse complete")
+            if hostsTouched > 0, hostsCollected == 0 {
+                errorMessage = "Browser history parse extracted no entries - check that the History / places.sqlite databases are accessible and not corrupt."
+            }
         } catch {
             self.errorMessage = error.localizedDescription
             self.statusMessage = ""
