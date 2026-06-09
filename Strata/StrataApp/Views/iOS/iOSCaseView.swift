@@ -298,6 +298,15 @@ struct MoreTab: View {
                     Divider().background(Theme.hair2).padding(.leading, 50)
 
                     NavigationLink {
+                        SrumDrillView()
+                    } label: {
+                        moreRow(icon: "chart.bar.doc.horizontal", title: "SRUM",
+                                trailing: counter(model.srumCount))
+                    }
+                    .buttonStyle(.plain)
+                    Divider().background(Theme.hair2).padding(.leading, 50)
+
+                    NavigationLink {
                         LateralDrillView()
                     } label: {
                         moreRow(icon: "point.3.connected.trianglepath.dotted",

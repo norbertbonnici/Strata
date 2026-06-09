@@ -1174,4 +1174,106 @@ struct UsnDrillView: View {
     }()
 }
 
+// MARK: - SRUM drill view
+
+/// Read-only SRUM list for the active scope: per-app network byte volume and
+/// execution/resource usage, resolved to application paths. Colour-codes by
+/// provider table. Paged.
+struct SrumDrillView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var displayLimit = 200
+    private let pageSize = 200
+
+    var body: some View {
+        let rows = model.srum
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitle(title: "SRUM",
+                           subtitle: "\(human(rows.count)) record\(rows.count == 1 ? "" : "s")")
+
+                if rows.isEmpty {
+                    ContentUnavailableView(
+                        "No SRUM",
+                        systemImage: "chart.bar.doc.horizontal",
+                        description: Text("Parse SRUM on the macOS app to browse it here."))
+                        .padding(.top, 60)
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Card { rowViews(rows) }.padding(.top, 10)
+                }
+
+                Spacer(minLength: 26)
+            }
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+    }
+
+    @ViewBuilder private func rowViews(_ rows: [SrumEntry]) -> some View {
+        ForEach(rows.prefix(displayLimit)) { r in
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 11) {
+                    Image(systemName: icon(for: r.kind))
+                        .font(.system(size: 16)).frame(width: 22)
+                        .foregroundStyle(tint(for: r.kind))
+                    Text(r.appShortName)
+                        .font(.system(size: 13.5, weight: .medium))
+                        .foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    if let t = r.timestamp {
+                        Text(Self.dateFmt.string(from: t))
+                            .font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text3)
+                    }
+                }
+                Text("\(r.kind.label) · \(r.detailSummary)")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(Theme.text3).lineLimit(1).truncationMode(.tail)
+                    .padding(.leading, 33)
+            }
+            .padding(.horizontal, 15).padding(.vertical, 11)
+            .overlay(alignment: .bottom) { Divider().background(Theme.hair2) }
+        }
+        if rows.count > displayLimit {
+            Button { displayLimit += pageSize } label: {
+                Text("Show \(min(pageSize, rows.count - displayLimit)) more · \(human(rows.count - displayLimit)) hidden")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Theme.teal)
+                    .frame(maxWidth: .infinity).padding(.vertical, 13)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func icon(for kind: SrumEntry.Kind) -> String {
+        switch kind {
+        case .networkData:         return "arrow.up.arrow.down"
+        case .appResourceUsage:    return "cpu"
+        case .networkConnectivity: return "wifi"
+        }
+    }
+
+    private func tint(for kind: SrumEntry.Kind) -> Color {
+        switch kind {
+        case .networkData:         return Theme.teal2
+        case .appResourceUsage:    return Theme.amber
+        case .networkConnectivity: return Theme.text3
+        }
+    }
+
+    private func human(_ n: Int) -> String {
+        let f = NumberFormatter(); f.numberStyle = .decimal
+        return f.string(from: NSNumber(value: n)) ?? "\(n)"
+    }
+
+    private static let dateFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")   // forensic timestamps are UTC
+        return f
+    }()
+}
+
 #endif

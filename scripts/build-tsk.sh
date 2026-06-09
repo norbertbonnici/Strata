@@ -27,6 +27,7 @@ LIBREGF_VERSION="${LIBREGF_VERSION:-20240421}"
 LIBLNK_VERSION="${LIBLNK_VERSION:-20240423}"
 LIBSCCA_VERSION="${LIBSCCA_VERSION:-20250915}"
 LIBOLECF_VERSION="${LIBOLECF_VERSION:-20240427}"
+LIBESEDB_VERSION="${LIBESEDB_VERSION:-20240420}"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="$ROOT/.build-tsk"
@@ -34,7 +35,7 @@ OUT="$ROOT/Vendor/tsk"
 SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
 DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
 
-TOOLS=(tsk_loaddb fls icat mmls fsstat blkstat istat evtxexport evtxinfo regfexport regfinfo lnkinfo olecfexport sccainfo ewfinfo ewfverify)
+TOOLS=(tsk_loaddb fls icat mmls fsstat blkstat istat evtxexport evtxinfo regfexport regfinfo lnkinfo olecfexport sccainfo esedbexport ewfinfo ewfverify)
 
 download() {
     local url="$1" dest="$2"
@@ -203,6 +204,26 @@ SHIM
     if [ ! -f "$prefix/bin/sccainfo" ]; then
         (cd "$BUILD/libscca-$arch" && \
             PKG_CONFIG="$pkgshim/pkg-config" \
+            ./configure --host="$host" --prefix="$prefix" \
+                --enable-static --disable-shared \
+                --disable-python --without-libfuse && \
+            make -j"$(sysctl -n hw.ncpu)" && \
+            make install)
+    fi
+
+    # libesedb (Extensible Storage Engine / ESE ".edb" databases). Parses the
+    # SRUM SRUDB.dat (System Resource Usage Monitor) - and, later, Windows.edb /
+    # WebCacheV01.dat - by exporting each ESE table to tab-separated text via
+    # esedbexport. 2024-era tag: its configure uses the soft AC_PATH_PROG(PKGCONFIG),
+    # not the hard-aborting PKG_PROG_PKG_CONFIG, so no pkg-config shim is needed
+    # (unlike libscca). The experimental tarball vendors libfvalue/libfdata/etc.,
+    # so there's nothing extra to build. NOTE: this asset is named -experimental-
+    # (like libewf), NOT -alpha-.
+    download "https://github.com/libyal/libesedb/releases/download/$LIBESEDB_VERSION/libesedb-experimental-$LIBESEDB_VERSION.tar.gz" \
+             "$BUILD/libesedb.tar.gz"
+    extract "$BUILD/libesedb.tar.gz" "$BUILD/libesedb-$arch"
+    if [ ! -f "$prefix/bin/esedbexport" ]; then
+        (cd "$BUILD/libesedb-$arch" && \
             ./configure --host="$host" --prefix="$prefix" \
                 --enable-static --disable-shared \
                 --disable-python --without-libfuse && \
