@@ -65,7 +65,7 @@ Per-release notes live in `docs/releases/`; keep `CHANGELOG.md` updated.
 | `StrataLNK` | Parse `.lnk` shortcuts via `lnkinfo` (liblnk) |
 | `StrataJumpList` | Parse JumpLists - OLE via `olecfexport` (libolecf) + reused `lnkinfo` + a pure DestList decoder |
 | `StrataCore` (USN) | Pure-Swift NTFS USN change-journal byte-parser (`UsnJournalParser`, `UsnRecord`) — no vendored tool; reads the `$Extend\$UsnJrnl:$J` ADS extracted via icat |
-| `StrataCore` (MFT) | Pure-Swift NTFS `$MFT` byte-parser (`MftParser`, `MftEntry`) — no vendored tool; applies the USA fixup, decodes `$SI` + `$FN` MACB, resolves paths from parent refs. Enables timestomp detection ($SI vs $FN) and true loose-folder MACB. `$MFT` extracted via icat (images) / read in place (loose) |
+| `StrataCore` (MFT) | Pure-Swift NTFS `$MFT` byte-parser (`MftParser`, `MftEntry`, `MftNode` tree, `FileTime`) — no vendored tool; applies the USA fixup, decodes `$SI` + `$FN` MACB as **raw FILETIME** (`FileTime.precise` renders the full 100-ns string; `Date` is lossy), resolves paths from parent refs, and captures **resident `$DATA`** (small-file recovery). Enables timestomp detection ($SI vs $FN) and true loose-folder MACB. `$MFT` extracted via icat (images) / read in place (loose) |
 | `StrataSRUM` | Parse the SRUM `SRUDB.dat` (ESE database) via `esedbexport` (libesedb); pure `SrumExportDecoder` (`StrataCore`) resolves the export TSV + SruDbIdMapTable foreign keys |
 | `StrataBrowser` | Parse web-browser history — Chromium `History` + Firefox `places.sqlite` (both SQLite) read directly via GRDB (no vendored tool); `BrowserHistoryParser` (macOS) copies the DB to scratch + opens read-only; pure decoders on `BrowserHistoryEntry` (`StrataCore`) |
 | `StrataTimeline` | MACB timeline + gap/session analysis |
@@ -280,12 +280,16 @@ Two betas shipped. A full 56-issue view review was completed and remediated.
    `$SI` creation predates its un-settable `$FN` creation by >1 day **and** whose
    `$SI` times are whole-second (the tool fingerprint that separates a stomp from
    a benign timestamp-preserving copy) — high in a staging path, else medium.
-   macOS `MftView` (\$SI vs \$FN side by side, "Anomalies only" filter) + iOS
-   `MftDrillView`. **Parser validated against real `$MFT` records** (libfsntfs
-   corpus). **Known limits:** the loose-folder file *tree* still uses
+   The viewer is a **per-volume tree** (`MftNode.buildTree`, like `FileNode`):
+   macOS `MftView` (`OutlineGroup`; `$SI`/`$FN` at full **100-ns** precision via
+   `FileTime.precise`; resident `$DATA` hex + Save; "Anomalies only" filter) +
+   iOS `MftDrillView` (breadcrumb tree + record detail). **Parser validated
+   against real `$MFT` records** (libfsntfs corpus — incl. resident-data + 100-ns
+   fixtures). **Known limits:** the loose-folder file *tree* still uses
    collection-host times (only the timeline uses `$MFT`); a huge `$MFT` → a large
-   `mft.json` (same bracket as `events.json`); detection is a heuristic — verify
-   findings against a known-good copy.
+   `mft.json` (same bracket as `events.json`); the `MftEntry` Codable schema is
+   raw-FILETIME (an `mft.json` from the very first MFT build won't decode — just
+   re-parse); detection is a heuristic — verify findings against a known-good copy.
 8. **Multi-host correlation** — case-wide lateral movement across hosts.
 
 ### CTI enrichment (tiered hash/IOC lookup)

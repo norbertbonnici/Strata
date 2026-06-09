@@ -1,28 +1,29 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
-/// Parsed NTFS `$MFT` records for the active scope: every file/dir with its
-/// `$STANDARD_INFORMATION` and `$FILE_NAME` MACB sets side by side. The "Anomalies
-/// only" toggle narrows to records whose `$SI` creation predates their `$FN`
-/// creation — the timestomping tell.
+/// NTFS `$MFT` records as a **per-volume tree** (like the Evidence tab), with a
+/// detail pane that shows the full lossless 100-ns `$SI`/`$FN` timestamps and any
+/// resident `$DATA` (small files recoverable straight from the MFT). The
+/// "Anomalies only" filter narrows the tree to suspected timestomping.
 struct MftView: View {
     @EnvironmentObject private var model: AppModel
     @State private var query = ""
     @State private var anomaliesOnly = false
-    @State private var selectedID: MftEntry.ID?
+    @State private var selection: MftEntry?
+    @State private var tree: [MftNode] = []
+    @State private var debounce: Task<Void, Never>?
 
-    private func filtered(_ rows: [MftEntry]) -> [MftEntry] {
-        var out = rows
-        if anomaliesOnly { out = out.filter { $0.siCreatedPredatesFn } }
-        guard !query.isEmpty else { return out }
-        return out.filter { e in
-            (e.fullPath?.localizedCaseInsensitiveContains(query) ?? false)
-                || (e.fileName?.localizedCaseInsensitiveContains(query) ?? false)
-        }
+    private func keep(_ e: MftEntry) -> Bool {
+        if anomaliesOnly && !e.siCreatedPredatesFn { return false }
+        guard !query.isEmpty else { return true }
+        return (e.fullPath?.localizedCaseInsensitiveContains(query) ?? false)
+            || (e.fileName?.localizedCaseInsensitiveContains(query) ?? false)
     }
 
     var body: some View {
         let rows = model.mft
-        let visible = filtered(rows)
         let anomalyCount = rows.lazy.filter { $0.siCreatedPredatesFn }.count
         return Group {
             if rows.isEmpty {
@@ -31,7 +32,7 @@ struct MftView: View {
                 } description: {
                     Text(model.files.isEmpty
                          ? "Ingest evidence first, then come back here."
-                         : "Click Parse to extract and parse the NTFS $MFT (true MACB + timestomp detection).")
+                         : "Click Parse to extract and parse the NTFS $MFT (true MACB, timestomp detection, resident-file recovery).")
                 } actions: {
                     #if os(macOS)
                     if !model.files.isEmpty {
@@ -39,7 +40,6 @@ struct MftView: View {
                             Label("Parse artifacts", systemImage: "play.fill")
                         }
                         .disabled(model.isWorking)
-                        .help("Parse event logs, registry, artifacts, and the $MFT, then run all analyzers.")
                     }
                     #endif
                 }
@@ -47,77 +47,91 @@ struct MftView: View {
             } else {
                 VStack(spacing: 0) {
                     HStack(spacing: 12) {
-                        Toggle(isOn: $anomaliesOnly) {
-                            Label("Anomalies only (\(anomalyCount))", systemImage: "exclamationmark.triangle")
+                        if anomalyCount > 0 {
+                            Toggle(isOn: $anomaliesOnly) {
+                                Label("Anomalies only (\(anomalyCount))", systemImage: "exclamationmark.triangle")
+                            }
+                            .toggleStyle(.switch).controlSize(.small)
                         }
-                        .toggleStyle(.switch)
                         Spacer()
                         TextField("Filter path / name...", text: $query)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 300)
-                        #if os(macOS)
-                        Button { Task { await model.parseArtifacts() } } label: {
-                            Image(systemName: "arrow.clockwise")
-                        }
-                        .help("Re-parse artifacts, then re-run analyzers")
-                        .disabled(model.isWorking)
-                        #endif
+                            .textFieldStyle(.roundedBorder).frame(width: 280)
+                        Text("\(rows.count.formatted()) records").font(.caption).foregroundStyle(.secondary)
                     }
-                    .padding(8)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
                     Divider()
-                    split(visible, detail: rows.first { $0.id == selectedID })
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    split.frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
         }
-        .navigationTitle(rows.isEmpty ? "MFT" : "MFT - \(visible.count) of \(rows.count)")
+        .navigationTitle("MFT")
+        .onAppear { rebuild() }
+        .onChange(of: model.dataVersion) {
+            rebuild()
+            if let sel = selection { selection = model.mft.first { $0.id == sel.id } }
+        }
+        // Debounce the free-text filter: a full O(n log n) tree rebuild on every
+        // keystroke would stutter on a million-record $MFT.
+        .onChange(of: query) {
+            debounce?.cancel()
+            debounce = Task {
+                try? await Task.sleep(for: .milliseconds(250))
+                guard !Task.isCancelled else { return }
+                rebuild()
+            }
+        }
+        .onChange(of: anomaliesOnly) { rebuild() }
     }
 
-    private func table(_ visible: [MftEntry]) -> some View {
-        Table(visible, selection: $selectedID) {
-            TableColumn("Name") { e in
-                HStack(spacing: 5) {
-                    if e.siCreatedPredatesFn {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange).font(.caption2)
+    private func rebuild() {
+        tree = MftNode.buildTree(from: model.mft.filter(keep))
+    }
+
+    private var mftTree: some View {
+        List {
+            OutlineGroup(tree, children: \.children) { node in
+                HStack(spacing: 6) {
+                    Image(systemName: icon(node))
+                        .foregroundStyle(node.isVolume ? Color.accentColor
+                                         : (node.entry?.siCreatedPredatesFn == true ? .orange : .secondary))
+                    Text(node.name).fontWeight(node.isVolume ? .semibold : .regular)
+                        .lineLimit(1).truncationMode(.middle)
+                    if node.entry?.hasResidentData == true {
+                        Image(systemName: "doc.text.below.ecg").font(.caption2).foregroundStyle(.teal)
+                            .help("Has resident $DATA — recoverable from the MFT")
                     }
-                    Text(e.fileName ?? "—").font(.caption).lineLimit(1).truncationMode(.middle)
+                    if node.entry?.inUse == false {
+                        Text("deleted").font(.caption2).padding(.horizontal, 5).padding(.vertical, 1)
+                            .background(.red.opacity(0.2), in: Capsule()).foregroundStyle(.red)
+                    }
+                    Spacer()
+                    if let e = node.entry, !e.isDirectory, let s = e.size {
+                        Text(ByteCountFormatter.string(fromByteCount: s, countStyle: .file))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
-            }
-            TableColumn("Path") { e in
-                Text(e.fullPath ?? "—").font(.caption2).foregroundStyle(.secondary)
-                    .lineLimit(1).truncationMode(.head)
-            }
-            TableColumn("$SI Created") { e in
-                Text(Self.fmt(e.siCreated)).font(.caption).monospacedDigit()
-                    .foregroundStyle(e.siCreatedPredatesFn ? .orange : .primary)
-            }
-            TableColumn("$FN Created") { e in
-                Text(Self.fmt(e.fnCreated)).font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                .contentShape(Rectangle())
+                .onTapGesture { if let e = node.entry { selection = e } }
             }
         }
-        .frame(minWidth: 600, maxHeight: .infinity)
+        .frame(minWidth: 360, maxHeight: .infinity)
     }
 
-    @ViewBuilder
-    private func split(_ visible: [MftEntry], detail: MftEntry?) -> some View {
+    private func icon(_ node: MftNode) -> String {
+        if node.isVolume { return "internaldrive" }
+        if node.entry?.siCreatedPredatesFn == true { return "exclamationmark.triangle.fill" }
+        return (node.entry?.isDirectory ?? true) ? "folder" : "doc"
+    }
+
+    @ViewBuilder private var split: some View {
         #if os(macOS)
-        HSplitView {
-            table(visible)
-            MftDetailView(entry: detail).frame(minWidth: 320, maxHeight: .infinity)
-        }
+        HSplitView { mftTree; MftDetailView(entry: selection).frame(minWidth: 320, maxHeight: .infinity) }
         #else
         HStack(spacing: 0) {
-            table(visible)
-            Divider()
-            MftDetailView(entry: detail).frame(minWidth: 320, maxHeight: .infinity)
+            mftTree; Divider(); MftDetailView(entry: selection).frame(minWidth: 320, maxHeight: .infinity)
         }
         #endif
-    }
-
-    static func fmt(_ d: Date?) -> String {
-        d?.formatted(date: .numeric, time: .standard) ?? "—"
     }
 }
 
@@ -135,34 +149,29 @@ private struct MftDetailView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     if let path = entry.fullPath {
-                        LabeledContent("Path") {
-                            Text(path).font(.caption.monospaced()).textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .trailing)
-                        }
+                        labeled("Path", path, mono: true)
                     }
+                    LabeledContent("Volume", value: entry.volume)
                     LabeledContent("Record", value: "\(entry.recordNumber) (seq \(entry.sequence))")
                     LabeledContent("Type", value: entry.isDirectory ? "Directory" : "File")
                     LabeledContent("State", value: entry.inUse ? "Allocated" : "Deleted")
-                    if let size = entry.size { LabeledContent("Size", value: "\(size) bytes") }
+                    if let size = entry.size { LabeledContent("Size", value: "\(size.formatted()) bytes") }
 
-                    Divider()
-                    Text("$STANDARD_INFORMATION").font(.caption.bold()).foregroundStyle(.secondary)
-                    timeRow("Created", entry.siCreated, flag: entry.siCreatedPredatesFn)
-                    timeRow("Modified", entry.siModified)
-                    timeRow("MFT changed", entry.siChanged)
-                    timeRow("Accessed", entry.siAccessed)
+                    timeBlock("$STANDARD_INFORMATION",
+                              [("Created", entry.siCreatedRaw, entry.siCreatedPredatesFn),
+                               ("Modified", entry.siModifiedRaw, false),
+                               ("MFT changed", entry.siChangedRaw, false),
+                               ("Accessed", entry.siAccessedRaw, false)])
+                    timeBlock("$FILE_NAME (not timestomp-settable)",
+                              [("Created", entry.fnCreatedRaw, false),
+                               ("Modified", entry.fnModifiedRaw, false),
+                               ("MFT changed", entry.fnChangedRaw, false),
+                               ("Accessed", entry.fnAccessedRaw, false)])
 
-                    Divider()
-                    Text("$FILE_NAME (not timestomp-settable)").font(.caption.bold()).foregroundStyle(.secondary)
-                    timeRow("Created", entry.fnCreated)
-                    timeRow("Modified", entry.fnModified)
-                    timeRow("MFT changed", entry.fnChanged)
-                    timeRow("Accessed", entry.fnAccessed)
-
-                    LabeledContent("Source") {
-                        Text(entry.sourceFile).font(.caption.monospaced()).textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    if let data = entry.residentData, !data.isEmpty {
+                        residentSection(data, name: entry.fileName)
                     }
+                    labeled("Source", entry.sourceFile, mono: true)
                 }
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -172,11 +181,68 @@ private struct MftDetailView: View {
         }
     }
 
-    private func timeRow(_ label: String, _ date: Date?, flag: Bool = false) -> some View {
-        LabeledContent(label) {
-            Text(date?.formatted(date: .abbreviated, time: .standard) ?? "—")
-                .font(.caption.monospaced())
-                .foregroundStyle(flag ? .orange : .primary)
+    private func timeBlock(_ title: String, _ rows: [(String, UInt64, Bool)]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Divider()
+            Text(title).font(.caption.bold()).foregroundStyle(.secondary)
+            ForEach(rows, id: \.0) { (label, raw, flag) in
+                LabeledContent(label) {
+                    Text(FileTime.precise(raw) ?? "—")   // full 100-ns precision
+                        .font(.caption.monospaced()).textSelection(.enabled)
+                        .foregroundStyle(flag ? .orange : .primary)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+            }
         }
     }
+
+    @ViewBuilder private func residentSection(_ data: Data, name: String?) -> some View {
+        Divider()
+        HStack {
+            Text("Resident $DATA — \(data.count) bytes").font(.caption.bold()).foregroundStyle(.teal)
+            Spacer()
+            #if os(macOS)
+            Button("Save…") { saveResident(data, name: name) }.controlSize(.small)
+            #endif
+        }
+        Text(Self.hexDump(data, max: 512))
+            .font(.system(size: 10.5, design: .monospaced))
+            .textSelection(.enabled)
+            .padding(8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func labeled(_ title: String, _ value: String, mono: Bool) -> some View {
+        LabeledContent(title) {
+            Text(value).font(mono ? .caption.monospaced() : .caption).textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+    }
+
+    /// Compact hex+ASCII dump of the first `max` bytes.
+    static func hexDump(_ data: Data, max: Int) -> String {
+        let slice = Array(data.prefix(max))
+        var out = ""
+        var i = 0
+        while i < slice.count {
+            let row = slice[i ..< Swift.min(i + 16, slice.count)]
+            let hex = row.map { String(format: "%02x", $0) }.joined(separator: " ")
+                .padding(toLength: 47, withPad: " ", startingAt: 0)
+            let ascii = String(row.map { (32...126).contains($0) ? Character(UnicodeScalar($0)) : "." })
+            out += String(format: "%04x  ", i) + hex + "  " + ascii + "\n"
+            i += 16
+        }
+        if data.count > max { out += "… (\(data.count - max) more bytes)\n" }
+        return out
+    }
+
+    #if os(macOS)
+    private func saveResident(_ data: Data, name: String?) {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = name ?? "resident.bin"
+        panel.canCreateDirectories = true
+        if panel.runModal() == .OK, let url = panel.url { try? data.write(to: url) }
+    }
+    #endif
 }

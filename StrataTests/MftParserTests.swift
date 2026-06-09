@@ -21,8 +21,17 @@ struct MftParserTests {
     private static let rec5 = "RklMRTAAAwDWfBAAAAAAAAUAAQA4AAMAIAMAAAAEAAAAAAAAAAAAAAoAAAAFAAAABQAwAAAAAAAQAAAASAAAAAAAGAAAAAAAMAAAABgAAACQee1xMKHVAWSoEHMwodUBZKgQczCh1QFkqBBzMKHVAQYAAAAAAAAAAAAAAAAAAAAwAAAAYAAAAAAAGAAAAAEARAAAABgAAQAFAAAAAAAFAJB57XEwodUBkHntcTCh1QGQee1xMKHVAZB57XEwodUBAAAAAAAAAAAAAAAAAAAAAAYAABAAAAAAAQMuAAAAAABQAAAAAAEAAAAAGAAAAAIA5AAAABgAAAABAASAzAAAANgAAAAAAAAAFAAAAAIAuAAIAAAAAAAYAP8BHwABAgAAAAAABSAAAAAgAgAAAAsYAAAAABABAgAAAAAABSAAAAAgAgAAAAAUAP8BHwABAQAAAAAABRIAAAAACxQAAAAAEAEBAAAAAAAFEgAAAAAAFAC/ARMAAQEAAAAAAAULAAAAAAsUAAAAAeABAQAAAAAABQsAAAAAABgAqQASAAECAAAAAAAFIAAAACECAAAACxgAAAAAoAECAAAAAAAFIAAAACECAAABAQAAAAAABRIAAAABAQAAAAAABRIAAAAAAAAAkAAAAFgAAAAABBgAAAAGADgAAAAgAAAAJABJADMABQAwAAAAAQAAAAAQAAABAAAAEAAAACgAAAAoAAAAAQAAAAAAAAAAAAAAGAAAAAMAAAAAAAAAAAAAAKAAAABQAAAAAQRAAAAACAAAAAAAAAAAAAAAAAAAAAAASAAAAAAAAAAAEAAAAAAAAAAQAAAAAAAAABAAAAAAAAAkAEkAMwAwABEBJAAAAAAAsAAAACgAAAAABBgAAAAHAAgAAAAgAAAAJABJADMAMAABAAAAAAAAAAABAABoAAAAAAkYAAAACQA4AAAAMAAAACQAVABYAEYAXwBEAEEAVABBAAAAAAAAAAUAAAAAAAUAAQAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFAA=="
     private static let rec7 = "RklMRTAAAwAAAAAAAAAAAAcAAQA4AAEAuAEAAAAEAAAAAAAAAAAAAAQAAAAHAAAAAwAAAAAAAAAQAAAASAAAAAAAGAAAAAAAMAAAABgAAACQee1xMKHVAZB57XEwodUBkHntcTCh1QGQee1xMKHVAQYAAAAAAAAAAAAAAAAAAAAwAAAAaAAAAAAAGAAAAAIATAAAABgAAQAFAAAAAAAFAJB57XEwodUBkHntcTCh1QGQee1xMKHVAZB57XEwodUBACAAAAAAAAAAIAAAAAAAAAYAAAAAAAAABQMkAEIAbwBvAHQAAAAAAFAAAACAAAAAAAAYAAAAAwBkAAAAGAAAAAEABIBIAAAAVAAAAAAAAAAUAAAAAgA0AAIAAAAAABQAiQASAAEBAAAAAAAFEgAAAAAAGACJABIAAQIAAAAAAAUgAAAAIAIAAAEBAAAAAAAFEgAAAAECAAAAAAAFIAAAACACAAAAAAAAgAAAAEgAAAABAEAAAAABAAAAAAAAAAAAAQAAAAAAAABAAAAAAAAAAAAgAAAAAAAAACAAAAAAAAAAIAAAAAAAABECAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADAA=="
 
+    // REC32 = $Tops (rec 32, parent 30) — a metadata file with 100 bytes of
+    // RESIDENT $DATA, used to validate small-file recovery from the MFT.
+    private static let rec32 = "RklMRTAAAwBBWRAAAAAAAAEAAQA4AAEA2AEAAAAEAAAAAAAAAAAAAAUAAAAgAAAAAwAAAAAAAAAQAAAAYAAAAAAAAAAAAAAASAAAABgAAAB1fQxyMKHVAXV9DHIwodUBdX0McjCh1QF1fQxyMKHVAQYAAAAAAAAAAAAAAAAAAAAAAAAAAgEAAAAAAAAAAAAAAAAAAAAAAAAwAAAAaAAAAAAAAAAAAAEATAAAABgAAQAeAAAAAAABAHV9DHIwodUBdX0McjCh1QF1fQxyMKHVAXV9DHIwodUBAAAAAAAAAAAAAAAAAAAAAAYAAAAAAAAABQAkAFQAbwBwAHMAAAAAAIAAAACAAAAAAAAYAAAAAgBkAAAAGAAAAAoAZAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA////////////////AAAAAP////8AAAAAgAAAAFAAAAABAkAAAAAEAAAAAAAAAAAA/wAAAAAAAABIAAAAAAAAAAAAEAAAAAAAAAAQAAAAAAAAABAAAAAAACQAVAAAAAAAIgABgQMAAAD/////gnlHEQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADAA=="
+
     private func realRecords() -> [UInt8] {
         [Self.rec0, Self.rec5, Self.rec7].flatMap { [UInt8](Data(base64Encoded: $0)!) }
+    }
+
+    /// FILETIME ticks (100-ns since 1601) for a Date — for building test entries.
+    static func ticks(_ date: Date) -> UInt64 {
+        UInt64((date.timeIntervalSince1970 + 11_644_473_600) * 10_000_000)
     }
 
     @Test func parsesRealMftRecords() throws {
@@ -55,6 +64,18 @@ struct MftParserTests {
         let created = try #require(mft.siCreated)
         let expected = Date(timeIntervalSince1970: 1_574_425_751.918)   // 2019-11-22T12:29:11.918Z
         #expect(abs(created.timeIntervalSince(expected)) < 1)
+        // Lossless 100-ns precision is preserved in the raw value.
+        #expect(FileTime.precise(mft.siCreatedRaw) == "2019-11-22 12:29:11.9188368")
+    }
+
+    @Test func recoversResidentData() throws {
+        let bytes = [UInt8](Data(base64Encoded: Self.rec32)!)
+        let entries = MftParser.parse(bytes: bytes, sourceFile: "/x/$MFT")
+        let tops = try #require(entries.first)
+        #expect(tops.fileName == "$Tops")
+        #expect(tops.hasResidentData)
+        #expect(tops.residentData?.count == 100)        // small file content held in the MFT
+        #expect(FileTime.precise(tops.siCreatedRaw) == "2019-11-22 12:29:12.1220981")
     }
 
     @Test func ignoresNonFileRecords() {
@@ -74,34 +95,43 @@ struct MftParserTests {
 
     @Test func detectsSiCreatedPredatingFn() {
         let real = Date(timeIntervalSince1970: 1_700_000_000)   // $FN created (real)
-        let backdated = real.addingTimeInterval(-86_400 * 365)  // $SI rolled back a year
+        let backdated = Self.ticks(real.addingTimeInterval(-86_400 * 365))  // $SI rolled back a year
+        let r = Self.ticks(real)
         let e = MftEntry(recordNumber: 42, sequence: 1, inUse: true, isDirectory: false,
                          fileName: "evil.exe", fullPath: #"\Users\Public\evil.exe"#, parentRecord: 5,
-                         siCreated: backdated, siModified: backdated, siChanged: real, siAccessed: real,
-                         fnCreated: real, fnModified: real, fnChanged: real, fnAccessed: real,
+                         siCreatedRaw: backdated, siModifiedRaw: backdated, siChangedRaw: r, siAccessedRaw: r,
+                         fnCreatedRaw: r, fnModifiedRaw: r, fnChangedRaw: r, fnAccessedRaw: r,
                          size: 1024, sourceFile: "/x/$MFT")
         #expect(e.siCreatedPredatesFn)
     }
 
     @Test func normalTimesAreNotFlagged() {
-        let t = Date(timeIntervalSince1970: 1_700_000_000.5)    // sub-second -> not whole
+        let t = Self.ticks(Date(timeIntervalSince1970: 1_700_000_000)) + 5_000_000   // +0.5s sub-second
         let e = MftEntry(recordNumber: 9, sequence: 1, inUse: true, isDirectory: false,
                          fileName: "ok.exe", fullPath: #"\Windows\System32\ok.exe"#, parentRecord: 5,
-                         siCreated: t, siModified: t, siChanged: t, siAccessed: t,
-                         fnCreated: t, fnModified: t, fnChanged: t, fnAccessed: t,
+                         siCreatedRaw: t, siModifiedRaw: t, siChangedRaw: t, siAccessedRaw: t,
+                         fnCreatedRaw: t, fnModifiedRaw: t, fnChangedRaw: t, fnAccessedRaw: t,
                          size: 1024, sourceFile: "/x/$MFT")
         #expect(!e.siCreatedPredatesFn)
         #expect(!e.siHasZeroedSubseconds)
     }
 
     @Test func detectsWholeSecondSubseconds() {
-        let whole = Date(timeIntervalSince1970: 1_500_000_000)   // exact second
+        let whole = Self.ticks(Date(timeIntervalSince1970: 1_500_000_000))   // exact second
         let e = MftEntry(recordNumber: 9, sequence: 1, inUse: true, isDirectory: false,
                          fileName: "x.exe", fullPath: nil, parentRecord: 5,
-                         siCreated: whole, siModified: whole, siChanged: whole, siAccessed: whole,
-                         fnCreated: nil, fnModified: nil, fnChanged: nil, fnAccessed: nil,
+                         siCreatedRaw: whole, siModifiedRaw: whole, siChangedRaw: whole, siAccessedRaw: whole,
                          size: nil, sourceFile: "/x/$MFT")
         #expect(e.siHasZeroedSubseconds)
+    }
+
+    @Test func nearMaxRawTimestampDoesNotTrap() {
+        // A crafted/corrupt $SI value near UInt64.max must not trap the predates
+        // check (the old `si + tolerance` addition would have).
+        let e = MftEntry(recordNumber: 1, sequence: 1, inUse: true, isDirectory: false,
+                         fileName: "x.exe", fullPath: nil, parentRecord: 5,
+                         siCreatedRaw: .max, fnCreatedRaw: 1_000, size: nil, sourceFile: "/x/$MFT")
+        #expect(!e.siCreatedPredatesFn)   // max isn't before 1000 — and no crash
     }
 }
 
@@ -113,10 +143,11 @@ struct MftAnalyzerTests {
                        wholeSecond: Bool = true) -> MftEntry {
         let fn = Self.fnReal
         let si = (wholeSecond ? fn : fn.addingTimeInterval(0.5)).addingTimeInterval(-backdate)
+        let siR = MftParserTests.ticks(si), fnR = MftParserTests.ticks(fn)
         return MftEntry(recordNumber: 100, sequence: 1, inUse: true, isDirectory: false,
                         fileName: name, fullPath: path, parentRecord: 5,
-                        siCreated: si, siModified: si, siChanged: fn, siAccessed: fn,
-                        fnCreated: fn, fnModified: fn, fnChanged: fn, fnAccessed: fn,
+                        siCreatedRaw: siR, siModifiedRaw: siR, siChangedRaw: fnR, siAccessedRaw: fnR,
+                        fnCreatedRaw: fnR, fnModifiedRaw: fnR, fnChangedRaw: fnR, fnAccessedRaw: fnR,
                         size: 4096, sourceFile: "/x/$MFT")
     }
 
@@ -166,16 +197,68 @@ struct MftAnalyzerTests {
 
     @Test func ignoresNormalExecutable() {
         // $SI == $FN (no backdate).
-        let t = Self.fnReal
+        let t = MftParserTests.ticks(Self.fnReal)
         let e = MftEntry(recordNumber: 1, sequence: 1, inUse: true, isDirectory: false,
                          fileName: "cmd.exe", fullPath: #"\Windows\System32\cmd.exe"#, parentRecord: 5,
-                         siCreated: t, siModified: t, siChanged: t, siAccessed: t,
-                         fnCreated: t, fnModified: t, fnChanged: t, fnAccessed: t,
+                         siCreatedRaw: t, siModifiedRaw: t, siChangedRaw: t, siAccessedRaw: t,
+                         fnCreatedRaw: t, fnModifiedRaw: t, fnChangedRaw: t, fnAccessedRaw: t,
                          size: 1024, sourceFile: "/x/$MFT")
         #expect(MftAnalyzer().analyze(context: context([e])).isEmpty)
     }
 
-    @Test func emptyYieldsNothing() {
+    @Test func emptyAnalyzerYieldsNothing() {
         #expect(MftAnalyzer().analyze(context: context([])).isEmpty)
     }
+}
+
+struct MftTreeTests {
+    private func file(_ name: String, path: String, volume: String = "$MFT",
+                      isDir: Bool = false, rec: UInt64) -> MftEntry {
+        MftEntry(recordNumber: rec, sequence: 1, inUse: true, isDirectory: isDir,
+                 fileName: name, fullPath: path, parentRecord: 5, volume: volume,
+                 size: 10, sourceFile: "/x/$MFT")
+    }
+
+    @Test func buildsSingleVolumeTreeFromPaths() throws {
+        let entries = [
+            file("Windows", path: #"\Windows"#, isDir: true, rec: 100),
+            file("cmd.exe", path: #"\Windows\System32\cmd.exe"#, rec: 101),
+            file("System32", path: #"\Windows\System32"#, isDir: true, rec: 102),
+            file("note.txt", path: #"\note.txt"#, rec: 103),
+        ]
+        let tree = MftNode.buildTree(from: entries)
+        // Single volume → no volume wrapper; top level is \Windows and \note.txt.
+        #expect(tree.allSatisfy { !$0.isVolume })
+        let windows = try #require(tree.first { $0.name == "Windows" })
+        #expect(windows.children?.contains { $0.name == "System32" } == true)
+        let sys32 = try #require(windows.children?.first { $0.name == "System32" })
+        #expect(sys32.children?.contains { $0.entry?.recordNumber == 101 } == true)   // cmd.exe nested
+    }
+
+    @Test func groupsMultipleVolumes() throws {
+        let entries = [
+            file("a.txt", path: #"\a.txt"#, volume: "NTFS · system", rec: 10),
+            file("b.txt", path: #"\b.txt"#, volume: "NTFS · recovery", rec: 11),
+        ]
+        let tree = MftNode.buildTree(from: entries)
+        #expect(tree.count == 2)
+        #expect(tree.allSatisfy { $0.isVolume })
+        #expect(Set(tree.map(\.name)).contains { $0.contains("system") })
+    }
+
+    @Test func parsedRealRecordsFormATree() {
+        let entries = MftParser.parse(
+            bytes: [MftParserTests.rec0Data, MftParserTests.rec5Data, MftParserTests.rec7Data].flatMap { $0 },
+            sourceFile: "/x/$MFT")
+        let tree = MftNode.buildTree(from: entries)
+        // $MFT and $Boot are file leaves at the root; the root dir attaches implicitly.
+        #expect(tree.contains { $0.name == "$MFT" })
+        #expect(tree.contains { $0.name == "$Boot" })
+    }
+}
+
+extension MftParserTests {
+    static var rec0Data: [UInt8] { [UInt8](Data(base64Encoded: rec0)!) }
+    static var rec5Data: [UInt8] { [UInt8](Data(base64Encoded: rec5)!) }
+    static var rec7Data: [UInt8] { [UInt8](Data(base64Encoded: rec7)!) }
 }

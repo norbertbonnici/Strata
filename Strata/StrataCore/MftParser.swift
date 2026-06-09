@@ -31,18 +31,19 @@ public nonisolated enum MftParser {
         var fileName: String?
         var fileNameNamespace: UInt8   // 0 POSIX, 1 Win32, 2 DOS, 3 Win32&DOS
         var parentRecord: UInt64?
-        var si: (Date?, Date?, Date?, Date?)   // created, modified, changed, accessed
-        var fn: (Date?, Date?, Date?, Date?)
+        var si: (UInt64, UInt64, UInt64, UInt64)   // created, modified, changed, accessed (raw FILETIME)
+        var fn: (UInt64, UInt64, UInt64, UInt64)
         var size: Int64?
+        var residentData: Data?
     }
 
-    public static func parse(bytes b: [UInt8], sourceFile: String) -> [MftEntry] {
+    public static func parse(bytes b: [UInt8], sourceFile: String, volume: String = "$MFT") -> [MftEntry] {
         // Pass 1: decode each record.
         var raws: [Raw] = []
         raws.reserveCapacity(b.count / recordSize + 1)
         var off = 0
         while off + recordSize <= b.count, raws.count < defensiveCap {
-            if u32(b, off) == fileSignature, let raw = decodeRecord(b, at: off, sourceFile: sourceFile) {
+            if u32(b, off) == fileSignature, let raw = decodeRecord(b, at: off) {
                 raws.append(raw)
             }
             off += recordSize
@@ -61,17 +62,17 @@ public nonisolated enum MftParser {
                 inUse: r.inUse, isDirectory: r.isDirectory,
                 fileName: r.fileName,
                 fullPath: resolvePath(of: r, in: byNumber),
-                parentRecord: r.parentRecord,
-                siCreated: r.si.0, siModified: r.si.1, siChanged: r.si.2, siAccessed: r.si.3,
-                fnCreated: r.fn.0, fnModified: r.fn.1, fnChanged: r.fn.2, fnAccessed: r.fn.3,
-                size: r.size, sourceFile: sourceFile))
+                parentRecord: r.parentRecord, volume: volume,
+                siCreatedRaw: r.si.0, siModifiedRaw: r.si.1, siChangedRaw: r.si.2, siAccessedRaw: r.si.3,
+                fnCreatedRaw: r.fn.0, fnModifiedRaw: r.fn.1, fnChangedRaw: r.fn.2, fnAccessedRaw: r.fn.3,
+                size: r.size, residentData: r.residentData, sourceFile: sourceFile))
         }
         return out
     }
 
     // MARK: - Record decoding
 
-    private static func decodeRecord(_ b: [UInt8], at base: Int, sourceFile: String) -> Raw? {
+    private static func decodeRecord(_ b: [UInt8], at base: Int) -> Raw? {
         guard let usaOffset = u16(b, base + 0x04), let usaCount = u16(b, base + 0x06),
               let seq = u16(b, base + 0x10), let attrOffset = u16(b, base + 0x14),
               let flags = u16(b, base + 0x16) else { return nil }
@@ -90,24 +91,31 @@ public nonisolated enum MftParser {
         var raw = Raw(recordNumber: recordNumber, sequence: seq,
                       inUse: flags & 0x0001 != 0, isDirectory: flags & 0x0002 != 0,
                       fileName: nil, fileNameNamespace: 0, parentRecord: nil,
-                      si: (nil, nil, nil, nil), fn: (nil, nil, nil, nil), size: nil)
+                      si: (0, 0, 0, 0), fn: (0, 0, 0, 0), size: nil, residentData: nil)
 
-        // Walk attributes.
+        // Walk attributes. Every field is read through the bounds-checked
+        // primitives so a truncated/garbage record can't index out of range.
         var ao = Int(attrOffset)
         var guardCount = 0
-        while ao + 8 <= recordSize, guardCount < 256 {
+        while ao + 0x10 <= recordSize, guardCount < 256 {
             guardCount += 1
             guard let type = u32(rec, ao) else { break }
             if type == 0xFFFF_FFFF { break }               // end marker
-            guard let len = u32(rec, ao + 0x04), len >= 8, ao + Int(len) <= recordSize else { break }
-            let nonResident = rec[ao + 0x08] != 0
+            guard let len = u32(rec, ao + 0x04), len >= 0x10, ao + Int(len) <= recordSize,
+                  let nonResidentByte = byte(rec, ao + 0x08),
+                  let nameLength = byte(rec, ao + 0x09) else { break }
 
-            if !nonResident, let cOff = u16(rec, ao + 0x14), let cLen = u32(rec, ao + 0x10) {
+            if nonResidentByte == 0, let cOff = u16(rec, ao + 0x14), let cLen = u32(rec, ao + 0x10) {
                 let cStart = ao + Int(cOff)
                 let cEnd = cStart + Int(cLen)
-                if cEnd <= ao + Int(len), cEnd <= recordSize {
-                    if type == 0x10 { decodeStandardInformation(rec, cStart, cEnd, into: &raw) }
-                    else if type == 0x30 { decodeFileName(rec, cStart, cEnd, into: &raw) }
+                if cStart >= ao, cEnd <= ao + Int(len), cEnd <= recordSize, cStart <= cEnd {
+                    switch type {
+                    case 0x10: decodeStandardInformation(rec, cStart, cEnd, into: &raw)
+                    case 0x30: decodeFileName(rec, cStart, cEnd, into: &raw)
+                    case 0x80 where nameLength == 0:   // unnamed resident $DATA = the small file's content
+                        raw.residentData = Data(rec[cStart ..< cEnd])
+                    default: break
+                    }
                 }
             }
             ao += Int(len)
@@ -131,13 +139,13 @@ public nonisolated enum MftParser {
 
     private static func decodeStandardInformation(_ b: [UInt8], _ s: Int, _ e: Int, into raw: inout Raw) {
         guard e - s >= 32 else { return }
-        raw.si = (ft(b, s + 0x00), ft(b, s + 0x08), ft(b, s + 0x10), ft(b, s + 0x18))
+        raw.si = (u64(b, s + 0x00) ?? 0, u64(b, s + 0x08) ?? 0, u64(b, s + 0x10) ?? 0, u64(b, s + 0x18) ?? 0)
     }
 
     private static func decodeFileName(_ b: [UInt8], _ s: Int, _ e: Int, into raw: inout Raw) {
-        guard e - s >= 0x42 else { return }
-        let namespace = b[s + 0x41]
-        let nameLen = Int(b[s + 0x40])
+        guard e - s >= 0x42, let nsByte = byte(b, s + 0x41), let nameLenByte = byte(b, s + 0x40) else { return }
+        let namespace = nsByte
+        let nameLen = Int(nameLenByte)
         let nameStart = s + 0x42
         let nameEnd = nameStart + nameLen * 2
         guard nameEnd <= e else { return }
@@ -150,7 +158,7 @@ public nonisolated enum MftParser {
         raw.fileName = name
         raw.fileNameNamespace = namespace
         raw.parentRecord = (u64(b, s + 0x00) ?? 0) & 0x0000_FFFF_FFFF_FFFF
-        raw.fn = (ft(b, s + 0x08), ft(b, s + 0x10), ft(b, s + 0x18), ft(b, s + 0x20))
+        raw.fn = (u64(b, s + 0x08) ?? 0, u64(b, s + 0x10) ?? 0, u64(b, s + 0x18) ?? 0, u64(b, s + 0x20) ?? 0)
         if let real = u64(b, s + 0x30) { raw.size = Int64(bitPattern: real) }
     }
 
@@ -184,6 +192,10 @@ public nonisolated enum MftParser {
 
     // MARK: - Primitives (little-endian, bounds-checked)
 
+    private static func byte(_ b: [UInt8], _ o: Int) -> UInt8? {
+        guard o >= 0, o < b.count else { return nil }
+        return b[o]
+    }
     private static func u16(_ b: [UInt8], _ o: Int) -> UInt16? {
         guard o >= 0, o + 2 <= b.count else { return nil }
         return UInt16(b[o]) | (UInt16(b[o + 1]) << 8)
@@ -202,14 +214,5 @@ public nonisolated enum MftParser {
         var i = start
         while i + 1 < end { units.append(UInt16(b[i]) | (UInt16(b[i + 1]) << 8)); i += 2 }
         return String(decoding: units, as: UTF16.self)
-    }
-
-    /// FILETIME → Date. Rejects 0 (unset) and values outside ~1601–2200; that
-    /// window is deliberately wide so backdated (timestomped) times still decode.
-    static func ft(_ b: [UInt8], _ o: Int) -> Date? {
-        guard let v = u64(b, o), v != 0 else { return nil }
-        let secs = Double(v) / 10_000_000 - 11_644_473_600
-        guard secs > -11_644_473_600, secs < 7_258_118_400 else { return nil }
-        return Date(timeIntervalSince1970: secs)
     }
 }

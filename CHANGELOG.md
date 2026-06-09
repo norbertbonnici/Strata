@@ -10,14 +10,18 @@ All notable changes to Strata are documented here. The format loosely follows
 - **NTFS `$MFT` parsing + timestomping detection** (new **MFT** tab) — a
   pure-Swift `$MFT` byte parser (no vendored tool) that applies the NTFS fixup,
   decodes both the `$STANDARD_INFORMATION` and `$FILE_NAME` MACB sets, and
-  reconstructs full paths from parent references. The MFT tab shows `$SI` vs
-  `$FN` times side by side with an "Anomalies only" filter. A new **MFT
-  Timestomp** analyzer flags *possible* timestomping (T1070.006) — an executable
-  whose visible `$SI` creation predates its un-settable `$FN` creation and whose
-  `$SI` times are whole-second (the timestomp-tool fingerprint). For loose KAPE
-  collections, the `$MFT` `$SI` MACB is spliced onto the timeline as a true NTFS
-  file timeline (loose folders otherwise fall back to collection-host times). The
-  parser is validated against real `$MFT` records.
+  reconstructs full paths from parent references. The MFT tab is a **per-volume
+  tree** (like the Evidence tab) with `$SI`/`$FN` times shown at **full lossless
+  100-ns precision** (stored as raw FILETIME — `Date` can't represent it) and an
+  "Anomalies only" filter. **Resident `$DATA`** is captured, so small files
+  stored inside the MFT record are recoverable — shown as a hex dump with a
+  macOS Save button. A new **MFT Timestomp** analyzer flags *possible*
+  timestomping (T1070.006) — an executable whose visible `$SI` creation predates
+  its un-settable `$FN` creation and whose `$SI` times are whole-second (the
+  timestomp-tool fingerprint). For loose KAPE collections, the `$MFT` `$SI` MACB
+  is spliced onto the timeline as a true NTFS file timeline (loose folders
+  otherwise fall back to collection-host times). The parser is validated against
+  real `$MFT` records (incl. resident-data + 100-ns-precision fixtures).
 
 ### Fixed
 

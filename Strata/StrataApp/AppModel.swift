@@ -2014,8 +2014,20 @@ final class AppModel: ObservableObject {
                         completed += 1; continue
                     }
                     let source = entry.fullPath
+                    // Per-volume label so a multi-NTFS image (system + recovery)
+                    // shows one tree per volume rather than merging identical paths.
+                    let volLabel: String
+                    if let fs = entry.fsID, let vi = state.volumes.first(where: { $0.id == fs }) {
+                        volLabel = vi.label
+                    } else if isLoose {
+                        volLabel = "Collected $MFT"
+                    } else if let fs = entry.fsID {
+                        volLabel = "Volume \(fs)"
+                    } else {
+                        volLabel = "$MFT"
+                    }
                     let parsed = await Task.detached(priority: .userInitiated) {
-                        MftParser.parse(bytes: bytes, sourceFile: source)
+                        MftParser.parse(bytes: bytes, sourceFile: source, volume: volLabel)
                     }.value
                     collected.append(contentsOf: parsed)
                     completed += 1
