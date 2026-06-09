@@ -36,7 +36,7 @@ public actor SrumParser {
         // case) - left unread, a chatty run fills the kernel pipe buffer (~16-64
         // KB), blocks the child on write, and hangs forever. Same pattern as the
         // EVTX / LNK / registry shell-out parsers.
-        let collector = SrumStderrCollector()
+        let collector = PipeTextCollector()
         stderrPipe.fileHandleForReading.readabilityHandler = { handle in
             let chunk = handle.availableData
             guard !chunk.isEmpty else { return }
@@ -73,19 +73,6 @@ public actor SrumParser {
     private static func tableName(of filename: String) -> String {
         guard let dot = filename.lastIndex(of: ".") else { return filename }
         return String(filename[..<dot])
-    }
-}
-
-/// Thread-safe stderr accumulator for the continuous pipe drain (the
-/// readabilityHandler fires on an arbitrary queue). Mirrors the collector the
-/// other shell-out parsers use.
-private nonisolated final class SrumStderrCollector: @unchecked Sendable {
-    private let lock = NSLock()
-    private var buffer = ""
-    func append(_ s: String) { lock.lock(); buffer += s; lock.unlock() }
-    var text: String {
-        lock.lock(); defer { lock.unlock() }
-        return buffer.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

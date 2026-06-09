@@ -48,11 +48,24 @@ public actor JumpListParser {
         process.standardOutput = FileHandle.nullDevice
         let stderrPipe = Pipe()
         process.standardError = stderrPipe
+
+        // Drain stderr continuously. olecfexport can be chatty on a
+        // dirty/partially-corrupt OLE container - left unread, a noisy run fills
+        // the kernel pipe buffer (~16-64 KB), blocks the child on write, and
+        // hangs forever. Same pattern as the EVTX / LNK / registry / SRUM
+        // shell-out parsers.
+        let collector = PipeTextCollector()
+        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else { return }
+            collector.append(String(decoding: chunk, as: UTF8.self))
+        }
+
         try process.run()
         await withCheckedContinuation { c in process.terminationHandler = { _ in c.resume() } }
+        stderrPipe.fileHandleForReading.readabilityHandler = nil
         guard process.terminationStatus == 0 else {
-            let err = String(decoding: stderrPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-            throw JumpListError.exportFailed(exitCode: process.terminationStatus, stderr: err)
+            throw JumpListError.exportFailed(exitCode: process.terminationStatus, stderr: collector.text)
         }
 
         let application = JumpListAppID.application(for: appID)
