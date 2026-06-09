@@ -26,6 +26,8 @@ public enum TimelineSource: String, CaseIterable, Sendable, Codable {
     case evtx       = "EVTX"
     case usn        = "USN"
     case srum       = "SRUM"
+    case browser    = "BROWSER"
+    case mft        = "MFT"
 
     public var label: String {
         switch self {
@@ -33,6 +35,8 @@ public enum TimelineSource: String, CaseIterable, Sendable, Codable {
         case .evtx:       return "Event Log"
         case .usn:        return "USN Journal"
         case .srum:       return "SRUM"
+        case .browser:    return "Browser History"
+        case .mft:        return "MFT"
         }
     }
 }

@@ -15,13 +15,16 @@ public nonisolated struct AnalysisContext: Sendable {
     public let jumpList: [JumpListEntry]
     public let usn: [UsnRecord]
     public let srum: [SrumEntry]
+    public let browserHistory: [BrowserHistoryEntry]
+    public let mft: [MftEntry]
 
     public init(files: [FileEntry], events: [EventLogRecord],
                 timeline: [TimelineEvent], registryValues: [RegistryValue],
                 prefetch: [PrefetchEntry] = [], amcache: [AmcacheEntry] = [],
                 shimcache: [ShimcacheEntry] = [], lnk: [LnkEntry] = [],
                 jumpList: [JumpListEntry] = [], usn: [UsnRecord] = [],
-                srum: [SrumEntry] = []) {
+                srum: [SrumEntry] = [], browserHistory: [BrowserHistoryEntry] = [],
+                mft: [MftEntry] = []) {
         self.files = files
         self.events = events
         self.timeline = timeline
@@ -33,6 +36,8 @@ public nonisolated struct AnalysisContext: Sendable {
         self.jumpList = jumpList
         self.usn = usn
         self.srum = srum
+        self.browserHistory = browserHistory
+        self.mft = mft
     }
 }
 

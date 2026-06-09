@@ -7,6 +7,49 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ### Added
 
+- **NTFS `$MFT` parsing + timestomping detection** (new **MFT** tab) — a
+  pure-Swift `$MFT` byte parser (no vendored tool) that applies the NTFS fixup,
+  decodes both the `$STANDARD_INFORMATION` and `$FILE_NAME` MACB sets, and
+  reconstructs full paths from parent references. The MFT tab is a **per-volume
+  tree** (like the Evidence tab) with `$SI`/`$FN` times shown at **full lossless
+  100-ns precision** (stored as raw FILETIME — `Date` can't represent it) and an
+  "Anomalies only" filter. **Resident `$DATA`** is captured, so small files
+  stored inside the MFT record are recoverable — shown as a hex dump with a
+  macOS Save button. A new **MFT Timestomp** analyzer flags *possible*
+  timestomping (T1070.006) — an executable whose visible `$SI` creation predates
+  its un-settable `$FN` creation and whose `$SI` times are whole-second (the
+  timestomp-tool fingerprint). For loose KAPE collections, the `$MFT` `$SI` MACB
+  is spliced onto the timeline as a true NTFS file timeline (loose folders
+  otherwise fall back to collection-host times). The parser is validated against
+  real `$MFT` records (incl. resident-data + 100-ns-precision fixtures).
+
+### Fixed
+
+- **Amcache stayed empty after parsing.** Registry parsing skipped a host
+  entirely once it had *any* parsed values, so a case whose registry was parsed
+  before `Amcache.hve` was captured could never pick it up — the Amcache tab
+  stayed "not parsed yet" with no signal why. Registry re-parsing is now
+  per-hive: a re-run parses only the hives not yet represented and merges them
+  in, so pressing **Parse artifacts** again recovers Amcache (and any other
+  late-added hive) without re-ingesting. `Amcache.hve` is also matched by
+  filename (for non-standard collection layouts), and an `Amcache.hve` that
+  reads but reconstructs to nothing now reports it instead of failing silently.
+
+### Added
+
+- **Browser history** (new **Browser History** tab) — parses Chromium-family
+  (`History`) and Firefox (`places.sqlite`) databases, both SQLite, read directly
+  with GRDB (no vendored tool). Surfaces page visits (one row per URL, with
+  visit/typed counts and last-visit time) and downloads (target path, bytes,
+  originating page), with the browser + profile recovered from the source path.
+  Forensic-safe: the database (with its `-wal`/`-shm` sidecars) is copied to
+  scratch and opened there — the evidence file is never opened by SQLite. Rows
+  are folded onto the timeline
+  (Browser History source). A new **Browser History** analyzer flags suspicious
+  downloads (executable/script/archive or pulled from a paste / anonymous-sharing
+  / tunnel host or raw IP, T1105), activity to suspicious infrastructure (T1102),
+  and offensive-tool names in URLs/targets (T1588.002). macOS table view + iOS
+  drill-down.
 - **Chain of custody & evidence integrity** (new **Custody** tab) — a
   legal-weight, append-only record of each case:
   - **Acquisition metadata** per evidence item (examiner, tool, method,

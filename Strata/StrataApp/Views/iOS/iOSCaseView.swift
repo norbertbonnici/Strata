@@ -307,6 +307,24 @@ struct MoreTab: View {
                     Divider().background(Theme.hair2).padding(.leading, 50)
 
                     NavigationLink {
+                        BrowserHistoryDrillView()
+                    } label: {
+                        moreRow(icon: "globe", title: "Browser History",
+                                trailing: counter(model.browserHistoryCount))
+                    }
+                    .buttonStyle(.plain)
+                    Divider().background(Theme.hair2).padding(.leading, 50)
+
+                    NavigationLink {
+                        MftDrillView()
+                    } label: {
+                        moreRow(icon: "tablecells", title: "MFT",
+                                trailing: counter(model.mftCount))
+                    }
+                    .buttonStyle(.plain)
+                    Divider().background(Theme.hair2).padding(.leading, 50)
+
+                    NavigationLink {
                         LateralDrillView()
                     } label: {
                         moreRow(icon: "point.3.connected.trianglepath.dotted",

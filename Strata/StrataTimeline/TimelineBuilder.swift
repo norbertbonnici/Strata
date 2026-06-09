@@ -109,4 +109,48 @@ public nonisolated enum TimelineBuilder {
         }
         return events.sorted { $0.date < $1.date }
     }
+
+    /// Project browser-history rows onto the timeline. `kind` is `.changed` (the
+    /// closest fs analogue for "activity recorded"); the path encodes the browser,
+    /// title/URL and a kind/detail summary so the row reads well and free-text
+    /// search matches. Rows without a timestamp are dropped.
+    public static func build(from records: [BrowserHistoryEntry]) -> [TimelineEvent] {
+        var events: [TimelineEvent] = []
+        events.reserveCapacity(records.count)
+        for record in records {
+            guard let date = record.timestamp else { continue }
+            events.append(TimelineEvent(date: date,
+                                        kind: .changed,
+                                        source: .browser,
+                                        fileID: 0,
+                                        path: "[\(record.browser.label) \(record.kind.label)] \(record.displayTitle) — \(record.url)",
+                                        size: 0,
+                                        isDeleted: false))
+        }
+        return events.sorted { $0.date < $1.date }
+    }
+
+    /// Project `$MFT` records onto the timeline as their `$STANDARD_INFORMATION`
+    /// MACB rows — the *true* NTFS file timeline (the only real one for loose
+    /// collections, which otherwise fall back to collection-host times). One row
+    /// per distinct non-nil $SI timestamp; an entry without a name is skipped.
+    public static func build(from records: [MftEntry]) -> [TimelineEvent] {
+        var events: [TimelineEvent] = []
+        events.reserveCapacity(records.count)
+        for record in records {
+            guard record.fileName != nil else { continue }
+            let path = record.displayPath
+            let macb: [(Date?, MACBKind)] = [
+                (record.siModified, .modified), (record.siAccessed, .accessed),
+                (record.siChanged, .changed), (record.siCreated, .born),
+            ]
+            for (date, kind) in macb {
+                guard let date else { continue }
+                events.append(TimelineEvent(date: date, kind: kind, source: .mft,
+                                            fileID: 0, path: path,
+                                            size: record.size ?? 0, isDeleted: !record.inUse))
+            }
+        }
+        return events.sorted { $0.date < $1.date }
+    }
 }

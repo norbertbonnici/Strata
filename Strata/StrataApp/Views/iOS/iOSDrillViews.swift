@@ -1276,4 +1276,311 @@ struct SrumDrillView: View {
     }()
 }
 
+struct BrowserHistoryDrillView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var displayLimit = 200
+    private let pageSize = 200
+
+    var body: some View {
+        let rows = model.browserHistory
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitle(title: "Browser History",
+                           subtitle: "\(human(rows.count)) record\(rows.count == 1 ? "" : "s")")
+
+                if rows.isEmpty {
+                    ContentUnavailableView(
+                        "No browser history",
+                        systemImage: "globe",
+                        description: Text("Parse browser history on the macOS app to browse it here."))
+                        .padding(.top, 60)
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Card { rowViews(rows) }.padding(.top, 10)
+                }
+
+                Spacer(minLength: 26)
+            }
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+    }
+
+    @ViewBuilder private func rowViews(_ rows: [BrowserHistoryEntry]) -> some View {
+        ForEach(rows.prefix(displayLimit)) { r in
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 11) {
+                    Image(systemName: r.kind == .download ? "arrow.down.circle" : "globe")
+                        .font(.system(size: 16)).frame(width: 22)
+                        .foregroundStyle(r.kind == .download ? Theme.amber : Theme.teal2)
+                    Text(r.displayTitle)
+                        .font(.system(size: 13.5, weight: .medium))
+                        .foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    if let t = r.timestamp {
+                        Text(Self.dateFmt.string(from: t))
+                            .font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text3)
+                    }
+                }
+                Text("\(r.browser.label) · \(r.detailSummary)")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(Theme.text3).lineLimit(1).truncationMode(.tail)
+                    .padding(.leading, 33)
+                Text(r.url)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(Theme.text3.opacity(0.8)).lineLimit(1).truncationMode(.middle)
+                    .padding(.leading, 33)
+            }
+            .padding(.horizontal, 15).padding(.vertical, 11)
+            .overlay(alignment: .bottom) { Divider().background(Theme.hair2) }
+        }
+        if rows.count > displayLimit {
+            Button { displayLimit += pageSize } label: {
+                Text("Show \(min(pageSize, rows.count - displayLimit)) more · \(human(rows.count - displayLimit)) hidden")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Theme.teal)
+                    .frame(maxWidth: .infinity).padding(.vertical, 13)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func human(_ n: Int) -> String {
+        let f = NumberFormatter(); f.numberStyle = .decimal
+        return f.string(from: NSNumber(value: n)) ?? "\(n)"
+    }
+
+    private static let dateFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")   // forensic timestamps are UTC
+        return f
+    }()
+}
+
+/// iOS $MFT browser — a breadcrumb tree like FilesystemDrillView. Directories
+/// navigate by mutating `path`; tapping a file pushes its record detail (full
+/// 100-ns $SI/$FN times + any resident $DATA).
+struct MftDrillView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var path = #"\"#       // current directory (backslash form); "\" = root
+    @State private var displayLimit = 200
+    private let pageSize = 200
+
+    private func parentDir(of full: String) -> String {
+        guard let idx = full.lastIndex(of: "\\") else { return #"\"# }
+        let parent = String(full[..<idx])
+        return parent.isEmpty ? #"\"# : parent
+    }
+
+    private var children: [MftEntry] {
+        model.mft.filter { e in
+            guard let fp = e.fullPath, e.fileName != nil, fp != #"\"# else { return false }
+            return parentDir(of: fp) == path
+        }
+        .sorted { a, b in
+            if a.isDirectory != b.isDirectory { return a.isDirectory }
+            return (a.fileName ?? "").localizedCaseInsensitiveCompare(b.fileName ?? "") == .orderedAscending
+        }
+    }
+
+    var body: some View {
+        let all = model.mft
+        let kids = children
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitle(title: "MFT", subtitle: "\(human(all.count)) record\(all.count == 1 ? "" : "s")")
+                if all.isEmpty {
+                    ContentUnavailableView("No $MFT", systemImage: "tablecells",
+                        description: Text("Parse the $MFT on the macOS app to browse it here."))
+                        .padding(.top, 60).frame(maxWidth: .infinity)
+                } else {
+                    breadcrumb
+                    if kids.isEmpty {
+                        ContentUnavailableView("Empty", systemImage: "folder",
+                            description: Text("No records under this path."))
+                            .padding(.top, 40).frame(maxWidth: .infinity)
+                    } else {
+                        Card { rows(kids) }.padding(.top, 10)
+                    }
+                }
+                Spacer(minLength: 26)
+            }
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .onChange(of: path) { displayLimit = pageSize }
+    }
+
+    private var breadcrumb: some View {
+        let crumbs = path.split(separator: "\\").map(String.init)
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 5) {
+                Button { path = #"\"# } label: {
+                    Text(#"\"#).font(.system(size: 12.5, design: .monospaced)).foregroundStyle(Theme.text2)
+                }.buttonStyle(.plain)
+                ForEach(Array(crumbs.enumerated()), id: \.offset) { idx, name in
+                    Text("›").foregroundStyle(Theme.text3)
+                    Button { path = "\\" + crumbs[0...idx].joined(separator: "\\") } label: {
+                        Text(name)
+                            .font(.system(size: 12.5, weight: idx == crumbs.count - 1 ? .semibold : .regular,
+                                          design: .monospaced))
+                            .foregroundStyle(idx == crumbs.count - 1 ? Theme.text : Theme.text2)
+                    }.buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 22).padding(.top, 6)
+        }
+    }
+
+    @ViewBuilder private func rows(_ kids: [MftEntry]) -> some View {
+        ForEach(kids.prefix(displayLimit)) { e in
+            row(e)
+            Divider().background(Theme.hair2).padding(.leading, 48)
+        }
+        if kids.count > displayLimit {
+            Button { displayLimit += pageSize } label: {
+                Text("Show \(min(pageSize, kids.count - displayLimit)) more")
+                    .font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.teal)
+                    .frame(maxWidth: .infinity).padding(.vertical, 13)
+            }.buttonStyle(.plain)
+        }
+    }
+
+    @ViewBuilder private func row(_ e: MftEntry) -> some View {
+        if e.isDirectory {
+            Button { path = e.fullPath ?? #"\"# } label: { rowContent(e) }.buttonStyle(.plain)
+        } else {
+            NavigationLink { MftRecordDetail(entry: e) } label: { rowContent(e) }.buttonStyle(.plain)
+        }
+    }
+
+    private func rowContent(_ e: MftEntry) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: e.siCreatedPredatesFn ? "exclamationmark.triangle.fill"
+                              : (e.isDirectory ? "folder" : "doc"))
+                .font(.system(size: 16)).frame(width: 24)
+                .foregroundStyle(e.siCreatedPredatesFn ? Theme.amber : (e.isDirectory ? Theme.teal2 : Theme.text3))
+            Text(e.fileName ?? "MFT #\(e.recordNumber)")
+                .font(e.isDirectory ? .system(size: 14) : .system(size: 12.5, design: .monospaced))
+                .foregroundStyle(e.inUse ? Theme.text : Theme.text2).lineLimit(1).truncationMode(.middle)
+            if e.hasResidentData {
+                Image(systemName: "doc.text.below.ecg").font(.system(size: 11)).foregroundStyle(Theme.teal)
+            }
+            Spacer()
+            if e.isDirectory {
+                Image(systemName: "chevron.right").font(.system(size: 12)).foregroundStyle(Theme.text3)
+            } else if let s = e.size {
+                Text(ByteCountFormatter.string(fromByteCount: s, countStyle: .file))
+                    .font(.system(size: 11)).foregroundStyle(Theme.text3)
+            }
+        }
+        .padding(.horizontal, 15).padding(.vertical, 11)
+        .contentShape(Rectangle())
+    }
+
+    private func human(_ n: Int) -> String {
+        let f = NumberFormatter(); f.numberStyle = .decimal
+        return f.string(from: NSNumber(value: n)) ?? "\(n)"
+    }
+}
+
+/// iOS record detail: full lossless 100-ns timestamps + resident $DATA.
+private struct MftRecordDetail: View {
+    let entry: MftEntry
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitle(title: entry.fileName ?? "MFT #\(entry.recordNumber)")
+                if entry.siCreatedPredatesFn {
+                    Label("$SI predates $FN — possible timestomping (T1070.006)",
+                          systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 12)).foregroundStyle(Theme.amber)
+                        .padding(.horizontal, 18).padding(.top, 4)
+                }
+                Card {
+                    kv("Path", entry.fullPath ?? "—")
+                    kv("Record", "\(entry.recordNumber) (seq \(entry.sequence))")
+                    kv("State", entry.inUse ? "Allocated" : "Deleted")
+                    if let s = entry.size { kv("Size", "\(s.formatted()) bytes") }
+                }.padding(.top, 10)
+
+                SectionHeader(label: "$STANDARD_INFORMATION").padding(.top, 14)
+                Card {
+                    timeRow("Created", entry.siCreatedRaw, flag: entry.siCreatedPredatesFn)
+                    timeRow("Modified", entry.siModifiedRaw)
+                    timeRow("MFT changed", entry.siChangedRaw)
+                    timeRow("Accessed", entry.siAccessedRaw)
+                }
+
+                SectionHeader(label: "$FILE_NAME").padding(.top, 14)
+                Card {
+                    timeRow("Created", entry.fnCreatedRaw)
+                    timeRow("Modified", entry.fnModifiedRaw)
+                    timeRow("MFT changed", entry.fnChangedRaw)
+                    timeRow("Accessed", entry.fnAccessedRaw)
+                }
+
+                if let data = entry.residentData, !data.isEmpty {
+                    SectionHeader(label: "Resident $DATA — \(data.count) bytes").padding(.top, 14)
+                    Card {
+                        Text(MftHexDump.dump(data, max: 512))
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(Theme.text2).textSelection(.enabled)
+                            .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                Spacer(minLength: 26)
+            }
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+    }
+
+    private func kv(_ k: String, _ v: String) -> some View {
+        HStack(alignment: .top) {
+            Text(k).font(.system(size: 12.5)).foregroundStyle(Theme.text3).frame(width: 90, alignment: .leading)
+            Text(v).font(.system(size: 12.5, design: .monospaced)).foregroundStyle(Theme.text)
+                .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
+        }.padding(.horizontal, 15).padding(.vertical, 7)
+    }
+
+    private func timeRow(_ label: String, _ raw: UInt64, flag: Bool = false) -> some View {
+        HStack {
+            Text(label).font(.system(size: 12.5)).foregroundStyle(Theme.text3).frame(width: 110, alignment: .leading)
+            Text(FileTime.precise(raw) ?? "—")
+                .font(.system(size: 11.5, design: .monospaced))
+                .foregroundStyle(flag ? Theme.amber : Theme.text)
+                .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
+        }.padding(.horizontal, 15).padding(.vertical, 7)
+    }
+}
+
+/// Shared compact hex+ASCII dump (used by the iOS resident-data view).
+enum MftHexDump {
+    static func dump(_ data: Data, max: Int) -> String {
+        let slice = Array(data.prefix(max))
+        var out = ""
+        var i = 0
+        while i < slice.count {
+            let row = slice[i ..< Swift.min(i + 16, slice.count)]
+            let hex = row.map { String(format: "%02x", $0) }.joined(separator: " ")
+                .padding(toLength: 47, withPad: " ", startingAt: 0)
+            let ascii = String(row.map { (32...126).contains($0) ? Character(UnicodeScalar($0)) : "." })
+            out += String(format: "%04x  ", i) + hex + "  " + ascii + "\n"
+            i += 16
+        }
+        if data.count > max { out += "… (\(data.count - max) more bytes)\n" }
+        return out
+    }
+}
+
 #endif

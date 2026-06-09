@@ -26,6 +26,8 @@ nonisolated struct EvidenceState: Sendable {
     var jumpList: [JumpListEntry] = []
     var usn: [UsnRecord] = []
     var srum: [SrumEntry] = []
+    var browserHistory: [BrowserHistoryEntry] = []
+    var mft: [MftEntry] = []
     var findings: [Finding] = []
     var iocMatches: [IOCMatch] = []
 }
@@ -361,6 +363,19 @@ final class AppModel: ObservableObject {
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: state.srum))
                 state.timeline.sort { $0.date < $1.date }
             }
+            state.browserHistory = (try? CaseStore.readBrowserHistory(forHostID: evidence.id, in: bundleURL)) ?? []
+            // Fold browser-history rows back into the timeline (mirrors the SRUM splice).
+            if !state.browserHistory.isEmpty {
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.browserHistory))
+                state.timeline.sort { $0.date < $1.date }
+            }
+            state.mft = (try? CaseStore.readMft(forHostID: evidence.id, in: bundleURL)) ?? []
+            // Fold $MFT $SI MACB onto the timeline only for loose folders (an
+            // image's FS source already carries those TSK times); mirrors parseMft.
+            if !state.mft.isEmpty, evidence.kind == .kapeLooseFolder {
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.mft))
+                state.timeline.sort { $0.date < $1.date }
+            }
             state.findings = (try? CaseStore.readFindings(forHostID: evidence.id, in: bundleURL)) ?? []
             state.iocMatches = (try? CaseStore.readIOCMatches(forHostID: evidence.id, in: bundleURL)) ?? []
             return .loaded(state)
@@ -666,6 +681,8 @@ final class AppModel: ObservableObject {
         var jumpList: [JumpListEntry] = []
         var usn: [UsnRecord] = []
         var srum: [SrumEntry] = []
+        var browserHistory: [BrowserHistoryEntry] = []
+        var mft: [MftEntry] = []
         var iocMatches: [IOCMatch] = []
     }
     private var derivedCache: Derived?
@@ -719,6 +736,8 @@ final class AppModel: ObservableObject {
             d.jumpList = s.jumpList
             d.usn = s.usn
             d.srum = s.srum
+            d.browserHistory = s.browserHistory
+            d.mft = s.mft
             d.iocMatches = s.iocMatches
             return d
         }
@@ -737,6 +756,8 @@ final class AppModel: ObservableObject {
             d.jumpList.append(contentsOf: s.jumpList)
             d.usn.append(contentsOf: s.usn)
             d.srum.append(contentsOf: s.srum)
+            d.browserHistory.append(contentsOf: s.browserHistory)
+            d.mft.append(contentsOf: s.mft)
             d.iocMatches.append(contentsOf: s.iocMatches)
         }
         d.events.sort { $0.writtenAt < $1.writtenAt }
@@ -750,6 +771,8 @@ final class AppModel: ObservableObject {
         d.jumpList.sort { ($0.lastAccessed ?? .distantPast) > ($1.lastAccessed ?? .distantPast) }
         d.usn.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
         d.srum.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+        d.browserHistory.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+        d.mft.sort { $0.recordNumber < $1.recordNumber }
         return d
     }
 
@@ -771,6 +794,8 @@ final class AppModel: ObservableObject {
     var jumpList: [JumpListEntry] { derived().jumpList }
     var usn: [UsnRecord] { derived().usn }
     var srum: [SrumEntry] { derived().srum }
+    var browserHistory: [BrowserHistoryEntry] { derived().browserHistory }
+    var mft: [MftEntry] { derived().mft }
     var iocMatches: [IOCMatch] { derived().iocMatches }
 
     // Count-only accessors: sum per-host counts without building or sorting the
@@ -787,6 +812,8 @@ final class AppModel: ObservableObject {
     var jumpListCount: Int { scopedCount(\.jumpList.count) }
     var usnCount: Int { scopedCount(\.usn.count) }
     var srumCount: Int { scopedCount(\.srum.count) }
+    var browserHistoryCount: Int { scopedCount(\.browserHistory.count) }
+    var mftCount: Int { scopedCount(\.mft.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
     private func scopedCount(_ kp: KeyPath<EvidenceState, Int>) -> Int {
@@ -1145,6 +1172,8 @@ final class AppModel: ObservableObject {
         await parseJumpList()
         await parseUsn()
         await parseSrum()
+        await parseBrowserHistory()
+        await parseMft()
         await runAnalyzers()
     }
 
@@ -1741,6 +1770,293 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // MARK: - Browser history parsing
+
+    /// Parse web-browser history databases (Chromium `History`, Firefox
+    /// `places.sqlite`) for every loaded evidence that doesn't already have
+    /// results. These are ordinary SQLite files (not sparse ADSes), so they're
+    /// extracted with the plain icat path that registry/prefetch/SRUM use. The
+    /// SQLite read itself (`BrowserHistoryParser`, GRDB) is run off the main
+    /// actor in a detached task. Mirrors `parseSrum`; does NOT run analyzers.
+    func parseBrowserHistory() async {
+        guard !evidenceList.isEmpty else {
+            errorMessage = "No evidence loaded."
+            return
+        }
+        errorMessage = nil
+        isWorking = true
+        defer {
+            isWorking = false
+            progress = nil
+        }
+
+        func candidates(_ state: EvidenceState) -> [FileEntry] {
+            state.files.filter {
+                guard !$0.isDirectory, $0.size > 0 else { return false }
+                let n = $0.name.lowercased()
+                return n == "history" || n == "places.sqlite"
+            }
+        }
+
+        let totalCandidates = evidenceList.reduce(0) { acc, evidence in
+            guard let state = states[evidence.id], state.browserHistory.isEmpty else { return acc }
+            return acc + candidates(state).count
+        }
+        guard totalCandidates > 0 else {
+            statusMessage = "No new browser history to parse."
+            return
+        }
+        progress = ProgressInfo(current: 0, total: totalCandidates, label: "Parsing browser history")
+        var completed = 0
+
+        do {
+            let tskEnv = try TSKEnvironment.discover()
+            var hostsTouched = 0
+            var hostsCollected = 0
+
+            for evidence in evidenceList {
+                guard var state = states[evidence.id] else { continue }
+                if !state.browserHistory.isEmpty { continue }
+
+                let found = candidates(state)
+                guard !found.isEmpty else { continue }
+                hostsTouched += 1
+
+                let isLoose = evidence.kind == .kapeLooseFolder
+                var database: TSKDatabase?
+                var extractor: TSKFileExtractor?
+                var scratch: URL?
+                if !isLoose {
+                    guard let dbURL = state.dbURL else { continue }
+                    database = try TSKDatabase(path: dbURL)
+                    extractor = TSKFileExtractor(
+                        environment: tskEnv,
+                        imageURL: evidence.sourceURL,
+                        imageType: TSKImageIngestor.imageType(for: evidence.sourceURL))
+                    guard let bundleURL = currentCaseBundleURL else { continue }
+                    let dir = CaseStore.browserHistoryScratchDirectory(forHostID: evidence.id, in: bundleURL)
+                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    scratch = dir
+                }
+
+                var collected: [BrowserHistoryEntry] = []
+                for entry in found {
+                    progress = ProgressInfo(current: completed, total: totalCandidates,
+                                            label: "\(evidence.displayName): \(entry.name)")
+                    let fileURL: URL
+                    if isLoose {
+                        guard let disk = entry.diskURL,
+                              FileManager.default.fileExists(atPath: disk.path) else {
+                            completed += 1; continue
+                        }
+                        fileURL = disk
+                    } else {
+                        guard let info = try database!.fetchExtractInfo(forFileID: entry.id) else {
+                            completed += 1; continue
+                        }
+                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name)")
+                        try await extractor!.extract(metaAddr: info.metaAddr,
+                                                     imageOffsetSectors: info.imageOffsetSectors,
+                                                     to: outURL)
+                        // Extract the `-wal`/`-shm` sidecars next to the main DB
+                        // (matching names) so the parser can recover history still
+                        // sitting in the `-wal`. Best-effort: absence is normal.
+                        for suffix in ["-wal", "-shm"] {
+                            guard let side = state.files.first(where: {
+                                !$0.isDirectory && $0.parentPath == entry.parentPath
+                                    && $0.name.caseInsensitiveCompare(entry.name + suffix) == .orderedSame
+                            }), let sInfo = try? database!.fetchExtractInfo(forFileID: side.id) else { continue }
+                            try? await extractor!.extract(metaAddr: sInfo.metaAddr,
+                                                          imageOffsetSectors: sInfo.imageOffsetSectors,
+                                                          to: URL(fileURLWithPath: outURL.path + suffix))
+                        }
+                        fileURL = outURL
+                    }
+                    // The SQLite read copies the DB (+ sidecars) to a private
+                    // scratch and opens it off the main actor. A single unreadable
+                    // DB shouldn't abort the whole run - but surface the failure
+                    // (mirrors parseRegistry) so it isn't indistinguishable from
+                    // "nothing was ever parsed".
+                    let source = entry.fullPath
+                    do {
+                        let parsed = try await Task.detached(priority: .userInitiated) {
+                            try BrowserHistoryParser.parse(fileAt: fileURL, sourceFile: source)
+                        }.value
+                        collected.append(contentsOf: parsed)
+                    } catch {
+                        statusMessage = "\(evidence.displayName): \(entry.name) failed (\(error.localizedDescription))"
+                    }
+                    completed += 1
+                }
+
+                collected.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+                if !collected.isEmpty { hostsCollected += 1 }
+                state.browserHistory = collected
+                // Drop any prior browser slice (paranoia for re-parses) and splice
+                // the freshly built browser-history timeline back in, sorted.
+                state.timeline.removeAll { $0.source == .browser }
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: collected))
+                state.timeline.sort { $0.date < $1.date }
+                states[evidence.id] = state
+                if let bundleURL = currentCaseBundleURL {
+                    try? CaseStore.writeBrowserHistory(collected, forHostID: evidence.id, in: bundleURL)
+                }
+            }
+            progress = ProgressInfo(current: completed, total: totalCandidates,
+                                    label: "Browser history parse complete")
+            if hostsTouched > 0, hostsCollected == 0 {
+                errorMessage = "Browser history parse extracted no entries - check that the History / places.sqlite databases are accessible and not corrupt."
+            }
+        } catch {
+            self.errorMessage = error.localizedDescription
+            self.statusMessage = ""
+        }
+    }
+
+    // MARK: - MFT parsing
+
+    /// Parse the NTFS `$MFT` for every loaded evidence that doesn't already have
+    /// results. `$MFT` is an ordinary file (record 0's `$DATA`), so it's extracted
+    /// with the plain icat path that registry/SRUM use. The (large) byte parse runs
+    /// off the main actor in a detached task (like USN). Yields both `$SI` and
+    /// `$FN` MACB so the timestomp analyzer can compare them; spliced onto the
+    /// timeline as the true NTFS file MACB. Mirrors `parseUsn`; does NOT run analyzers.
+    func parseMft() async {
+        guard !evidenceList.isEmpty else {
+            errorMessage = "No evidence loaded."
+            return
+        }
+        errorMessage = nil
+        isWorking = true
+        defer {
+            isWorking = false
+            progress = nil
+        }
+
+        func candidates(_ state: EvidenceState) -> [FileEntry] {
+            state.files.filter {
+                !$0.isDirectory && $0.size > 0 && $0.name.lowercased() == "$mft"
+            }
+        }
+
+        let totalCandidates = evidenceList.reduce(0) { acc, evidence in
+            guard let state = states[evidence.id], state.mft.isEmpty else { return acc }
+            return acc + candidates(state).count
+        }
+        guard totalCandidates > 0 else {
+            statusMessage = "No new $MFT to parse."
+            return
+        }
+        progress = ProgressInfo(current: 0, total: totalCandidates, label: "Parsing $MFT")
+        var completed = 0
+
+        do {
+            let tskEnv = try TSKEnvironment.discover()
+
+            for evidence in evidenceList {
+                guard var state = states[evidence.id] else { continue }
+                if !state.mft.isEmpty { continue }
+
+                let found = candidates(state)
+                guard !found.isEmpty else { continue }
+
+                let isLoose = evidence.kind == .kapeLooseFolder
+                var database: TSKDatabase?
+                var extractor: TSKFileExtractor?
+                var scratch: URL?
+                if !isLoose {
+                    guard let dbURL = state.dbURL else { continue }
+                    database = try TSKDatabase(path: dbURL)
+                    extractor = TSKFileExtractor(
+                        environment: tskEnv,
+                        imageURL: evidence.sourceURL,
+                        imageType: TSKImageIngestor.imageType(for: evidence.sourceURL))
+                    guard let bundleURL = currentCaseBundleURL else { continue }
+                    let dir = CaseStore.mftScratchDirectory(forHostID: evidence.id, in: bundleURL)
+                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    scratch = dir
+                }
+
+                var collected: [MftEntry] = []
+                for entry in found {
+                    progress = ProgressInfo(current: completed, total: totalCandidates,
+                                            label: "\(evidence.displayName): \(entry.name)")
+                    let fileURL: URL
+                    if isLoose {
+                        guard let disk = entry.diskURL,
+                              FileManager.default.fileExists(atPath: disk.path) else {
+                            completed += 1; continue
+                        }
+                        fileURL = disk
+                    } else {
+                        guard let info = try database!.fetchExtractInfo(forFileID: entry.id) else {
+                            completed += 1; continue
+                        }
+                        let outURL = scratch!.appendingPathComponent("\(entry.id)-MFT.bin")
+                        do {
+                            try await extractor!.extract(metaAddr: info.metaAddr,
+                                                         imageOffsetSectors: info.imageOffsetSectors,
+                                                         to: outURL)
+                        } catch {
+                            statusMessage = "\(evidence.displayName): $MFT extract failed (\(error.localizedDescription))"
+                            completed += 1; continue
+                        }
+                        fileURL = outURL
+                    }
+                    // Read the (potentially large) $MFT and parse it off the main
+                    // actor so the UI stays responsive. Scope `data` so the mapped
+                    // region is released before the parse — it isn't held alongside
+                    // the [UInt8] copy and the parser's own allocations.
+                    let bytes: [UInt8]
+                    if let data = try? Data(contentsOf: fileURL, options: .mappedIfSafe) {
+                        bytes = [UInt8](data)
+                    } else {
+                        completed += 1; continue
+                    }
+                    let source = entry.fullPath
+                    // Per-volume label so a multi-NTFS image (system + recovery)
+                    // shows one tree per volume rather than merging identical paths.
+                    let volLabel: String
+                    if let fs = entry.fsID, let vi = state.volumes.first(where: { $0.id == fs }) {
+                        volLabel = vi.label
+                    } else if isLoose {
+                        volLabel = "Collected $MFT"
+                    } else if let fs = entry.fsID {
+                        volLabel = "Volume \(fs)"
+                    } else {
+                        volLabel = "$MFT"
+                    }
+                    let parsed = await Task.detached(priority: .userInitiated) {
+                        MftParser.parse(bytes: bytes, sourceFile: source, volume: volLabel)
+                    }.value
+                    collected.append(contentsOf: parsed)
+                    completed += 1
+                }
+
+                collected.sort { $0.recordNumber < $1.recordNumber }
+                state.mft = collected
+                // Drop any prior MFT slice (paranoia for re-parses). Splice the $SI
+                // MACB onto the timeline only for loose folders: an image's FS
+                // source already carries those times from TSK, so adding them for
+                // images would just double the (often millions of) rows.
+                state.timeline.removeAll { $0.source == .mft }
+                if isLoose {
+                    state.timeline.append(contentsOf: TimelineBuilder.build(from: collected))
+                    state.timeline.sort { $0.date < $1.date }
+                }
+                states[evidence.id] = state
+                if let bundleURL = currentCaseBundleURL {
+                    try? CaseStore.writeMft(collected, forHostID: evidence.id, in: bundleURL)
+                }
+            }
+            progress = ProgressInfo(current: completed, total: totalCandidates,
+                                    label: "$MFT parse complete")
+        } catch {
+            self.errorMessage = error.localizedDescription
+            self.statusMessage = ""
+        }
+    }
+
     // MARK: - Registry parsing
 
     /// Locate the standard Windows registry hives in each evidence's file
@@ -1764,10 +2080,20 @@ final class AppModel: ObservableObject {
         // an evidence.sourceURL (image or loose folder) that no longer
         // resolves. Extraction would just fail silently per hive; surface it
         // up front instead.
-        let candidates = evidenceList.filter { evidence in
-            guard let state = states[evidence.id] else { return false }
-            return force || state.registryValues.isEmpty
+        // Hives discovered for an evidence that still need parsing: every
+        // standard hive on a first run, or - on a re-run - only those whose
+        // label isn't already represented in the parsed values. This lets a case
+        // whose registry was parsed *before* a hive (notably Amcache.hve) was
+        // captured pick that hive up on a later "Parse artifacts" instead of
+        // being permanently skipped by a coarse "registry already parsed" guard.
+        func pendingHives(_ id: UUID) -> [HiveCandidate] {
+            guard let state = states[id] else { return [] }
+            let all = Self.discoverHives(in: state.files)
+            guard !force else { return all }
+            let present = Set(state.registryValues.map(\.hive))
+            return all.filter { !present.contains($0.label) }
         }
+        let candidates = evidenceList.filter { !pendingHives($0.id).isEmpty }
         let missingSources = candidates.filter {
             !FileManager.default.fileExists(atPath: $0.sourceURL.path)
         }
@@ -1776,10 +2102,7 @@ final class AppModel: ObservableObject {
             return
         }
 
-        let totalCandidates = candidates.reduce(0) { acc, evidence in
-            guard let state = states[evidence.id] else { return acc }
-            return acc + Self.discoverHives(in: state.files).count
-        }
+        let totalCandidates = evidenceList.reduce(0) { $0 + pendingHives($1.id).count }
         guard totalCandidates > 0 else {
             statusMessage = force
                 ? "No registry hives discovered in the file system."
@@ -1796,14 +2119,14 @@ final class AppModel: ObservableObject {
 
             var hostsTouched = 0
             var hostsCollected = 0
+            var amcacheReadButEmpty = false
             for evidence in evidenceList {
                 guard var state = states[evidence.id] else { continue }
-                // Already parsed: skip the (expensive) re-extraction. The
-                // registry-backed artifacts are kept in sync separately - derived
-                // on case open in loadEvidenceState and in the full parse below.
-                if !force, !state.registryValues.isEmpty { continue }
 
-                let candidates = Self.discoverHives(in: state.files)
+                // Only the hives not already represented in registryValues (all
+                // of them when `force`). A fully-parsed host yields an empty list
+                // and is skipped; a host missing just Amcache re-parses just that.
+                let candidates = pendingHives(evidence.id)
                 guard !candidates.isEmpty else { continue }
 
                 guard FileManager.default.fileExists(atPath: evidence.sourceURL.path) else {
@@ -1832,7 +2155,11 @@ final class AppModel: ObservableObject {
                     scratch = dir
                 }
 
-                var collected: [RegistryValue] = []
+                // Keep the values already parsed (so a re-run that only fills in
+                // a previously-missing hive doesn't drop the rest); `force`
+                // re-parses every hive from scratch.
+                var collected: [RegistryValue] = force ? [] : state.registryValues
+                let baselineValueCount = collected.count   // values carried in from prior runs
                 for candidate in candidates {
                     progress = ProgressInfo(
                         current: completed,
@@ -1878,6 +2205,13 @@ final class AppModel: ObservableObject {
                 // from the SYSTEM AppCompatCache blob.
                 let amcache = AmcacheEntry.reconstruct(from: collected)
                 state.amcache = amcache
+                // Note the silent "hive read but nothing came back" case so an
+                // empty Amcache tab isn't indistinguishable from "never parsed";
+                // surfaced once after the loop (a mid-loop statusMessage would be
+                // clobbered by the next parser in the parseArtifacts chain).
+                if candidates.contains(where: { $0.label == "AMCACHE" }), amcache.isEmpty {
+                    amcacheReadButEmpty = true
+                }
                 let shimcache = ShimcacheParser.fromRegistry(collected)
                 state.shimcache = shimcache
                 states[evidence.id] = state
@@ -1886,7 +2220,10 @@ final class AppModel: ObservableObject {
                     try? CaseStore.writeAmcache(amcache, forHostID: evidence.id, in: bundleURL)
                     try? CaseStore.writeShimcache(shimcache, forHostID: evidence.id, in: bundleURL)
                 }
-                if !collected.isEmpty { hostsCollected += 1 }
+                // Count the host only if THIS run gained values (not the ones
+                // carried in from a prior run), so an all-failed partial re-run
+                // still trips the louder aggregate error below.
+                if collected.count > baselineValueCount { hostsCollected += 1 }
             }
             progress = ProgressInfo(current: completed, total: totalCandidates,
                                     label: "Registry parse complete")
@@ -1894,6 +2231,8 @@ final class AppModel: ObservableObject {
             // experience needs a louder signal than the flickering statusMessage.
             if hostsTouched > 0, hostsCollected == 0 {
                 errorMessage = "Registry parse extracted no values - check that sources are accessible and hives aren't locked."
+            } else if amcacheReadButEmpty {
+                errorMessage = "Amcache.hve was read but produced no entries - it may be from an unsupported Windows build or be corrupt."
             }
         } catch {
             self.errorMessage = error.localizedDescription
@@ -1928,11 +2267,26 @@ final class AppModel: ObservableObject {
                 out.append(.init(entry: entry, label: "NTUSER (\(user))"))
             } else if upperName == "USRCLASS.DAT", let user = extractUser(from: entry.fullPath) {
                 out.append(.init(entry: entry, label: "USRCLASS (\(user))"))
-            } else if lowerPath.hasSuffix("/windows/appcompat/programs/amcache.hve") {
+            } else if upperName == "AMCACHE.HVE"
+                        || lowerPath.hasSuffix("/windows/appcompat/programs/amcache.hve") {
                 // Amcache rides the same regfexport pipeline; its values are
                 // tagged AMCACHE and reconstructed into AmcacheEntry after parse.
+                // Matched by filename too (it's distinctive) so non-standard
+                // collection layouts still find it.
                 out.append(.init(entry: entry, label: "AMCACHE"))
             }
+        }
+        // The broadened (by-filename) Amcache match can surface the canonical
+        // hive *and* a stray/backup copy, which would merge under one "AMCACHE"
+        // label and double-count entries. Keep a single candidate, preferring the
+        // one at the canonical AppCompat\Programs path.
+        let amcacheHits = out.filter { $0.label == "AMCACHE" }
+        if amcacheHits.count > 1 {
+            out.removeAll { $0.label == "AMCACHE" }
+            let canonical = amcacheHits.first {
+                $0.entry.fullPath.lowercased().hasSuffix("/windows/appcompat/programs/amcache.hve")
+            }
+            out.append(canonical ?? amcacheHits[0])
         }
         return out
     }
@@ -2081,7 +2435,9 @@ final class AppModel: ObservableObject {
                                           lnk: state.lnk,
                                           jumpList: state.jumpList,
                                           usn: state.usn,
-                                          srum: state.srum)
+                                          srum: state.srum,
+                                          browserHistory: state.browserHistory,
+                                          mft: state.mft)
             let results = await analysisEngine.run(on: context)
             state.findings = results
             states[evidence.id] = state

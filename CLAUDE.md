@@ -65,9 +65,11 @@ Per-release notes live in `docs/releases/`; keep `CHANGELOG.md` updated.
 | `StrataLNK` | Parse `.lnk` shortcuts via `lnkinfo` (liblnk) |
 | `StrataJumpList` | Parse JumpLists - OLE via `olecfexport` (libolecf) + reused `lnkinfo` + a pure DestList decoder |
 | `StrataCore` (USN) | Pure-Swift NTFS USN change-journal byte-parser (`UsnJournalParser`, `UsnRecord`) — no vendored tool; reads the `$Extend\$UsnJrnl:$J` ADS extracted via icat |
+| `StrataCore` (MFT) | Pure-Swift NTFS `$MFT` byte-parser (`MftParser`, `MftEntry`, `MftNode` tree, `FileTime`) — no vendored tool; applies the USA fixup, decodes `$SI` + `$FN` MACB as **raw FILETIME** (`FileTime.precise` renders the full 100-ns string; `Date` is lossy), resolves paths from parent refs, and captures **resident `$DATA`** (small-file recovery). Enables timestomp detection ($SI vs $FN) and true loose-folder MACB. `$MFT` extracted via icat (images) / read in place (loose) |
 | `StrataSRUM` | Parse the SRUM `SRUDB.dat` (ESE database) via `esedbexport` (libesedb); pure `SrumExportDecoder` (`StrataCore`) resolves the export TSV + SruDbIdMapTable foreign keys |
+| `StrataBrowser` | Parse web-browser history — Chromium `History` + Firefox `places.sqlite` (both SQLite) read directly via GRDB (no vendored tool); `BrowserHistoryParser` (macOS) copies the DB to scratch + opens read-only; pure decoders on `BrowserHistoryEntry` (`StrataCore`) |
 | `StrataTimeline` | MACB timeline + gap/session analysis |
-| `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **22 analyzers**, IOC matcher, lateral graph |
+| `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **24 analyzers**, IOC matcher, lateral graph |
 | `StrataApp` | SwiftUI app. `AppModel` (the store), `CaseStore` (.strata bundle layout), `CaseLibrary`, `RecentCases`, `Views/` (macOS) + `Views/iOS/` |
 
 `.strata` case bundle = a directory: `case.json`, `hosts.json`,
@@ -118,7 +120,7 @@ treat it as one item. The macOS-only ingest code is gated `#if os(macOS)`.
 
 Ingestion (E01/VHD/raw + loose KAPE folders), file tree (volume-grouped, deleted
 & slack toggles), MACB timeline (histogram drag-select, gap analysis), EVTX +
-registry + prefetch + Amcache/Shimcache + LNK + JumpList + USN-journal + SRUM parsing → host profile, 22 ATT&CK analyzers → kill chain, IOC matching,
+registry + prefetch + Amcache/Shimcache + LNK + JumpList + USN-journal + SRUM + browser-history + `$MFT` parsing → host profile, 24 ATT&CK analyzers → kill chain, IOC matching,
 interactive lateral graph, multi-host `.strata` cases, iOS viewer, Case
 Library / iCloud-Drive sync, case reporting & export (HTML/Markdown examiner
 report + CSV/JSON data exports; per-endpoint selection + report severity filter),
@@ -128,9 +130,10 @@ Two betas shipped. A full 56-issue view review was completed and remediated.
 ## Roadmap
 
 ### Known pending / deferred
-- **True NTFS MACB for loose folders** via a collected `$MFT` (loose walk
-  currently uses collection-host timestamps).
-- **`$FILE_NAME` (`$FN`) timestamps + timestomping detection.**
+- ~~**True NTFS MACB for loose folders** + **`$FN` timestamps + timestomping**~~
+  — **shipped** via `MftParser` (see roadmap #7 below). Remaining `$MFT` follow-up:
+  the loose-folder *file tree* still uses collection-host times (only the
+  *timeline* uses the `$MFT` $SI MACB); a large `$MFT` makes a large `mft.json`.
 - **YARA scanning + known-bad hash matching.**
 - **Universal/Intel support** (currently arm64-only; `build-tsk.sh universal`).
 - **iOS distribution** (TestFlight/App Store) — currently build-from-source.
@@ -238,13 +241,55 @@ Two betas shipped. A full 56-issue view review was completed and remediated.
      against synthetic esedbexport-format fixtures** (TSV/CTIME/IdBlob, all
      primary-source verified) — real `esedbexport`-on-`SRUDB.dat` end-to-end is
      pending a mounted source image.
-   - Still pending: browser history, WMI persistence.
+   - ~~**Browser history**~~ — **shipped.** `StrataBrowser`. Chromium-family
+     (`History`) and Firefox (`places.sqlite`) history are SQLite, so there is no
+     vendored tool — `BrowserHistoryParser` (macOS) reads them with GRDB (the lib
+     already backing `TSKDatabase`). It copies the DB (and its `-wal`/`-shm`
+     sidecars) to a private scratch dir and opens that copy **read-write** — the
+     evidence file is never opened by SQLite. Read-write is required: Chrome's
+     `History` and Firefox's `places.sqlite` are WAL-mode, and a *read-only* open
+     of a WAL DB fails outright ("unable to open database file") because it can't
+     create the `-shm` wal-index; copying the `-wal` also recovers transactions
+     still pending there (the disk-image path extracts the sidecars too). One row
+     per distinct URL (visits) + Chromium downloads → `BrowserHistoryEntry`
+     (`StrataCore`, with pure chrome/firefox-epoch + browser/profile/host
+     decoders); per-host `browserhistory.json`; spliced onto the timeline
+     (`TimelineSource.browser`). `BrowserHistoryAnalyzer` flags suspicious
+     downloads (risky ext / suspicious host, T1105), activity to
+     paste/anon-share/raw-IP infrastructure (T1102), and offensive-tool names in
+     URLs/targets (T1588.002). macOS `BrowserHistoryView` + iOS
+     `BrowserHistoryDrillView`. **Parser validated end-to-end** against synthetic
+     Chromium/Firefox SQLite fixtures (incl. a WAL-mode regression that reproduces
+     the read-only-open failure) built in-test via the SQLite3 C API. **Known v1
+     limits:** one row per URL (not per individual visit); Firefox downloads
+     (stored as `moz_annos`) not parsed.
+   - Still pending: WMI persistence.
 5. **Super-timeline + tagging/notes** — unify FS MACB + EVTX + registry (+ future
    artifacts) into one pivotable timeline; bookmark/tag findings, analyst notes,
    case narrative.
 6. **Global search** across files/events/registry/timeline.
-7. **`$MFT` / `$FN` parsing → timestomping detection** (also unlocks true
-   loose-folder MACB).
+7. ~~**`$MFT` / `$FN` parsing → timestomping detection**~~ — **shipped.**
+   `StrataCore` `MftParser` is a pure-Swift `$MFT` byte-parser (no vendored tool,
+   like the USN one): applies the update-sequence-array **fixup**, decodes the
+   `$STANDARD_INFORMATION` + `$FILE_NAME` MACB sets, and resolves full paths from
+   `$FN` parent refs (two-pass, cycle-guarded). `$MFT` is found by name (icat
+   `extract` for images, read-in-place for loose), parsed off-main; per-host
+   `mft.json`; the `$SI` MACB is spliced onto the timeline (`TimelineSource.mft`,
+   **loose-only** — images already get those times from the TSK FS source).
+   `MftAnalyzer` flags **possible timestomping** (T1070.006): an executable whose
+   `$SI` creation predates its un-settable `$FN` creation by >1 day **and** whose
+   `$SI` times are whole-second (the tool fingerprint that separates a stomp from
+   a benign timestamp-preserving copy) — high in a staging path, else medium.
+   The viewer is a **per-volume tree** (`MftNode.buildTree`, like `FileNode`):
+   macOS `MftView` (`OutlineGroup`; `$SI`/`$FN` at full **100-ns** precision via
+   `FileTime.precise`; resident `$DATA` hex + Save; "Anomalies only" filter) +
+   iOS `MftDrillView` (breadcrumb tree + record detail). **Parser validated
+   against real `$MFT` records** (libfsntfs corpus — incl. resident-data + 100-ns
+   fixtures). **Known limits:** the loose-folder file *tree* still uses
+   collection-host times (only the timeline uses `$MFT`); a huge `$MFT` → a large
+   `mft.json` (same bracket as `events.json`); the `MftEntry` Codable schema is
+   raw-FILETIME (an `mft.json` from the very first MFT build won't decode — just
+   re-parse); detection is a heuristic — verify findings against a known-good copy.
 8. **Multi-host correlation** — case-wide lateral movement across hosts.
 
 ### CTI enrichment (tiered hash/IOC lookup)
