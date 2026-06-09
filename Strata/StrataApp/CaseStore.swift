@@ -29,6 +29,7 @@ public nonisolated enum CaseStore {
     private static let jumplistFilename     = "jumplist.json"
     private static let usnFilename          = "usn.json"
     private static let srumFilename         = "srum.json"
+    private static let browserHistoryFilename = "browserhistory.json"
     private static let findingsFilename   = "findings.json"
     private static let iocsFilename       = "iocs.json"
     private static let iocMatchesFilename = "iocmatches.json"
@@ -76,6 +77,11 @@ public nonisolated enum CaseStore {
     public static func srumScratchDirectory(forHostID id: UUID, in bundle: URL) -> URL {
         hostDirectory(forHostID: id, in: bundle)
             .appendingPathComponent("srum", isDirectory: true)
+    }
+
+    public static func browserHistoryScratchDirectory(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent("browser", isDirectory: true)
     }
 
     public static func registryScratchDirectory(forHostID id: UUID, in bundle: URL) -> URL {
@@ -248,6 +254,16 @@ public nonisolated enum CaseStore {
     public static func writeSrum(_ entries: [SrumEntry],
                                  forHostID id: UUID, in bundle: URL) throws {
         try writeArray(entries, at: srumFileURL(forHostID: id, in: bundle))
+    }
+    public static func browserHistoryFileURL(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle).appendingPathComponent(browserHistoryFilename)
+    }
+    public static func readBrowserHistory(forHostID id: UUID, in bundle: URL) throws -> [BrowserHistoryEntry]? {
+        try readArrayIfPresent(at: browserHistoryFileURL(forHostID: id, in: bundle))
+    }
+    public static func writeBrowserHistory(_ entries: [BrowserHistoryEntry],
+                                           forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(entries, at: browserHistoryFileURL(forHostID: id, in: bundle))
     }
     public static func readFindings(forHostID id: UUID, in bundle: URL) throws -> [Finding]? {
         try readArrayIfPresent(at: findingsFileURL(forHostID: id, in: bundle))

@@ -26,6 +26,7 @@ nonisolated struct EvidenceState: Sendable {
     var jumpList: [JumpListEntry] = []
     var usn: [UsnRecord] = []
     var srum: [SrumEntry] = []
+    var browserHistory: [BrowserHistoryEntry] = []
     var findings: [Finding] = []
     var iocMatches: [IOCMatch] = []
 }
@@ -361,6 +362,12 @@ final class AppModel: ObservableObject {
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: state.srum))
                 state.timeline.sort { $0.date < $1.date }
             }
+            state.browserHistory = (try? CaseStore.readBrowserHistory(forHostID: evidence.id, in: bundleURL)) ?? []
+            // Fold browser-history rows back into the timeline (mirrors the SRUM splice).
+            if !state.browserHistory.isEmpty {
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.browserHistory))
+                state.timeline.sort { $0.date < $1.date }
+            }
             state.findings = (try? CaseStore.readFindings(forHostID: evidence.id, in: bundleURL)) ?? []
             state.iocMatches = (try? CaseStore.readIOCMatches(forHostID: evidence.id, in: bundleURL)) ?? []
             return .loaded(state)
@@ -666,6 +673,7 @@ final class AppModel: ObservableObject {
         var jumpList: [JumpListEntry] = []
         var usn: [UsnRecord] = []
         var srum: [SrumEntry] = []
+        var browserHistory: [BrowserHistoryEntry] = []
         var iocMatches: [IOCMatch] = []
     }
     private var derivedCache: Derived?
@@ -719,6 +727,7 @@ final class AppModel: ObservableObject {
             d.jumpList = s.jumpList
             d.usn = s.usn
             d.srum = s.srum
+            d.browserHistory = s.browserHistory
             d.iocMatches = s.iocMatches
             return d
         }
@@ -737,6 +746,7 @@ final class AppModel: ObservableObject {
             d.jumpList.append(contentsOf: s.jumpList)
             d.usn.append(contentsOf: s.usn)
             d.srum.append(contentsOf: s.srum)
+            d.browserHistory.append(contentsOf: s.browserHistory)
             d.iocMatches.append(contentsOf: s.iocMatches)
         }
         d.events.sort { $0.writtenAt < $1.writtenAt }
@@ -750,6 +760,7 @@ final class AppModel: ObservableObject {
         d.jumpList.sort { ($0.lastAccessed ?? .distantPast) > ($1.lastAccessed ?? .distantPast) }
         d.usn.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
         d.srum.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+        d.browserHistory.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
         return d
     }
 
@@ -771,6 +782,7 @@ final class AppModel: ObservableObject {
     var jumpList: [JumpListEntry] { derived().jumpList }
     var usn: [UsnRecord] { derived().usn }
     var srum: [SrumEntry] { derived().srum }
+    var browserHistory: [BrowserHistoryEntry] { derived().browserHistory }
     var iocMatches: [IOCMatch] { derived().iocMatches }
 
     // Count-only accessors: sum per-host counts without building or sorting the
@@ -787,6 +799,7 @@ final class AppModel: ObservableObject {
     var jumpListCount: Int { scopedCount(\.jumpList.count) }
     var usnCount: Int { scopedCount(\.usn.count) }
     var srumCount: Int { scopedCount(\.srum.count) }
+    var browserHistoryCount: Int { scopedCount(\.browserHistory.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
     private func scopedCount(_ kp: KeyPath<EvidenceState, Int>) -> Int {
@@ -1145,6 +1158,7 @@ final class AppModel: ObservableObject {
         await parseJumpList()
         await parseUsn()
         await parseSrum()
+        await parseBrowserHistory()
         await runAnalyzers()
     }
 
@@ -1741,6 +1755,124 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // MARK: - Browser history parsing
+
+    /// Parse web-browser history databases (Chromium `History`, Firefox
+    /// `places.sqlite`) for every loaded evidence that doesn't already have
+    /// results. These are ordinary SQLite files (not sparse ADSes), so they're
+    /// extracted with the plain icat path that registry/prefetch/SRUM use. The
+    /// SQLite read itself (`BrowserHistoryParser`, GRDB) is run off the main
+    /// actor in a detached task. Mirrors `parseSrum`; does NOT run analyzers.
+    func parseBrowserHistory() async {
+        guard !evidenceList.isEmpty else {
+            errorMessage = "No evidence loaded."
+            return
+        }
+        errorMessage = nil
+        isWorking = true
+        defer {
+            isWorking = false
+            progress = nil
+        }
+
+        func candidates(_ state: EvidenceState) -> [FileEntry] {
+            state.files.filter {
+                guard !$0.isDirectory, $0.size > 0 else { return false }
+                let n = $0.name.lowercased()
+                return n == "history" || n == "places.sqlite"
+            }
+        }
+
+        let totalCandidates = evidenceList.reduce(0) { acc, evidence in
+            guard let state = states[evidence.id], state.browserHistory.isEmpty else { return acc }
+            return acc + candidates(state).count
+        }
+        guard totalCandidates > 0 else {
+            statusMessage = "No new browser history to parse."
+            return
+        }
+        progress = ProgressInfo(current: 0, total: totalCandidates, label: "Parsing browser history")
+        var completed = 0
+
+        do {
+            let tskEnv = try TSKEnvironment.discover()
+
+            for evidence in evidenceList {
+                guard var state = states[evidence.id] else { continue }
+                if !state.browserHistory.isEmpty { continue }
+
+                let found = candidates(state)
+                guard !found.isEmpty else { continue }
+
+                let isLoose = evidence.kind == .kapeLooseFolder
+                var database: TSKDatabase?
+                var extractor: TSKFileExtractor?
+                var scratch: URL?
+                if !isLoose {
+                    guard let dbURL = state.dbURL else { continue }
+                    database = try TSKDatabase(path: dbURL)
+                    extractor = TSKFileExtractor(
+                        environment: tskEnv,
+                        imageURL: evidence.sourceURL,
+                        imageType: TSKImageIngestor.imageType(for: evidence.sourceURL))
+                    guard let bundleURL = currentCaseBundleURL else { continue }
+                    let dir = CaseStore.browserHistoryScratchDirectory(forHostID: evidence.id, in: bundleURL)
+                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    scratch = dir
+                }
+
+                var collected: [BrowserHistoryEntry] = []
+                for entry in found {
+                    progress = ProgressInfo(current: completed, total: totalCandidates,
+                                            label: "\(evidence.displayName): \(entry.name)")
+                    let fileURL: URL
+                    if isLoose {
+                        guard let disk = entry.diskURL,
+                              FileManager.default.fileExists(atPath: disk.path) else {
+                            completed += 1; continue
+                        }
+                        fileURL = disk
+                    } else {
+                        guard let info = try database!.fetchExtractInfo(forFileID: entry.id) else {
+                            completed += 1; continue
+                        }
+                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name)")
+                        try await extractor!.extract(metaAddr: info.metaAddr,
+                                                     imageOffsetSectors: info.imageOffsetSectors,
+                                                     to: outURL)
+                        fileURL = outURL
+                    }
+                    // The SQLite read copies the DB to a private scratch and opens
+                    // it read-only off the main actor (a dirty/locked DB shouldn't
+                    // abort the whole run).
+                    let source = entry.fullPath
+                    let parsed = (try? await Task.detached(priority: .userInitiated) {
+                        try BrowserHistoryParser.parse(fileAt: fileURL, sourceFile: source)
+                    }.value) ?? []
+                    collected.append(contentsOf: parsed)
+                    completed += 1
+                }
+
+                collected.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+                state.browserHistory = collected
+                // Drop any prior browser slice (paranoia for re-parses) and splice
+                // the freshly built browser-history timeline back in, sorted.
+                state.timeline.removeAll { $0.source == .browser }
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: collected))
+                state.timeline.sort { $0.date < $1.date }
+                states[evidence.id] = state
+                if let bundleURL = currentCaseBundleURL {
+                    try? CaseStore.writeBrowserHistory(collected, forHostID: evidence.id, in: bundleURL)
+                }
+            }
+            progress = ProgressInfo(current: completed, total: totalCandidates,
+                                    label: "Browser history parse complete")
+        } catch {
+            self.errorMessage = error.localizedDescription
+            self.statusMessage = ""
+        }
+    }
+
     // MARK: - Registry parsing
 
     /// Locate the standard Windows registry hives in each evidence's file
@@ -2081,7 +2213,8 @@ final class AppModel: ObservableObject {
                                           lnk: state.lnk,
                                           jumpList: state.jumpList,
                                           usn: state.usn,
-                                          srum: state.srum)
+                                          srum: state.srum,
+                                          browserHistory: state.browserHistory)
             let results = await analysisEngine.run(on: context)
             state.findings = results
             states[evidence.id] = state

@@ -7,6 +7,18 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ### Added
 
+- **Browser history** (new **Browser History** tab) — parses Chromium-family
+  (`History`) and Firefox (`places.sqlite`) databases, both SQLite, read directly
+  with GRDB (no vendored tool). Surfaces page visits (one row per URL, with
+  visit/typed counts and last-visit time) and downloads (target path, bytes,
+  originating page), with the browser + profile recovered from the source path.
+  Forensic-safe: the database is copied to scratch and opened read-only — the
+  evidence file is never opened by SQLite. Rows are folded onto the timeline
+  (Browser History source). A new **Browser History** analyzer flags suspicious
+  downloads (executable/script/archive or pulled from a paste / anonymous-sharing
+  / tunnel host or raw IP, T1105), activity to suspicious infrastructure (T1102),
+  and offensive-tool names in URLs/targets (T1588.002). macOS table view + iOS
+  drill-down.
 - **Chain of custody & evidence integrity** (new **Custody** tab) — a
   legal-weight, append-only record of each case:
   - **Acquisition metadata** per evidence item (examiner, tool, method,

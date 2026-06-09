@@ -66,8 +66,9 @@ Per-release notes live in `docs/releases/`; keep `CHANGELOG.md` updated.
 | `StrataJumpList` | Parse JumpLists - OLE via `olecfexport` (libolecf) + reused `lnkinfo` + a pure DestList decoder |
 | `StrataCore` (USN) | Pure-Swift NTFS USN change-journal byte-parser (`UsnJournalParser`, `UsnRecord`) — no vendored tool; reads the `$Extend\$UsnJrnl:$J` ADS extracted via icat |
 | `StrataSRUM` | Parse the SRUM `SRUDB.dat` (ESE database) via `esedbexport` (libesedb); pure `SrumExportDecoder` (`StrataCore`) resolves the export TSV + SruDbIdMapTable foreign keys |
+| `StrataBrowser` | Parse web-browser history — Chromium `History` + Firefox `places.sqlite` (both SQLite) read directly via GRDB (no vendored tool); `BrowserHistoryParser` (macOS) copies the DB to scratch + opens read-only; pure decoders on `BrowserHistoryEntry` (`StrataCore`) |
 | `StrataTimeline` | MACB timeline + gap/session analysis |
-| `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **22 analyzers**, IOC matcher, lateral graph |
+| `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **23 analyzers**, IOC matcher, lateral graph |
 | `StrataApp` | SwiftUI app. `AppModel` (the store), `CaseStore` (.strata bundle layout), `CaseLibrary`, `RecentCases`, `Views/` (macOS) + `Views/iOS/` |
 
 `.strata` case bundle = a directory: `case.json`, `hosts.json`,
@@ -118,7 +119,7 @@ treat it as one item. The macOS-only ingest code is gated `#if os(macOS)`.
 
 Ingestion (E01/VHD/raw + loose KAPE folders), file tree (volume-grouped, deleted
 & slack toggles), MACB timeline (histogram drag-select, gap analysis), EVTX +
-registry + prefetch + Amcache/Shimcache + LNK + JumpList + USN-journal + SRUM parsing → host profile, 22 ATT&CK analyzers → kill chain, IOC matching,
+registry + prefetch + Amcache/Shimcache + LNK + JumpList + USN-journal + SRUM + browser-history parsing → host profile, 23 ATT&CK analyzers → kill chain, IOC matching,
 interactive lateral graph, multi-host `.strata` cases, iOS viewer, Case
 Library / iCloud-Drive sync, case reporting & export (HTML/Markdown examiner
 report + CSV/JSON data exports; per-endpoint selection + report severity filter),
@@ -238,7 +239,25 @@ Two betas shipped. A full 56-issue view review was completed and remediated.
      against synthetic esedbexport-format fixtures** (TSV/CTIME/IdBlob, all
      primary-source verified) — real `esedbexport`-on-`SRUDB.dat` end-to-end is
      pending a mounted source image.
-   - Still pending: browser history, WMI persistence.
+   - ~~**Browser history**~~ — **shipped.** `StrataBrowser`. Chromium-family
+     (`History`) and Firefox (`places.sqlite`) history are SQLite, so there is no
+     vendored tool — `BrowserHistoryParser` (macOS) reads them with GRDB (the lib
+     already backing `TSKDatabase`). It copies the DB to a private scratch dir and
+     opens it **read-only** there: the evidence file is never touched by SQLite,
+     and the copy gives the WAL index a writable home (a read-only open of Chrome's
+     WAL-mode `History` would otherwise fail). One row per distinct URL (visits) +
+     Chromium downloads → `BrowserHistoryEntry` (`StrataCore`, with pure
+     chrome/firefox-epoch + browser/profile/host decoders); per-host
+     `browserhistory.json`; spliced onto the timeline (`TimelineSource.browser`).
+     `BrowserHistoryAnalyzer` flags suspicious downloads (risky ext / suspicious
+     host, T1105), activity to paste/anon-share/raw-IP infrastructure (T1102), and
+     offensive-tool names in URLs/targets (T1588.002). macOS `BrowserHistoryView`
+     + iOS `BrowserHistoryDrillView`. **Parser validated end-to-end** against
+     synthetic Chromium/Firefox SQLite fixtures built in-test via the SQLite3 C
+     API. **Known v1 limits:** one row per URL (not per individual visit); Firefox
+     downloads (stored as `moz_annos`) not parsed; un-checkpointed `-wal` data not
+     recovered.
+   - Still pending: WMI persistence.
 5. **Super-timeline + tagging/notes** — unify FS MACB + EVTX + registry (+ future
    artifacts) into one pivotable timeline; bookmark/tag findings, analyst notes,
    case narrative.

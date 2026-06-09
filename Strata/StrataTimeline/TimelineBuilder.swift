@@ -109,4 +109,24 @@ public nonisolated enum TimelineBuilder {
         }
         return events.sorted { $0.date < $1.date }
     }
+
+    /// Project browser-history rows onto the timeline. `kind` is `.changed` (the
+    /// closest fs analogue for "activity recorded"); the path encodes the browser,
+    /// title/URL and a kind/detail summary so the row reads well and free-text
+    /// search matches. Rows without a timestamp are dropped.
+    public static func build(from records: [BrowserHistoryEntry]) -> [TimelineEvent] {
+        var events: [TimelineEvent] = []
+        events.reserveCapacity(records.count)
+        for record in records {
+            guard let date = record.timestamp else { continue }
+            events.append(TimelineEvent(date: date,
+                                        kind: .changed,
+                                        source: .browser,
+                                        fileID: 0,
+                                        path: "[\(record.browser.label) \(record.kind.label)] \(record.displayTitle) — \(record.url)",
+                                        size: 0,
+                                        isDeleted: false))
+        }
+        return events.sorted { $0.date < $1.date }
+    }
 }

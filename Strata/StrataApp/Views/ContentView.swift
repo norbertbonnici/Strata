@@ -14,6 +14,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case jumpList = "JumpLists"
     case usn = "USN Journal"
     case srum = "SRUM"
+    case browser = "Browser History"
     case lateral = "Lateral"
     case killChain = "Kill Chain"
     case iocs = "IOCs"
@@ -34,6 +35,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .jumpList:  return "list.star"
         case .usn:       return "doc.badge.clock"
         case .srum:      return "chart.bar.doc.horizontal"
+        case .browser:   return "globe"
         case .lateral:   return "point.3.connected.trianglepath.dotted"
         case .killChain: return "link"
         case .iocs:      return "scope"
@@ -122,6 +124,7 @@ struct ContentView: View {
                 case .jumpList:  JumpListView()
                 case .usn:       UsnView()
                 case .srum:      SrumView()
+                case .browser:   BrowserHistoryView()
                 case .lateral:   LateralMovementView()
                 case .killChain: KillChainView()
                 case .iocs:      IOCView()
