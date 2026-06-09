@@ -65,8 +65,9 @@ Per-release notes live in `docs/releases/`; keep `CHANGELOG.md` updated.
 | `StrataLNK` | Parse `.lnk` shortcuts via `lnkinfo` (liblnk) |
 | `StrataJumpList` | Parse JumpLists - OLE via `olecfexport` (libolecf) + reused `lnkinfo` + a pure DestList decoder |
 | `StrataCore` (USN) | Pure-Swift NTFS USN change-journal byte-parser (`UsnJournalParser`, `UsnRecord`) — no vendored tool; reads the `$Extend\$UsnJrnl:$J` ADS extracted via icat |
+| `StrataSRUM` | Parse the SRUM `SRUDB.dat` (ESE database) via `esedbexport` (libesedb); pure `SrumExportDecoder` (`StrataCore`) resolves the export TSV + SruDbIdMapTable foreign keys |
 | `StrataTimeline` | MACB timeline + gap/session analysis |
-| `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **21 analyzers**, IOC matcher, lateral graph |
+| `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **22 analyzers**, IOC matcher, lateral graph |
 | `StrataApp` | SwiftUI app. `AppModel` (the store), `CaseStore` (.strata bundle layout), `CaseLibrary`, `RecentCases`, `Views/` (macOS) + `Views/iOS/` |
 
 `.strata` case bundle = a directory: `case.json`, `hosts.json`,
@@ -117,7 +118,7 @@ treat it as one item. The macOS-only ingest code is gated `#if os(macOS)`.
 
 Ingestion (E01/VHD/raw + loose KAPE folders), file tree (volume-grouped, deleted
 & slack toggles), MACB timeline (histogram drag-select, gap analysis), EVTX +
-registry + prefetch + Amcache/Shimcache + LNK + JumpList + USN-journal parsing → host profile, 21 ATT&CK analyzers → kill chain, IOC matching,
+registry + prefetch + Amcache/Shimcache + LNK + JumpList + USN-journal + SRUM parsing → host profile, 22 ATT&CK analyzers → kill chain, IOC matching,
 interactive lateral graph, multi-host `.strata` cases, iOS viewer, Case
 Library / iCloud-Drive sync, case reporting & export (HTML/Markdown examiner
 report + CSV/JSON data exports; per-endpoint selection + report severity filter),
@@ -219,7 +220,25 @@ Two betas shipped. A full 56-issue view review was completed and remediated.
      (T1036.003), mass-deletion burst (T1070.004). macOS `UsnView` + iOS
      `UsnDrillView`. **Parser validated against synthetic V2/V3 fixtures only** —
      real `$J` parse-validation is pending a mounted source image.
-   - Still pending: SRUM, browser history, WMI persistence.
+   - ~~**SRUM**~~ — **shipped.** `StrataSRUM`. `SRUDB.dat` is an ESE database
+     (a B-tree — too complex to byte-parse), so we vendor libesedb's `esedbexport`
+     (added to `build-tsk.sh` TOOLS + the app Copy-Files phase; 2024 tag, asset is
+     `-experimental-` not `-alpha-`, no pkg-config shim) which cracks each table to
+     a headered TSV under `<base>.export/`. The actor `SrumParser` shells out and
+     hands the table files to the pure, cross-platform `SrumExportDecoder`
+     (`StrataCore`), which resolves the **SruDbIdMapTable** foreign keys (IdType 3
+     ⇒ binary SID, else UTF-16LE app path), parses the libfdatetime **CTIME**
+     timestamps esedbexport renders for the OLE-date `TimeStamp` column, and
+     unifies the three high-value provider tables (Network Data Usage, Application
+     Resource Usage, Network Connectivity) into `SrumEntry`. `SRUDB.dat` is a plain
+     file (icat `extract`, not the `$J` ADS path); per-host `srum.json`; spliced
+     onto the timeline (`TimelineSource.srum`). `SrumAnalyzer` flags execution from
+     a suspicious path (T1204.002) + outbound network volume from a suspicious-path
+     app (T1048). macOS `SrumView` + iOS `SrumDrillView`. **Decoder validated
+     against synthetic esedbexport-format fixtures** (TSV/CTIME/IdBlob, all
+     primary-source verified) — real `esedbexport`-on-`SRUDB.dat` end-to-end is
+     pending a mounted source image.
+   - Still pending: browser history, WMI persistence.
 5. **Super-timeline + tagging/notes** — unify FS MACB + EVTX + registry (+ future
    artifacts) into one pivotable timeline; bookmark/tag findings, analyst notes,
    case narrative.

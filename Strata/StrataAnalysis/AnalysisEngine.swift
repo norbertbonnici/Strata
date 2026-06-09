@@ -43,5 +43,6 @@ public nonisolated struct AnalysisEngine: Sendable {
         LnkAnalyzer(),
         JumpListAnalyzer(),
         UsnAnalyzer(),
+        SrumAnalyzer(),
     ]
 }

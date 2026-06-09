@@ -92,8 +92,8 @@ public actor EWFInfo {
         process.standardOutput = outPipe
         process.standardError = errPipe
 
-        let out = OutputCollector()
-        let err = OutputCollector()
+        let out = PipeTextCollector()
+        let err = PipeTextCollector()
         outPipe.fileHandleForReading.readabilityHandler = { handle in
             let chunk = handle.availableData
             guard !chunk.isEmpty else { return }
@@ -114,7 +114,7 @@ public actor EWFInfo {
         outPipe.fileHandleForReading.readabilityHandler = nil
         errPipe.fileHandleForReading.readabilityHandler = nil
 
-        return ProcResult(stdout: out.text, stderr: err.text, status: process.terminationStatus)
+        return ProcResult(stdout: out.raw, stderr: err.raw, status: process.terminationStatus)
     }
 
     // MARK: - Pure parsers (testable)
@@ -273,14 +273,6 @@ private nonisolated final class DFXMLCollector: NSObject, XMLParserDelegate {
         }
         buffer = ""
     }
-}
-
-/// Thread-safe accumulation of process output from a readability handler.
-private nonisolated final class OutputCollector: @unchecked Sendable {
-    private let lock = NSLock()
-    private var data = ""
-    func append(_ s: String) { lock.lock(); data += s; lock.unlock() }
-    var text: String { lock.lock(); defer { lock.unlock() }; return data }
 }
 
 #endif

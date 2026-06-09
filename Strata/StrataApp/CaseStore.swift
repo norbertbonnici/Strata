@@ -28,6 +28,7 @@ public nonisolated enum CaseStore {
     private static let lnkFilename          = "lnk.json"
     private static let jumplistFilename     = "jumplist.json"
     private static let usnFilename          = "usn.json"
+    private static let srumFilename         = "srum.json"
     private static let findingsFilename   = "findings.json"
     private static let iocsFilename       = "iocs.json"
     private static let iocMatchesFilename = "iocmatches.json"
@@ -70,6 +71,11 @@ public nonisolated enum CaseStore {
     public static func usnScratchDirectory(forHostID id: UUID, in bundle: URL) -> URL {
         hostDirectory(forHostID: id, in: bundle)
             .appendingPathComponent("usn", isDirectory: true)
+    }
+
+    public static func srumScratchDirectory(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent("srum", isDirectory: true)
     }
 
     public static func registryScratchDirectory(forHostID id: UUID, in bundle: URL) -> URL {
@@ -232,6 +238,16 @@ public nonisolated enum CaseStore {
     public static func writeUsn(_ records: [UsnRecord],
                                 forHostID id: UUID, in bundle: URL) throws {
         try writeArray(records, at: usnFileURL(forHostID: id, in: bundle))
+    }
+    public static func srumFileURL(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle).appendingPathComponent(srumFilename)
+    }
+    public static func readSrum(forHostID id: UUID, in bundle: URL) throws -> [SrumEntry]? {
+        try readArrayIfPresent(at: srumFileURL(forHostID: id, in: bundle))
+    }
+    public static func writeSrum(_ entries: [SrumEntry],
+                                 forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(entries, at: srumFileURL(forHostID: id, in: bundle))
     }
     public static func readFindings(forHostID id: UUID, in bundle: URL) throws -> [Finding]? {
         try readArrayIfPresent(at: findingsFileURL(forHostID: id, in: bundle))

@@ -25,6 +25,7 @@ nonisolated struct EvidenceState: Sendable {
     var lnk: [LnkEntry] = []
     var jumpList: [JumpListEntry] = []
     var usn: [UsnRecord] = []
+    var srum: [SrumEntry] = []
     var findings: [Finding] = []
     var iocMatches: [IOCMatch] = []
 }
@@ -353,6 +354,13 @@ final class AppModel: ObservableObject {
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: state.usn))
                 state.timeline.sort { $0.date < $1.date }
             }
+            state.srum = (try? CaseStore.readSrum(forHostID: evidence.id, in: bundleURL)) ?? []
+            // Fold SRUM rows back into the timeline so the Source filter works
+            // without re-parsing on every case open (mirrors the USN splice).
+            if !state.srum.isEmpty {
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.srum))
+                state.timeline.sort { $0.date < $1.date }
+            }
             state.findings = (try? CaseStore.readFindings(forHostID: evidence.id, in: bundleURL)) ?? []
             state.iocMatches = (try? CaseStore.readIOCMatches(forHostID: evidence.id, in: bundleURL)) ?? []
             return .loaded(state)
@@ -657,6 +665,7 @@ final class AppModel: ObservableObject {
         var lnk: [LnkEntry] = []
         var jumpList: [JumpListEntry] = []
         var usn: [UsnRecord] = []
+        var srum: [SrumEntry] = []
         var iocMatches: [IOCMatch] = []
     }
     private var derivedCache: Derived?
@@ -709,6 +718,7 @@ final class AppModel: ObservableObject {
             d.lnk = s.lnk
             d.jumpList = s.jumpList
             d.usn = s.usn
+            d.srum = s.srum
             d.iocMatches = s.iocMatches
             return d
         }
@@ -726,6 +736,7 @@ final class AppModel: ObservableObject {
             d.lnk.append(contentsOf: s.lnk)
             d.jumpList.append(contentsOf: s.jumpList)
             d.usn.append(contentsOf: s.usn)
+            d.srum.append(contentsOf: s.srum)
             d.iocMatches.append(contentsOf: s.iocMatches)
         }
         d.events.sort { $0.writtenAt < $1.writtenAt }
@@ -738,6 +749,7 @@ final class AppModel: ObservableObject {
         d.lnk.sort { ($0.targetModified ?? .distantPast) > ($1.targetModified ?? .distantPast) }
         d.jumpList.sort { ($0.lastAccessed ?? .distantPast) > ($1.lastAccessed ?? .distantPast) }
         d.usn.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+        d.srum.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
         return d
     }
 
@@ -758,6 +770,7 @@ final class AppModel: ObservableObject {
     var lnk: [LnkEntry] { derived().lnk }
     var jumpList: [JumpListEntry] { derived().jumpList }
     var usn: [UsnRecord] { derived().usn }
+    var srum: [SrumEntry] { derived().srum }
     var iocMatches: [IOCMatch] { derived().iocMatches }
 
     // Count-only accessors: sum per-host counts without building or sorting the
@@ -773,6 +786,7 @@ final class AppModel: ObservableObject {
     var lnkCount: Int { scopedCount(\.lnk.count) }
     var jumpListCount: Int { scopedCount(\.jumpList.count) }
     var usnCount: Int { scopedCount(\.usn.count) }
+    var srumCount: Int { scopedCount(\.srum.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
     private func scopedCount(_ kp: KeyPath<EvidenceState, Int>) -> Int {
@@ -1130,6 +1144,7 @@ final class AppModel: ObservableObject {
         await parseLnk()
         await parseJumpList()
         await parseUsn()
+        await parseSrum()
         await runAnalyzers()
     }
 
@@ -1610,6 +1625,122 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // MARK: - SRUM parsing
+
+    /// Parse the Windows SRUM database (`SRUDB.dat`, an ESE database under
+    /// `\Windows\System32\sru\`) for every loaded evidence that doesn't already
+    /// have SRUM results. SRUDB.dat is an ordinary file (not a sparse ADS like
+    /// `$J`), so it is extracted with the plain icat path that registry/prefetch
+    /// use. The actual ESE parse is delegated to `SrumParser`, an actor that
+    /// shells out to libesedb's `esedbexport` (so it already runs off the main
+    /// actor). Mirrors `parseEventLogs` for timeline splicing; does NOT run analyzers.
+    func parseSrum() async {
+        guard !evidenceList.isEmpty else {
+            errorMessage = "No evidence loaded."
+            return
+        }
+        errorMessage = nil
+        isWorking = true
+        defer {
+            isWorking = false
+            progress = nil
+        }
+
+        func candidates(_ state: EvidenceState) -> [FileEntry] {
+            state.files.filter {
+                !$0.isDirectory && $0.size > 0 && $0.name.lowercased() == "srudb.dat"
+            }
+        }
+
+        let totalCandidates = evidenceList.reduce(0) { acc, evidence in
+            guard let state = states[evidence.id], state.srum.isEmpty else { return acc }
+            return acc + candidates(state).count
+        }
+        guard totalCandidates > 0 else {
+            statusMessage = "No new SRUM database to parse."
+            return
+        }
+        progress = ProgressInfo(current: 0, total: totalCandidates, label: "Parsing SRUM")
+        var completed = 0
+
+        do {
+            let tskEnv = try TSKEnvironment.discover()
+            let srumEnv = try SRUMEnvironment.discover()
+            let parser = SrumParser(environment: srumEnv)
+
+            for evidence in evidenceList {
+                guard var state = states[evidence.id] else { continue }
+                if !state.srum.isEmpty { continue }
+
+                let found = candidates(state)
+                guard !found.isEmpty else { continue }
+
+                let isLoose = evidence.kind == .kapeLooseFolder
+                var database: TSKDatabase?
+                var extractor: TSKFileExtractor?
+                var scratch: URL?
+                if !isLoose {
+                    guard let dbURL = state.dbURL else { continue }
+                    database = try TSKDatabase(path: dbURL)
+                    extractor = TSKFileExtractor(
+                        environment: tskEnv,
+                        imageURL: evidence.sourceURL,
+                        imageType: TSKImageIngestor.imageType(for: evidence.sourceURL))
+                    guard let bundleURL = currentCaseBundleURL else { continue }
+                    let dir = CaseStore.srumScratchDirectory(forHostID: evidence.id, in: bundleURL)
+                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    scratch = dir
+                }
+
+                var collected: [SrumEntry] = []
+                for entry in found {
+                    progress = ProgressInfo(current: completed, total: totalCandidates,
+                                            label: "\(evidence.displayName): \(entry.name)")
+                    let fileURL: URL
+                    if isLoose {
+                        guard let disk = entry.diskURL,
+                              FileManager.default.fileExists(atPath: disk.path) else {
+                            completed += 1; continue
+                        }
+                        fileURL = disk
+                    } else {
+                        guard let info = try database!.fetchExtractInfo(forFileID: entry.id) else {
+                            completed += 1; continue
+                        }
+                        let outURL = scratch!.appendingPathComponent("\(entry.id)-SRUDB.dat")
+                        try await extractor!.extract(metaAddr: info.metaAddr,
+                                                     imageOffsetSectors: info.imageOffsetSectors,
+                                                     to: outURL)
+                        fileURL = outURL
+                    }
+                    // SrumParser is an actor that shells out to esedbexport, so
+                    // the heavy ESE work is already off the main actor. A single
+                    // unreadable/dirty SRUDB.dat shouldn't abort the whole run.
+                    let parsed = (try? await parser.parse(fileAt: fileURL, sourceFile: entry.fullPath)) ?? []
+                    collected.append(contentsOf: parsed)
+                    completed += 1
+                }
+
+                collected.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+                state.srum = collected
+                // Drop any prior SRUM slice (paranoia for re-parses) and splice the
+                // freshly built SRUM timeline back in, sorted.
+                state.timeline.removeAll { $0.source == .srum }
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: collected))
+                state.timeline.sort { $0.date < $1.date }
+                states[evidence.id] = state
+                if let bundleURL = currentCaseBundleURL {
+                    try? CaseStore.writeSrum(collected, forHostID: evidence.id, in: bundleURL)
+                }
+            }
+            progress = ProgressInfo(current: completed, total: totalCandidates,
+                                    label: "SRUM parse complete")
+        } catch {
+            self.errorMessage = error.localizedDescription
+            self.statusMessage = ""
+        }
+    }
+
     // MARK: - Registry parsing
 
     /// Locate the standard Windows registry hives in each evidence's file
@@ -1949,7 +2080,8 @@ final class AppModel: ObservableObject {
                                           shimcache: state.shimcache,
                                           lnk: state.lnk,
                                           jumpList: state.jumpList,
-                                          usn: state.usn)
+                                          usn: state.usn,
+                                          srum: state.srum)
             let results = await analysisEngine.run(on: context)
             state.findings = results
             states[evidence.id] = state

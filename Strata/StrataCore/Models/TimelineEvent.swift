@@ -25,12 +25,14 @@ public enum TimelineSource: String, CaseIterable, Sendable, Codable {
     case filesystem = "FS"
     case evtx       = "EVTX"
     case usn        = "USN"
+    case srum       = "SRUM"
 
     public var label: String {
         switch self {
         case .filesystem: return "Filesystem"
         case .evtx:       return "Event Log"
         case .usn:        return "USN Journal"
+        case .srum:       return "SRUM"
         }
     }
 }

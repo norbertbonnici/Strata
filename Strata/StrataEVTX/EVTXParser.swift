@@ -33,7 +33,7 @@ public actor EVTXParser {
         // Drain stderr continuously - same deadlock risk if we let it back up.
         let stderrPipe = Pipe()
         process.standardError = stderrPipe
-        let stderrCollector = StderrCollector()
+        let stderrCollector = PipeTextCollector()
         stderrPipe.fileHandleForReading.readabilityHandler = { handle in
             let chunk = handle.availableData
             guard !chunk.isEmpty else { return }
@@ -107,17 +107,6 @@ public actor EVTXParser {
         let fractional = ISO8601DateFormatter()
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return fractional.date(from: value) ?? Date(timeIntervalSince1970: 0)
-    }
-}
-
-/// Thread-safe stderr accumulator used by the readability handler.
-private nonisolated final class StderrCollector: @unchecked Sendable {
-    private let lock = NSLock()
-    private var buffer = ""
-    func append(_ s: String) { lock.lock(); buffer += s; lock.unlock() }
-    var text: String {
-        lock.lock(); defer { lock.unlock() }
-        return buffer.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

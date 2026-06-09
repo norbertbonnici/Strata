@@ -31,7 +31,7 @@ public actor PrefetchParser {
 
         let stderrPipe = Pipe()
         process.standardError = stderrPipe
-        let stderrCollector = StderrCollector()
+        let stderrCollector = PipeTextCollector()
         stderrPipe.fileHandleForReading.readabilityHandler = { handle in
             let chunk = handle.availableData
             guard !chunk.isEmpty else { return }
@@ -129,17 +129,6 @@ public actor PrefetchParser {
         formatter.timeZone = TimeZone(identifier: "UTC")
         formatter.dateFormat = "MMM d, yyyy HH:mm:ss"
         return formatter.date(from: trimmed)
-    }
-}
-
-/// Thread-safe stderr accumulator used by the readability handler.
-private nonisolated final class StderrCollector: @unchecked Sendable {
-    private let lock = NSLock()
-    private var buffer = ""
-    func append(_ s: String) { lock.lock(); buffer += s; lock.unlock() }
-    var text: String {
-        lock.lock(); defer { lock.unlock() }
-        return buffer.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
