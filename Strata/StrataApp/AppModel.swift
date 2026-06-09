@@ -1921,10 +1921,20 @@ final class AppModel: ObservableObject {
         // an evidence.sourceURL (image or loose folder) that no longer
         // resolves. Extraction would just fail silently per hive; surface it
         // up front instead.
-        let candidates = evidenceList.filter { evidence in
-            guard let state = states[evidence.id] else { return false }
-            return force || state.registryValues.isEmpty
+        // Hives discovered for an evidence that still need parsing: every
+        // standard hive on a first run, or - on a re-run - only those whose
+        // label isn't already represented in the parsed values. This lets a case
+        // whose registry was parsed *before* a hive (notably Amcache.hve) was
+        // captured pick that hive up on a later "Parse artifacts" instead of
+        // being permanently skipped by a coarse "registry already parsed" guard.
+        func pendingHives(_ id: UUID) -> [HiveCandidate] {
+            guard let state = states[id] else { return [] }
+            let all = Self.discoverHives(in: state.files)
+            guard !force else { return all }
+            let present = Set(state.registryValues.map(\.hive))
+            return all.filter { !present.contains($0.label) }
         }
+        let candidates = evidenceList.filter { !pendingHives($0.id).isEmpty }
         let missingSources = candidates.filter {
             !FileManager.default.fileExists(atPath: $0.sourceURL.path)
         }
@@ -1933,10 +1943,7 @@ final class AppModel: ObservableObject {
             return
         }
 
-        let totalCandidates = candidates.reduce(0) { acc, evidence in
-            guard let state = states[evidence.id] else { return acc }
-            return acc + Self.discoverHives(in: state.files).count
-        }
+        let totalCandidates = evidenceList.reduce(0) { $0 + pendingHives($1.id).count }
         guard totalCandidates > 0 else {
             statusMessage = force
                 ? "No registry hives discovered in the file system."
@@ -1953,14 +1960,14 @@ final class AppModel: ObservableObject {
 
             var hostsTouched = 0
             var hostsCollected = 0
+            var amcacheReadButEmpty = false
             for evidence in evidenceList {
                 guard var state = states[evidence.id] else { continue }
-                // Already parsed: skip the (expensive) re-extraction. The
-                // registry-backed artifacts are kept in sync separately - derived
-                // on case open in loadEvidenceState and in the full parse below.
-                if !force, !state.registryValues.isEmpty { continue }
 
-                let candidates = Self.discoverHives(in: state.files)
+                // Only the hives not already represented in registryValues (all
+                // of them when `force`). A fully-parsed host yields an empty list
+                // and is skipped; a host missing just Amcache re-parses just that.
+                let candidates = pendingHives(evidence.id)
                 guard !candidates.isEmpty else { continue }
 
                 guard FileManager.default.fileExists(atPath: evidence.sourceURL.path) else {
@@ -1989,7 +1996,11 @@ final class AppModel: ObservableObject {
                     scratch = dir
                 }
 
-                var collected: [RegistryValue] = []
+                // Keep the values already parsed (so a re-run that only fills in
+                // a previously-missing hive doesn't drop the rest); `force`
+                // re-parses every hive from scratch.
+                var collected: [RegistryValue] = force ? [] : state.registryValues
+                let baselineValueCount = collected.count   // values carried in from prior runs
                 for candidate in candidates {
                     progress = ProgressInfo(
                         current: completed,
@@ -2035,6 +2046,13 @@ final class AppModel: ObservableObject {
                 // from the SYSTEM AppCompatCache blob.
                 let amcache = AmcacheEntry.reconstruct(from: collected)
                 state.amcache = amcache
+                // Note the silent "hive read but nothing came back" case so an
+                // empty Amcache tab isn't indistinguishable from "never parsed";
+                // surfaced once after the loop (a mid-loop statusMessage would be
+                // clobbered by the next parser in the parseArtifacts chain).
+                if candidates.contains(where: { $0.label == "AMCACHE" }), amcache.isEmpty {
+                    amcacheReadButEmpty = true
+                }
                 let shimcache = ShimcacheParser.fromRegistry(collected)
                 state.shimcache = shimcache
                 states[evidence.id] = state
@@ -2043,7 +2061,10 @@ final class AppModel: ObservableObject {
                     try? CaseStore.writeAmcache(amcache, forHostID: evidence.id, in: bundleURL)
                     try? CaseStore.writeShimcache(shimcache, forHostID: evidence.id, in: bundleURL)
                 }
-                if !collected.isEmpty { hostsCollected += 1 }
+                // Count the host only if THIS run gained values (not the ones
+                // carried in from a prior run), so an all-failed partial re-run
+                // still trips the louder aggregate error below.
+                if collected.count > baselineValueCount { hostsCollected += 1 }
             }
             progress = ProgressInfo(current: completed, total: totalCandidates,
                                     label: "Registry parse complete")
@@ -2051,6 +2072,8 @@ final class AppModel: ObservableObject {
             // experience needs a louder signal than the flickering statusMessage.
             if hostsTouched > 0, hostsCollected == 0 {
                 errorMessage = "Registry parse extracted no values - check that sources are accessible and hives aren't locked."
+            } else if amcacheReadButEmpty {
+                errorMessage = "Amcache.hve was read but produced no entries - it may be from an unsupported Windows build or be corrupt."
             }
         } catch {
             self.errorMessage = error.localizedDescription
@@ -2085,11 +2108,26 @@ final class AppModel: ObservableObject {
                 out.append(.init(entry: entry, label: "NTUSER (\(user))"))
             } else if upperName == "USRCLASS.DAT", let user = extractUser(from: entry.fullPath) {
                 out.append(.init(entry: entry, label: "USRCLASS (\(user))"))
-            } else if lowerPath.hasSuffix("/windows/appcompat/programs/amcache.hve") {
+            } else if upperName == "AMCACHE.HVE"
+                        || lowerPath.hasSuffix("/windows/appcompat/programs/amcache.hve") {
                 // Amcache rides the same regfexport pipeline; its values are
                 // tagged AMCACHE and reconstructed into AmcacheEntry after parse.
+                // Matched by filename too (it's distinctive) so non-standard
+                // collection layouts still find it.
                 out.append(.init(entry: entry, label: "AMCACHE"))
             }
+        }
+        // The broadened (by-filename) Amcache match can surface the canonical
+        // hive *and* a stray/backup copy, which would merge under one "AMCACHE"
+        // label and double-count entries. Keep a single candidate, preferring the
+        // one at the canonical AppCompat\Programs path.
+        let amcacheHits = out.filter { $0.label == "AMCACHE" }
+        if amcacheHits.count > 1 {
+            out.removeAll { $0.label == "AMCACHE" }
+            let canonical = amcacheHits.first {
+                $0.entry.fullPath.lowercased().hasSuffix("/windows/appcompat/programs/amcache.hve")
+            }
+            out.append(canonical ?? amcacheHits[0])
         }
         return out
     }

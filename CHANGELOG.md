@@ -5,6 +5,18 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Amcache stayed empty after parsing.** Registry parsing skipped a host
+  entirely once it had *any* parsed values, so a case whose registry was parsed
+  before `Amcache.hve` was captured could never pick it up — the Amcache tab
+  stayed "not parsed yet" with no signal why. Registry re-parsing is now
+  per-hive: a re-run parses only the hives not yet represented and merges them
+  in, so pressing **Parse artifacts** again recovers Amcache (and any other
+  late-added hive) without re-ingesting. `Amcache.hve` is also matched by
+  filename (for non-standard collection layouts), and an `Amcache.hve` that
+  reads but reconstructs to nothing now reports it instead of failing silently.
+
 ### Added
 
 - **Browser history** (new **Browser History** tab) — parses Chromium-family

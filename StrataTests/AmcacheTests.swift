@@ -76,6 +76,76 @@ struct AmcacheReconstructTests {
     }
 }
 
+#if os(macOS)
+/// Exercises the FULL text pipeline - `RegistryHiveParser.records` (the
+/// regfexport text parser) feeding `AmcacheEntry.reconstruct` - against a
+/// verbatim slice of REAL `regfexport` output from a real `Amcache.hve`. The
+/// other reconstruct tests start from synthetic `RegistryValue`s and so never
+/// cover the regfexport key-path / value-name format (GUID-prefixed
+/// `{GUID}\Root\InventoryApplicationFile\...` keys, `Value: <n> <name>` lines).
+struct AmcacheRealFormatTests {
+    // Two real entries (one modern InventoryApplicationFile, one legacy
+    // Root\File) captured verbatim from regfexport on a real Amcache.hve.
+    private let realDump = #"""
+    Key path: {11517B7C-E79D-4e20-961B-75A811715ADD}\Root\InventoryApplicationFile\000004495fb538f070efc58b28b096aecca267e28ead
+    Name: 000004495fb538f070efc58b28b096aecca267e28ead
+    Last written time: Aug 03, 2017 11:34:09.482559700 UTC
+
+    Value: 1 FileId
+    Type: string (REG_SZ)
+    Data size: 90
+    Data: 0000186fef64c415af7d11986c7254db81ef65549ebc
+
+    Value: 2 LowerCaseLongPath
+    Type: string (REG_SZ)
+    Data size: 162
+    Data: c:\users\user\appdata\local\jetbrains\installations\dotpeek08\jetlauncher64c.exe
+
+    Value: 4 BinaryType
+    Type: string (REG_SZ)
+    Data size: 22
+    Data: PE64_AMD64
+
+    Value: 5 Size
+    Type: string (REG_SZ)
+    Data size: 16
+    Data: 0x7fac0
+
+    Key path: {11517B7C-E79D-4e20-961B-75A811715ADD}\Root\File\ccbe4c57-0000-0000-0000-100000000000\100000169dd
+    Name: 100000169dd
+    Last written time: Aug 03, 2017 11:34:04.654176500 UTC
+
+    Value: 1 15
+    Type: string (REG_SZ)
+    Data size: 156
+    Data: c:\users\user\appdata\local\microsoft\onedrive\17.3.6943.0625\FileSyncFAL.dll
+
+    Value: 3 101
+    Type: string (REG_SZ)
+    Data size: 90
+    Data: 0000818b581a471c1c6833839d35a9d6f3544f6a9c92
+    """#
+
+    @Test func parsesRealRegfexportAmcacheOutput() throws {
+        let values = RegistryHiveParser.records(from: realDump, hiveLabel: "AMCACHE",
+                                                sourceFile: "/x/Amcache.hve")
+        let entries = AmcacheEntry.reconstruct(from: values)
+        #expect(entries.count == 2)
+
+        let inv = try #require(entries.first { $0.source == .inventoryApplicationFile })
+        #expect(inv.name == "jetlauncher64c.exe")
+        #expect(inv.fullPath == #"c:\users\user\appdata\local\jetbrains\installations\dotpeek08\jetlauncher64c.exe"#)
+        #expect(inv.sha1 == "186fef64c415af7d11986c7254db81ef65549ebc")   // leading 0000 stripped
+        #expect(inv.size == 522_944)                                       // "0x7fac0" hex-parsed
+        #expect(inv.binaryType == "PE64_AMD64")
+
+        let legacy = try #require(entries.first { $0.source == .legacyFile })
+        #expect(legacy.name == "FileSyncFAL.dll")
+        #expect(legacy.sha1 == "818b581a471c1c6833839d35a9d6f3544f6a9c92")
+    }
+}
+#endif
+
 struct AmcacheAnalyzerTests {
     private func context(_ entries: [AmcacheEntry]) -> AnalysisContext {
         AnalysisContext(files: [], events: [], timeline: [], registryValues: [], amcache: entries)
