@@ -36,6 +36,7 @@ nonisolated struct EvidenceState: Sendable {
     var linuxPersistence: [LinuxPersistenceEntry] = []
     var linuxInfo: LinuxHostInfo?
     var linuxAccess: LinuxAccessInfo?
+    var webAccess: [WebAccessLogEntry] = []
     var findings: [Finding] = []
     var iocMatches: [IOCMatch] = []
     /// OS families detected for this host (from volume fs-types, or a file-tree
@@ -49,6 +50,7 @@ nonisolated struct EvidenceState: Sendable {
     var hasLinuxArtifacts: Bool {
         !authLog.isEmpty || !logins.isEmpty || !shellHistory.isEmpty
             || !linuxPersistence.isEmpty || linuxInfo != nil || linuxAccess != nil
+            || !webAccess.isEmpty
     }
 }
 
@@ -498,10 +500,13 @@ final class AppModel: ObservableObject {
             state.linuxPersistence = (try? CaseStore.readLinuxPersistence(forHostID: evidence.id, in: bundleURL)) ?? []
             state.linuxInfo = try? CaseStore.readLinuxInfo(forHostID: evidence.id, in: bundleURL)
             state.linuxAccess = try? CaseStore.readLinuxAccess(forHostID: evidence.id, in: bundleURL)
-            if !state.authLog.isEmpty || !state.logins.isEmpty || !state.shellHistory.isEmpty {
+            state.webAccess = (try? CaseStore.readWebAccess(forHostID: evidence.id, in: bundleURL)) ?? []
+            if !state.authLog.isEmpty || !state.logins.isEmpty || !state.shellHistory.isEmpty
+                || !state.webAccess.isEmpty {
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: state.authLog))
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: state.logins))
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: state.shellHistory))
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.webAccess))
                 state.timeline.sort { $0.date < $1.date }
             }
             state.findings = (try? CaseStore.readFindings(forHostID: evidence.id, in: bundleURL)) ?? []
@@ -896,6 +901,7 @@ final class AppModel: ObservableObject {
         var logins: [UtmpRecord] = []
         var shellHistory: [ShellHistoryEntry] = []
         var linuxPersistence: [LinuxPersistenceEntry] = []
+        var webAccess: [WebAccessLogEntry] = []
         var iocMatches: [IOCMatch] = []
     }
     private var derivedCache: Derived?
@@ -956,6 +962,7 @@ final class AppModel: ObservableObject {
             d.logins = s.logins
             d.shellHistory = s.shellHistory
             d.linuxPersistence = s.linuxPersistence
+            d.webAccess = s.webAccess
             d.iocMatches = s.iocMatches
             return d
         }
@@ -981,6 +988,7 @@ final class AppModel: ObservableObject {
             d.logins.append(contentsOf: s.logins)
             d.shellHistory.append(contentsOf: s.shellHistory)
             d.linuxPersistence.append(contentsOf: s.linuxPersistence)
+            d.webAccess.append(contentsOf: s.webAccess)
             d.iocMatches.append(contentsOf: s.iocMatches)
         }
         d.events.sort { $0.writtenAt < $1.writtenAt }
@@ -999,6 +1007,7 @@ final class AppModel: ObservableObject {
         d.authLog.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
         d.logins.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
         d.shellHistory.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+        d.webAccess.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
         return d
     }
 
@@ -1027,6 +1036,7 @@ final class AppModel: ObservableObject {
     var logins: [UtmpRecord] { derived().logins }
     var shellHistory: [ShellHistoryEntry] { derived().shellHistory }
     var linuxPersistence: [LinuxPersistenceEntry] { derived().linuxPersistence }
+    var webAccess: [WebAccessLogEntry] { derived().webAccess }
     /// Linux host info for the active scope (tiny; not worth caching). In the
     /// combined scope the first host that has one wins.
     var linuxInfo: LinuxHostInfo? {
@@ -1066,6 +1076,7 @@ final class AppModel: ObservableObject {
     var loginsCount: Int { scopedCount(\.logins.count) }
     var shellHistoryCount: Int { scopedCount(\.shellHistory.count) }
     var linuxPersistenceCount: Int { scopedCount(\.linuxPersistence.count) }
+    var webAccessCount: Int { scopedCount(\.webAccess.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
     private func scopedCount(_ kp: KeyPath<EvidenceState, Int>) -> Int {
@@ -2863,6 +2874,7 @@ final class AppModel: ObservableObject {
         enum LinuxKind {
             case auth, utmp, shellHistory, cron, systemd, sysinfo
             case sshAuthorized, sshKnown, sshdConfig, sudoers, group, shadow
+            case webAccess
         }
 
         func classify(_ entry: FileEntry) -> LinuxKind? {
@@ -2879,6 +2891,13 @@ final class AppModel: ObservableObject {
                 if !isGz, name == "wtmp" || name == "btmp"
                     || name.hasPrefix("wtmp.") || name.hasPrefix("btmp.") {
                     return .utmp
+                }
+                // nginx/apache access logs (incl. .gz rotations + vhost-named
+                // *access*.log) under their server dirs.
+                if name.contains("access"), name.contains(".log"),
+                   path.contains("/nginx/") || path.contains("/apache2/")
+                    || path.contains("/httpd/") {
+                    return .webAccess
                 }
             }
             if isGz { return nil }   // only auth.* rotations are read compressed
@@ -2963,6 +2982,7 @@ final class AppModel: ObservableObject {
                 var persistence: [LinuxPersistenceEntry] = []
                 var info = LinuxHostInfo()
                 var access = LinuxAccessInfo()
+                var web: [WebAccessLogEntry] = []
 
                 for (entry, kind) in found {
                     progress = ProgressInfo(
@@ -3053,6 +3073,14 @@ final class AppModel: ObservableObject {
                         access.groups = LinuxAccessParser.parseGroup(text: text())
                     case .shadow:
                         access.shadow = LinuxAccessParser.parseShadow(text: text())
+                    case .webAccess:
+                        let server: WebAccessLogEntry.Server =
+                            entry.fullPath.lowercased().contains("/nginx/") ? .nginx
+                            : (entry.fullPath.lowercased().contains("/apache2/")
+                               || entry.fullPath.lowercased().contains("/httpd/")) ? .apache
+                            : .unknown
+                        web.append(contentsOf: WebLogParser.parseAccess(
+                            text: text(), sourceFile: entry.fullPath, server: server))
                     }
                 }
 
@@ -3064,17 +3092,21 @@ final class AppModel: ObservableObject {
                 state.authLog = authLog
                 state.logins = logins
                 state.shellHistory = shellHistory
+                web.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
                 state.linuxPersistence = persistence
                 state.linuxInfo = info.isEmpty ? nil : info
                 state.linuxAccess = access.isEmpty ? nil : access
+                state.webAccess = web
                 // Splice the timestamped Linux sources onto the timeline
                 // (mirrors evtx; persistence entries carry no timestamps).
                 state.timeline.removeAll {
-                    $0.source == .authlog || $0.source == .logins || $0.source == .shellHistory
+                    $0.source == .authlog || $0.source == .logins
+                        || $0.source == .shellHistory || $0.source == .weblog
                 }
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: authLog))
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: logins))
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: shellHistory))
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: web))
                 state.timeline.sort { $0.date < $1.date }
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
@@ -3088,6 +3120,7 @@ final class AppModel: ObservableObject {
                     if let linuxAccess = state.linuxAccess {
                         try? CaseStore.writeLinuxAccess(linuxAccess, forHostID: evidence.id, in: bundleURL)
                     }
+                    try? CaseStore.writeWebAccess(web, forHostID: evidence.id, in: bundleURL)
                 }
             }
             progress = ProgressInfo(current: completed, total: totalCandidates,
@@ -3129,7 +3162,8 @@ final class AppModel: ObservableObject {
                                           shellHistory: state.shellHistory,
                                           linuxPersistence: state.linuxPersistence,
                                           linuxInfo: state.linuxInfo,
-                                          linuxAccess: state.linuxAccess)
+                                          linuxAccess: state.linuxAccess,
+                                          webAccess: state.webAccess)
             let results = await analysisEngine.run(on: context)
             state.findings = results
             states[evidence.id] = state

@@ -317,6 +317,26 @@ public nonisolated enum TimelineBuilder {
         return events.sorted { $0.date < $1.date }
     }
 
+    /// Project web access-log requests onto the timeline. `kind` is `.changed`;
+    /// the path encodes method + status + target + client IP so rows read well
+    /// and free-text search matches IPs/paths. Requests without a (timezone-
+    /// explicit) timestamp are dropped.
+    public static func build(from entries: [WebAccessLogEntry]) -> [TimelineEvent] {
+        var events: [TimelineEvent] = []
+        events.reserveCapacity(entries.count)
+        for entry in entries {
+            guard let date = entry.timestamp else { continue }
+            events.append(TimelineEvent(date: date,
+                                        kind: .changed,
+                                        source: .weblog,
+                                        fileID: 0,
+                                        path: "\(entry.method) \(entry.status) \(entry.target)  [\(entry.clientIP)]",
+                                        size: entry.bytes,
+                                        isDeleted: false))
+        }
+        return events.sorted { $0.date < $1.date }
+    }
+
     /// Project `$MFT` records onto the timeline as their `$STANDARD_INFORMATION`
     /// MACB rows — the *true* NTFS file timeline (the only real one for loose
     /// collections, which otherwise fall back to collection-host times). One row

@@ -7,6 +7,18 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ### Added
 
+- **Web server access logs** (new **Web Logs** tab) — parses nginx/apache
+  access logs (Common + Combined Log Format) into per-request rows, with the
+  request's real (timezone-explicit) timestamp on the timeline. A new **Web
+  Access Log** analyzer flags exploitation against the application itself:
+  SQL injection / path traversal / command injection / XSS probes (`T1190`,
+  severity escalating when the request got a 2xx/3xx), webshell-shaped paths
+  (`T1505.003`, critical on a 200), scanner user-agents — sqlmap/nikto/
+  gobuster/etc. (`T1595.002`), and 404-burst directory brute-forcing
+  (`T1595.003`). Rotated `.gz` access logs are read too. macOS table view
+  (status-coloured, errors-only filter) + iOS drill. (Tagged a Linux tab —
+  discovery is `/var/log/{nginx,apache2,httpd}`; IIS/W3C logs aren't parsed.)
+
 - **Linux access & privilege artifacts** (new **Accounts & SSH** tab) — parses
   the "who can get in, and as whom" sources: SSH `authorized_keys` and
   `known_hosts` (with `command=`/`from=` options), `sshd_config`, `sudoers`
