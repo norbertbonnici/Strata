@@ -71,8 +71,7 @@ struct OverviewView: View {
             ForEach(hosts) { evidence in
                 HostProfileCard(
                     evidence: evidence,
-                    profile: HostProfile.derive(
-                        from: model.states[evidence.id]?.registryValues ?? []),
+                    profile: profile(for: evidence),
                     isWorking: model.isWorking,
                     onParseRegistry: {
                         #if os(macOS)
@@ -81,6 +80,19 @@ struct OverviewView: View {
                     })
             }
         }
+    }
+
+    /// Registry-derived profile for Windows evidence; fall back to the Linux
+    /// host-info files (os-release/hostname/passwd) when the registry walk
+    /// yields nothing - a Linux host has no hives.
+    private func profile(for evidence: Evidence) -> HostProfile {
+        let registryProfile = HostProfile.derive(
+            from: model.states[evidence.id]?.registryValues ?? [])
+        if registryProfile.hasAnyData { return registryProfile }
+        if let info = model.states[evidence.id]?.linuxInfo {
+            return HostProfile.derive(fromLinux: info)
+        }
+        return registryProfile
     }
 
     @ViewBuilder

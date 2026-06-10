@@ -12,7 +12,12 @@ public nonisolated enum ReportModelBuilder {
         var totalIOC = 0
 
         for host in inputs.hosts {
-            let profile = HostProfile.derive(from: host.registryValues)
+            // Registry profile for Windows hosts; Linux host-info fallback
+            // when the registry walk yields nothing (no hives on ext4).
+            var profile = HostProfile.derive(from: host.registryValues)
+            if !profile.hasAnyData, let linuxInfo = host.linuxInfo {
+                profile = HostProfile.derive(fromLinux: linuxInfo)
+            }
 
             // The report shows only the selected severities; the raw findings
             // export (built elsewhere) keeps every finding.

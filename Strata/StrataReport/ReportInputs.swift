@@ -27,13 +27,16 @@ public nonisolated struct ReportInputs: Sendable {
         public let evidenceID: UUID?
         public let acquisition: AcquisitionInfo?
         public let sourceHashes: [SourceHash]
+        /// Linux host-info (os-release/hostname/passwd) - the profile source
+        /// when the registry walk yields nothing. nil for Windows evidence.
+        public let linuxInfo: LinuxHostInfo?
 
         public init(displayName: String, kindLabel: String, sourcePath: String,
                     registryValues: [RegistryValue], findings: [Finding],
                     iocMatches: [IOCMatch], timeline: [TimelineEvent],
                     fileCount: Int, eventCount: Int,
                     evidenceID: UUID? = nil, acquisition: AcquisitionInfo? = nil,
-                    sourceHashes: [SourceHash] = []) {
+                    sourceHashes: [SourceHash] = [], linuxInfo: LinuxHostInfo? = nil) {
             self.displayName = displayName
             self.kindLabel = kindLabel
             self.sourcePath = sourcePath
@@ -46,6 +49,7 @@ public nonisolated struct ReportInputs: Sendable {
             self.evidenceID = evidenceID
             self.acquisition = acquisition
             self.sourceHashes = sourceHashes
+            self.linuxInfo = linuxInfo
         }
     }
 

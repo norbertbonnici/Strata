@@ -334,6 +334,33 @@ struct MoreTab: View {
                     Divider().background(Theme.hair2).padding(.leading, 50)
 
                     NavigationLink {
+                        LinuxLogsDrillView()
+                    } label: {
+                        moreRow(icon: "person.badge.key", title: "Auth & Logins (Linux)",
+                                trailing: counter(model.authLogCount + model.loginsCount))
+                    }
+                    .buttonStyle(.plain)
+                    Divider().background(Theme.hair2).padding(.leading, 50)
+
+                    NavigationLink {
+                        ShellHistoryDrillView()
+                    } label: {
+                        moreRow(icon: "terminal", title: "Shell History",
+                                trailing: counter(model.shellHistoryCount))
+                    }
+                    .buttonStyle(.plain)
+                    Divider().background(Theme.hair2).padding(.leading, 50)
+
+                    NavigationLink {
+                        LinuxPersistenceDrillView()
+                    } label: {
+                        moreRow(icon: "calendar.badge.clock", title: "Linux Persistence",
+                                trailing: counter(model.linuxPersistenceCount))
+                    }
+                    .buttonStyle(.plain)
+                    Divider().background(Theme.hair2).padding(.leading, 50)
+
+                    NavigationLink {
                         LateralDrillView()
                     } label: {
                         moreRow(icon: "point.3.connected.trianglepath.dotted",

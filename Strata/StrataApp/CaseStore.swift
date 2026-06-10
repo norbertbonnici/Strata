@@ -32,6 +32,11 @@ public nonisolated enum CaseStore {
     private static let browserHistoryFilename = "browserhistory.json"
     private static let mftFilename            = "mft.json"
     private static let wmiFilename            = "wmi.json"
+    private static let authLogFilename    = "authlog.json"
+    private static let loginsFilename     = "logins.json"
+    private static let shellHistoryFilename = "shellhistory.json"
+    private static let linuxPersistenceFilename = "linuxpersistence.json"
+    private static let linuxInfoFilename  = "linuxinfo.json"
     private static let findingsFilename   = "findings.json"
     private static let iocsFilename       = "iocs.json"
     private static let iocMatchesFilename = "iocmatches.json"
@@ -350,6 +355,65 @@ public nonisolated enum CaseStore {
 
     public static func writeCustody(_ events: [CustodyEvent], in bundle: URL) throws {
         try writeArray(events, at: custodyFileURL(in: bundle))
+    }
+
+    // MARK: - Linux artifacts (per host)
+
+    public static func linuxScratchDirectory(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle).appendingPathComponent("linux", isDirectory: true)
+    }
+
+    public static func readAuthLog(forHostID id: UUID, in bundle: URL) throws -> [AuthLogEntry]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(authLogFilename))
+    }
+    public static func writeAuthLog(_ entries: [AuthLogEntry],
+                                    forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(entries, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(authLogFilename))
+    }
+
+    public static func readLogins(forHostID id: UUID, in bundle: URL) throws -> [UtmpRecord]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(loginsFilename))
+    }
+    public static func writeLogins(_ records: [UtmpRecord],
+                                   forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(records, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(loginsFilename))
+    }
+
+    public static func readShellHistory(forHostID id: UUID, in bundle: URL) throws -> [ShellHistoryEntry]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(shellHistoryFilename))
+    }
+    public static func writeShellHistory(_ entries: [ShellHistoryEntry],
+                                         forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(entries, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(shellHistoryFilename))
+    }
+
+    public static func readLinuxPersistence(forHostID id: UUID, in bundle: URL) throws -> [LinuxPersistenceEntry]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(linuxPersistenceFilename))
+    }
+    public static func writeLinuxPersistence(_ entries: [LinuxPersistenceEntry],
+                                             forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(entries, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(linuxPersistenceFilename))
+    }
+
+    public static func readLinuxInfo(forHostID id: UUID, in bundle: URL) throws -> LinuxHostInfo? {
+        let url = hostDirectory(forHostID: id, in: bundle).appendingPathComponent(linuxInfoFilename)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return try jsonDecoder.decode(LinuxHostInfo.self, from: Data(contentsOf: url))
+    }
+    public static func writeLinuxInfo(_ info: LinuxHostInfo,
+                                      forHostID id: UUID, in bundle: URL) throws {
+        let url = hostDirectory(forHostID: id, in: bundle).appendingPathComponent(linuxInfoFilename)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try jsonEncoder.encode(info).write(to: url, options: .atomic)
     }
 
     // MARK: - Annotations + case notes (case-wide analyst work product)

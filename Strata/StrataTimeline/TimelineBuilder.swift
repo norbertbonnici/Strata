@@ -256,6 +256,67 @@ public nonisolated enum TimelineBuilder {
         return events.sorted { $0.date < $1.date }
     }
 
+    /// Project auth-log events onto the timeline. `kind` is `.changed` (the
+    /// fs analogue for "activity recorded"); the path encodes the classified
+    /// kind + message so rows read well and free-text search matches
+    /// usernames/IPs. Entries whose (year-inferred) timestamp is missing are
+    /// dropped.
+    public static func build(from entries: [AuthLogEntry]) -> [TimelineEvent] {
+        var events: [TimelineEvent] = []
+        events.reserveCapacity(entries.count)
+        for entry in entries {
+            guard let date = entry.timestamp else { continue }
+            events.append(TimelineEvent(date: date,
+                                        kind: .changed,
+                                        source: .authlog,
+                                        fileID: 0,
+                                        path: "\(entry.process): \(entry.message)",
+                                        size: 0,
+                                        isDeleted: false))
+        }
+        return events.sorted { $0.date < $1.date }
+    }
+
+    /// Project wtmp/btmp login records onto the timeline. btmp rows (failed
+    /// logins) are labelled as such - they're brute-force evidence.
+    public static func build(from records: [UtmpRecord]) -> [TimelineEvent] {
+        var events: [TimelineEvent] = []
+        events.reserveCapacity(records.count)
+        for record in records {
+            guard let date = record.timestamp else { continue }
+            let what = record.isFailedLogin ? "Failed login" : record.type.label
+            let from = record.host.isEmpty ? "" : " from \(record.host)"
+            events.append(TimelineEvent(date: date,
+                                        kind: .changed,
+                                        source: .logins,
+                                        fileID: 0,
+                                        path: "\(what): \(record.user) on \(record.line)\(from)",
+                                        size: 0,
+                                        isDeleted: false))
+        }
+        return events.sorted { $0.date < $1.date }
+    }
+
+    /// Project shell-history commands onto the timeline. Only entries that
+    /// carry a real timestamp (zsh extended / bash HISTTIMEFORMAT) appear -
+    /// undated bash history has order but no clock, and inventing one would
+    /// poison the timeline.
+    public static func build(from entries: [ShellHistoryEntry]) -> [TimelineEvent] {
+        var events: [TimelineEvent] = []
+        events.reserveCapacity(entries.count)
+        for entry in entries {
+            guard let date = entry.timestamp else { continue }
+            events.append(TimelineEvent(date: date,
+                                        kind: .changed,
+                                        source: .shellHistory,
+                                        fileID: 0,
+                                        path: "\(entry.user)$ \(entry.command)",
+                                        size: 0,
+                                        isDeleted: false))
+        }
+        return events.sorted { $0.date < $1.date }
+    }
+
     /// Project `$MFT` records onto the timeline as their `$STANDARD_INFORMATION`
     /// MACB rows — the *true* NTFS file timeline (the only real one for loose
     /// collections, which otherwise fall back to collection-host times). One row

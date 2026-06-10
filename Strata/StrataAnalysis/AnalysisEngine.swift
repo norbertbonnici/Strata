@@ -47,5 +47,8 @@ public nonisolated struct AnalysisEngine: Sendable {
         BrowserHistoryAnalyzer(),
         MftAnalyzer(),
         WmiAnalyzer(),
+        AuthLogAnalyzer(),
+        ShellHistoryAnalyzer(),
+        LinuxPersistenceAnalyzer(),
     ]
 }

@@ -18,6 +18,11 @@ public nonisolated struct AnalysisContext: Sendable {
     public let browserHistory: [BrowserHistoryEntry]
     public let mft: [MftEntry]
     public let wmi: [WmiPersistenceEntry]
+    // Linux artifacts (empty on Windows evidence).
+    public let authLog: [AuthLogEntry]
+    public let logins: [UtmpRecord]
+    public let shellHistory: [ShellHistoryEntry]
+    public let linuxPersistence: [LinuxPersistenceEntry]
 
     public init(files: [FileEntry], events: [EventLogRecord],
                 timeline: [TimelineEvent], registryValues: [RegistryValue],
@@ -25,7 +30,10 @@ public nonisolated struct AnalysisContext: Sendable {
                 shimcache: [ShimcacheEntry] = [], lnk: [LnkEntry] = [],
                 jumpList: [JumpListEntry] = [], usn: [UsnRecord] = [],
                 srum: [SrumEntry] = [], browserHistory: [BrowserHistoryEntry] = [],
-                mft: [MftEntry] = [], wmi: [WmiPersistenceEntry] = []) {
+                mft: [MftEntry] = [], wmi: [WmiPersistenceEntry] = [],
+                authLog: [AuthLogEntry] = [], logins: [UtmpRecord] = [],
+                shellHistory: [ShellHistoryEntry] = [],
+                linuxPersistence: [LinuxPersistenceEntry] = []) {
         self.files = files
         self.events = events
         self.timeline = timeline
@@ -40,6 +48,10 @@ public nonisolated struct AnalysisContext: Sendable {
         self.browserHistory = browserHistory
         self.mft = mft
         self.wmi = wmi
+        self.authLog = authLog
+        self.logins = logins
+        self.shellHistory = shellHistory
+        self.linuxPersistence = linuxPersistence
     }
 }
 
