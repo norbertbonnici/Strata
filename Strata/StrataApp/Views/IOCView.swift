@@ -6,6 +6,7 @@ import SwiftUI
 struct IOCView: View {
     @EnvironmentObject private var model: AppModel
     @State private var showingPasteSheet = false
+    @State private var showingEnrich = false
     @State private var selectedKindFilter: IOCKind?
     @State private var sortOrder: [KeyPathComparator<IOCMatch>] = []
 
@@ -36,6 +37,13 @@ struct IOCView: View {
                     Label("Run Match", systemImage: "play.fill")
                 }
                 .disabled(model.iocs.isEmpty || model.isWorking || model.evidenceList.isEmpty)
+                Button {
+                    showingEnrich = true
+                } label: {
+                    Label("Enrich...", systemImage: "globe.badge.chevron.backward")
+                }
+                .disabled(model.iocs.isEmpty || model.isWorking)
+                .help("Tiered CTI lookup (NSRL → MISP/OpenCTI → VirusTotal)")
                 Text("\(model.iocs.count) IOC\(model.iocs.count == 1 ? "" : "s") loaded")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
@@ -73,6 +81,7 @@ struct IOCView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .navigationTitle("IOCs - \(model.iocs.count) loaded, \(model.iocMatchCount) matches")
         .sheet(isPresented: $showingPasteSheet) { IOCPasteSheet() }
+        .sheet(isPresented: $showingEnrich) { EnrichmentSheet() }
         .overlay {
             if model.currentCase == nil {
                 ContentUnavailableView("Open a case",
@@ -96,6 +105,9 @@ struct IOCView: View {
                         Text(ioc.value).font(.body.monospaced())
                             .lineLimit(1).truncationMode(.middle)
                         Spacer()
+                        if let v = model.enrichment(for: ioc.value, kind: ioc.kind) {
+                            CTIVerdictBadge(verdict: v)
+                        }
                         Button {
                             model.removeIOC(ioc.id)
                         } label: {
@@ -179,6 +191,28 @@ private struct IOCPasteSheet: View {
         }
         .padding(16)
         .frame(width: 560)
+    }
+}
+
+/// Compact CTI verdict pill (with provenance in the tooltip).
+struct CTIVerdictBadge: View {
+    let verdict: EnrichmentVerdict
+    var body: some View {
+        Text(verdict.verdict.label)
+            .font(.caption2).bold()
+            .padding(.horizontal, 6).padding(.vertical, 1)
+            .background(color.opacity(0.2), in: Capsule())
+            .foregroundStyle(color)
+            .help("\(verdict.source) (\(verdict.tier.label)) · \(verdict.detail)")
+    }
+    private var color: Color {
+        switch verdict.verdict {
+        case .malicious:  return .red
+        case .suspicious: return .orange
+        case .knownGood:  return .green
+        case .unknown:    return .secondary
+        case .error:      return .yellow
+        }
     }
 }
 

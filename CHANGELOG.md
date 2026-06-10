@@ -5,6 +5,37 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Added — CTI enrichment foundation (Wave 2, roadmap "CTI enrichment")
+
+The tiered hash/IOC enrichment waterfall — **NSRL → MISP/OpenCTI →
+VirusTotal** — designed to minimise third-party calls and keep data in org
+control. New `StrataCTI` module:
+
+- **Cascade engine** (`EnrichmentEngine`) walks providers in tier order and
+  **short-circuits on the first definitive verdict** — an NSRL known-good hash
+  never reaches MISP/VT; a MISP-confirmed indicator never costs a VirusTotal
+  call. Verdicts carry full **provenance** (`EnrichmentVerdict`: which tier/
+  source, score, reference, timestamp) — the field `IOCMatch` lacked. Actor-
+  backed `EnrichmentCache` resolves each indicator at most once.
+- **Four providers**, each with a pure (unit-tested) response decoder and an
+  injectable transport: **NSRL** (local known-good hash set, no network, also a
+  file-tree noise reducer), **VirusTotal** v3 (hash/ip/domain/url; VT-clean is
+  `.unknown`, never `knownGood`), **MISP** (`/attributes/restSearch`), **OpenCTI**
+  (GraphQL). All **opt-in**: an unconfigured tier returns nil and is skipped.
+- **Per-instance config in the Keychain** (`KeychainCredentialStore`, the app's
+  first `SecItem` usage) for base URL + token; the on/off flags + NSRL file path
+  persist to `UserDefaults`. Tokens never touch the case bundle.
+- Wired into `AppModel.enrichIndicators()` (off-main lookups), persisted
+  case-wide as `enrichment.json`, and recorded in the **chain-of-custody
+  ledger** (`.enrichmentPerformed`) — the CTI audit trail the roadmap requires.
+- UI: the **Enrichment sheet** gained a "Threat-intel lookup" pass with inline
+  source configuration; the **IOC tab** gained an *Enrich…* action and a
+  provenance-tooltipped verdict pill per indicator.
+
+**Still pending:** live end-to-end validation against real MISP/OpenCTI/VT
+instances (decoders validated against fixtures); IP/domain/URL enrichment is
+wired but the cascade is currently driven from the loaded IOC list.
+
 ### Added — detection coverage (Wave 1, +6 analyzers → 41)
 
 Six new ATT&CK analyzers, each with unit tests, authored in parallel and
