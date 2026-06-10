@@ -41,6 +41,9 @@ public nonisolated enum CaseStore {
     private static let webAccessFilename  = "weblog.json"
     private static let packagesFilename   = "packages.json"
     private static let journaldFilename   = "journald.json"
+    private static let auditFilename      = "audit.json"
+    private static let syslogFilename     = "syslog.json"
+    private static let lastlogFilename    = "lastlog.json"
     private static let findingsFilename   = "findings.json"
     private static let iocsFilename       = "iocs.json"
     private static let iocMatchesFilename = "iocmatches.json"
@@ -461,6 +464,25 @@ public nonisolated enum CaseStore {
                                      forHostID id: UUID, in bundle: URL) throws {
         try writeArray(entries, at: hostDirectory(forHostID: id, in: bundle)
             .appendingPathComponent(journaldFilename))
+    }
+
+    public static func readAudit(forHostID id: UUID, in bundle: URL) throws -> [AuditEvent]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle).appendingPathComponent(auditFilename))
+    }
+    public static func writeAudit(_ events: [AuditEvent], forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(events, at: hostDirectory(forHostID: id, in: bundle).appendingPathComponent(auditFilename))
+    }
+    public static func readSyslog(forHostID id: UUID, in bundle: URL) throws -> [SyslogEntry]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle).appendingPathComponent(syslogFilename))
+    }
+    public static func writeSyslog(_ entries: [SyslogEntry], forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(entries, at: hostDirectory(forHostID: id, in: bundle).appendingPathComponent(syslogFilename))
+    }
+    public static func readLastlog(forHostID id: UUID, in bundle: URL) throws -> [LastlogEntry]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle).appendingPathComponent(lastlogFilename))
+    }
+    public static func writeLastlog(_ records: [LastlogEntry], forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(records, at: hostDirectory(forHostID: id, in: bundle).appendingPathComponent(lastlogFilename))
     }
 
     // MARK: - Annotations + case notes (case-wide analyst work product)

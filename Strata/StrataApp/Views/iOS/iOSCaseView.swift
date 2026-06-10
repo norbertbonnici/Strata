@@ -431,6 +431,36 @@ struct MoreTab: View {
                     .buttonStyle(.plain)
                     Divider().background(Theme.hair2).padding(.leading, 50)
                     }
+                    if model.shows(osFamily: .linux) {
+                    NavigationLink {
+                        AuditDrillView()
+                    } label: {
+                        moreRow(icon: "checklist", title: "Audit",
+                                trailing: counter(model.auditCount))
+                    }
+                    .buttonStyle(.plain)
+                    Divider().background(Theme.hair2).padding(.leading, 50)
+                    }
+                    if model.shows(osFamily: .linux) {
+                    NavigationLink {
+                        SyslogDrillView()
+                    } label: {
+                        moreRow(icon: "doc.plaintext", title: "System Log",
+                                trailing: counter(model.syslogCount))
+                    }
+                    .buttonStyle(.plain)
+                    Divider().background(Theme.hair2).padding(.leading, 50)
+                    }
+                    if model.shows(osFamily: .linux) {
+                    NavigationLink {
+                        LastlogDrillView()
+                    } label: {
+                        moreRow(icon: "person.crop.square.badge.camera", title: "Last Login",
+                                trailing: counter(model.lastlogCount))
+                    }
+                    .buttonStyle(.plain)
+                    Divider().background(Theme.hair2).padding(.leading, 50)
+                    }
 
                     NavigationLink {
                         LateralDrillView()

@@ -39,6 +39,9 @@ nonisolated struct EvidenceState: Sendable {
     var webAccess: [WebAccessLogEntry] = []
     var packages: [PackageEvent] = []
     var journald: [JournaldEntry] = []
+    var audit: [AuditEvent] = []
+    var syslog: [SyslogEntry] = []
+    var lastlog: [LastlogEntry] = []
     var findings: [Finding] = []
     var iocMatches: [IOCMatch] = []
     /// OS families detected for this host (from volume fs-types, or a file-tree
@@ -53,6 +56,7 @@ nonisolated struct EvidenceState: Sendable {
         !authLog.isEmpty || !logins.isEmpty || !shellHistory.isEmpty
             || !linuxPersistence.isEmpty || linuxInfo != nil || linuxAccess != nil
             || !webAccess.isEmpty || !packages.isEmpty || !journald.isEmpty
+            || !audit.isEmpty || !syslog.isEmpty || !lastlog.isEmpty
     }
 }
 
@@ -505,14 +509,21 @@ final class AppModel: ObservableObject {
             state.webAccess = (try? CaseStore.readWebAccess(forHostID: evidence.id, in: bundleURL)) ?? []
             state.packages = (try? CaseStore.readPackages(forHostID: evidence.id, in: bundleURL)) ?? []
             state.journald = (try? CaseStore.readJournald(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.audit = (try? CaseStore.readAudit(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.syslog = (try? CaseStore.readSyslog(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.lastlog = (try? CaseStore.readLastlog(forHostID: evidence.id, in: bundleURL)) ?? []
             if !state.authLog.isEmpty || !state.logins.isEmpty || !state.shellHistory.isEmpty
-                || !state.webAccess.isEmpty || !state.packages.isEmpty || !state.journald.isEmpty {
+                || !state.webAccess.isEmpty || !state.packages.isEmpty || !state.journald.isEmpty
+                || !state.audit.isEmpty || !state.syslog.isEmpty || !state.lastlog.isEmpty {
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: state.authLog))
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: state.logins))
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: state.shellHistory))
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: state.webAccess))
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: state.packages))
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: state.journald))
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.audit))
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.syslog))
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.lastlog))
                 state.timeline.sort { $0.date < $1.date }
             }
             state.findings = (try? CaseStore.readFindings(forHostID: evidence.id, in: bundleURL)) ?? []
@@ -910,6 +921,9 @@ final class AppModel: ObservableObject {
         var webAccess: [WebAccessLogEntry] = []
         var packages: [PackageEvent] = []
         var journald: [JournaldEntry] = []
+        var audit: [AuditEvent] = []
+        var syslog: [SyslogEntry] = []
+        var lastlog: [LastlogEntry] = []
         var iocMatches: [IOCMatch] = []
     }
     private var derivedCache: Derived?
@@ -973,6 +987,9 @@ final class AppModel: ObservableObject {
             d.webAccess = s.webAccess
             d.packages = s.packages
             d.journald = s.journald
+            d.audit = s.audit
+            d.syslog = s.syslog
+            d.lastlog = s.lastlog
             d.iocMatches = s.iocMatches
             return d
         }
@@ -1001,6 +1018,9 @@ final class AppModel: ObservableObject {
             d.webAccess.append(contentsOf: s.webAccess)
             d.packages.append(contentsOf: s.packages)
             d.journald.append(contentsOf: s.journald)
+            d.audit.append(contentsOf: s.audit)
+            d.syslog.append(contentsOf: s.syslog)
+            d.lastlog.append(contentsOf: s.lastlog)
             d.iocMatches.append(contentsOf: s.iocMatches)
         }
         d.events.sort { $0.writtenAt < $1.writtenAt }
@@ -1022,6 +1042,9 @@ final class AppModel: ObservableObject {
         d.webAccess.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
         d.packages.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
         d.journald.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+        d.audit.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+        d.syslog.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+        d.lastlog.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
         return d
     }
 
@@ -1053,6 +1076,9 @@ final class AppModel: ObservableObject {
     var webAccess: [WebAccessLogEntry] { derived().webAccess }
     var packages: [PackageEvent] { derived().packages }
     var journald: [JournaldEntry] { derived().journald }
+    var audit: [AuditEvent] { derived().audit }
+    var syslog: [SyslogEntry] { derived().syslog }
+    var lastlog: [LastlogEntry] { derived().lastlog }
     /// Linux host info for the active scope (tiny; not worth caching). In the
     /// combined scope the first host that has one wins.
     var linuxInfo: LinuxHostInfo? {
@@ -1095,6 +1121,9 @@ final class AppModel: ObservableObject {
     var webAccessCount: Int { scopedCount(\.webAccess.count) }
     var packageCount: Int { scopedCount(\.packages.count) }
     var journaldCount: Int { scopedCount(\.journald.count) }
+    var auditCount: Int { scopedCount(\.audit.count) }
+    var syslogCount: Int { scopedCount(\.syslog.count) }
+    var lastlogCount: Int { scopedCount(\.lastlog.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
     private func scopedCount(_ kp: KeyPath<EvidenceState, Int>) -> Int {
@@ -2896,6 +2925,7 @@ final class AppModel: ObservableObject {
             case systemdTimer, initScript, shellInit, xdgAutostart, ldPreload
             case packageDpkg, packageApt, packageYum, packageDnf
             case journald
+            case audit, syslog, lastlog
         }
 
         func classify(_ entry: FileEntry) -> LinuxKind? {
@@ -2908,6 +2938,19 @@ final class AppModel: ObservableObject {
             if path.contains("/var/log/journal/"),
                name.hasSuffix(".journal") || name.hasSuffix(".journal~") {
                 return .journald
+            }
+            // auditd log + rotations (audit.log, audit.log.1 …; not gzipped).
+            if path.contains("/var/log/audit/"), name.hasPrefix("audit.log") {
+                return .audit
+            }
+            // lastlog binary (no extension); not under a deeper dir.
+            if path.hasSuffix("/var/log/lastlog") { return .lastlog }
+            // General system log + rotations (syslog, messages, messages-YYYYMMDD).
+            if path.hasSuffix("/var/log/syslog") || name.hasPrefix("syslog.")
+                || path.hasSuffix("/var/log/messages") || name.hasPrefix("messages")
+                || path.hasSuffix("/var/log/kern.log") || name.hasPrefix("kern.log") {
+                // skip .gz rotations (handled generally below)
+                if !isGz { return .syslog }
             }
             if path.contains("/var/log/") {
                 // auth.log / secure incl. rotations (auth.log.2.gz) - the gz is
@@ -3043,6 +3086,9 @@ final class AppModel: ObservableObject {
                 var web: [WebAccessLogEntry] = []
                 var packages: [PackageEvent] = []
                 var journald: [JournaldEntry] = []
+                var audit: [AuditEvent] = []
+                var syslog: [SyslogEntry] = []
+                var lastlog: [LastlogEntry] = []
 
                 for (entry, kind) in found {
                     progress = ProgressInfo(
@@ -3135,6 +3181,15 @@ final class AppModel: ObservableObject {
                     case .journald:
                         journald.append(contentsOf: JournaldParser.parse(
                             data: data, sourceFile: entry.fullPath))
+                    case .audit:
+                        audit.append(contentsOf: AuditParser.parse(
+                            text: text(), sourceFile: entry.fullPath))
+                    case .syslog:
+                        syslog.append(contentsOf: SyslogParser.parse(
+                            text: text(), sourceFile: entry.fullPath, anchor: entry.modified))
+                    case .lastlog:
+                        lastlog.append(contentsOf: LastlogParser.parse(
+                            data: data, sourceFile: entry.fullPath))
                     case .systemd:
                         if let unit = LinuxPersistenceParser.parseSystemdUnit(
                             text: String(decoding: data, as: UTF8.self),
@@ -3191,18 +3246,35 @@ final class AppModel: ObservableObject {
                 web.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
                 packages.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
                 journald.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+                audit.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+                syslog.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+                // Resolve lastlog UIDs to usernames now that /etc/passwd is parsed.
+                if !info.users.isEmpty {
+                    let byUid = Dictionary(info.users.map { ($0.uid, $0.name) },
+                                           uniquingKeysWith: { first, _ in first })
+                    lastlog = lastlog.map { e in
+                        e.user != nil ? e : LastlogEntry(uid: e.uid, user: byUid[e.uid],
+                                                         timestamp: e.timestamp, line: e.line,
+                                                         host: e.host, sourceFile: e.sourceFile)
+                    }
+                }
+                lastlog.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
                 state.linuxPersistence = persistence
                 state.linuxInfo = info.isEmpty ? nil : info
                 state.linuxAccess = access.isEmpty ? nil : access
                 state.webAccess = web
                 state.packages = packages
                 state.journald = journald
+                state.audit = audit
+                state.syslog = syslog
+                state.lastlog = lastlog
                 // Splice the timestamped Linux sources onto the timeline
                 // (mirrors evtx; persistence entries carry no timestamps).
                 state.timeline.removeAll {
                     $0.source == .authlog || $0.source == .logins
                         || $0.source == .shellHistory || $0.source == .weblog
                         || $0.source == .package || $0.source == .journald
+                        || $0.source == .auditd || $0.source == .syslog || $0.source == .lastlog
                 }
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: authLog))
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: logins))
@@ -3210,6 +3282,9 @@ final class AppModel: ObservableObject {
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: web))
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: packages))
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: journald))
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: audit))
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: syslog))
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: lastlog))
                 state.timeline.sort { $0.date < $1.date }
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
@@ -3226,6 +3301,9 @@ final class AppModel: ObservableObject {
                     try? CaseStore.writeWebAccess(web, forHostID: evidence.id, in: bundleURL)
                     try? CaseStore.writePackages(packages, forHostID: evidence.id, in: bundleURL)
                     try? CaseStore.writeJournald(journald, forHostID: evidence.id, in: bundleURL)
+                    try? CaseStore.writeAudit(audit, forHostID: evidence.id, in: bundleURL)
+                    try? CaseStore.writeSyslog(syslog, forHostID: evidence.id, in: bundleURL)
+                    try? CaseStore.writeLastlog(lastlog, forHostID: evidence.id, in: bundleURL)
                 }
             }
             progress = ProgressInfo(current: completed, total: totalCandidates,
@@ -3270,7 +3348,10 @@ final class AppModel: ObservableObject {
                                           linuxAccess: state.linuxAccess,
                                           webAccess: state.webAccess,
                                           packages: state.packages,
-                                          journald: state.journald)
+                                          journald: state.journald,
+                                          audit: state.audit,
+                                          syslog: state.syslog,
+                                          lastlog: state.lastlog)
             let results = await analysisEngine.run(on: context)
             state.findings = results
             states[evidence.id] = state

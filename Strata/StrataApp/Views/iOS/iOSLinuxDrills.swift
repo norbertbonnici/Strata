@@ -302,6 +302,166 @@ struct LinuxAccessDrillView: View {
     }
 }
 
+/// Audit events (read-only, capped).
+struct AuditDrillView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var query = ""
+
+    private var filtered: [AuditEvent] {
+        let rows = model.audit
+        guard !query.isEmpty else { return rows }
+        return rows.filter { $0.summary.localizedCaseInsensitiveContains(query)
+            || $0.recordType.localizedCaseInsensitiveContains(query) }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitle(title: "Audit",
+                           subtitle: "\(model.auditCount) event\(model.auditCount == 1 ? "" : "s")")
+                TextField("Filter command / type...", text: $query)
+                    .textFieldStyle(.roundedBorder).padding(.top, 10)
+                let rows = filtered
+                if rows.isEmpty {
+                    ContentUnavailableView("No audit events", systemImage: "checklist").padding(.top, 40)
+                } else {
+                    if rows.count > 500 {
+                        Text("Showing first 500 of \(rows.count).").font(.caption2)
+                            .foregroundStyle(Theme.text3).padding(.top, 6)
+                    }
+                    Card {
+                        ForEach(Array(rows.prefix(500).enumerated()), id: \.element.id) { index, e in
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack {
+                                    Text(e.recordType).font(.caption.bold()).foregroundStyle(Theme.teal)
+                                    if let r = e.result {
+                                        Text(r).font(.caption2).foregroundStyle(r == "failed" ? Theme.high : Theme.low)
+                                    }
+                                    Spacer()
+                                    if let t = e.timestamp {
+                                        Text(t.formatted(date: .numeric, time: .shortened))
+                                            .font(.caption2.monospacedDigit()).foregroundStyle(Theme.text3)
+                                    }
+                                }
+                                Text(e.summary).font(.caption.monospaced()).foregroundStyle(Theme.text).lineLimit(3)
+                            }
+                            .padding(.vertical, 5)
+                            if index < min(rows.count, 500) - 1 { Divider().background(Theme.hair2) }
+                        }
+                    }
+                }
+                Spacer(minLength: 26)
+            }
+            .padding(.horizontal)
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+    }
+}
+
+/// General system log (read-only, capped, noise hidden).
+struct SyslogDrillView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var query = ""
+
+    private var filtered: [SyslogEntry] {
+        let rows = model.syslog.filter { !$0.category.isNoise }
+        guard !query.isEmpty else { return rows }
+        return rows.filter { $0.message.localizedCaseInsensitiveContains(query)
+            || $0.process.localizedCaseInsensitiveContains(query) }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitle(title: "System Log",
+                           subtitle: "\(model.syslogCount) entr\(model.syslogCount == 1 ? "y" : "ies")")
+                TextField("Filter message / program...", text: $query)
+                    .textFieldStyle(.roundedBorder).padding(.top, 10)
+                let rows = filtered
+                if rows.isEmpty {
+                    ContentUnavailableView("No entries", systemImage: "doc.plaintext").padding(.top, 40)
+                } else {
+                    if rows.count > 500 {
+                        Text("Showing first 500 of \(rows.count).").font(.caption2)
+                            .foregroundStyle(Theme.text3).padding(.top, 6)
+                    }
+                    Card {
+                        ForEach(Array(rows.prefix(500).enumerated()), id: \.element.id) { index, e in
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack {
+                                    Text(e.category.label).font(.caption.bold()).foregroundStyle(Theme.teal)
+                                    Text(e.process).font(.caption2).foregroundStyle(Theme.text2)
+                                    Spacer()
+                                    if let t = e.timestamp {
+                                        Text(t.formatted(date: .numeric, time: .shortened))
+                                            .font(.caption2.monospacedDigit()).foregroundStyle(Theme.text3)
+                                    }
+                                }
+                                Text(e.message).font(.caption.monospaced()).foregroundStyle(Theme.text).lineLimit(3)
+                            }
+                            .padding(.vertical, 5)
+                            if index < min(rows.count, 500) - 1 { Divider().background(Theme.hair2) }
+                        }
+                    }
+                }
+                Spacer(minLength: 26)
+            }
+            .padding(.horizontal)
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+    }
+}
+
+/// Last login per account (read-only).
+struct LastlogDrillView: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitle(title: "Last Login",
+                           subtitle: "\(model.lastlogCount) account\(model.lastlogCount == 1 ? "" : "s")")
+                let rows = model.lastlog
+                if rows.isEmpty {
+                    ContentUnavailableView("No lastlog", systemImage: "person.crop.square.badge.camera").padding(.top, 40)
+                } else {
+                    Card {
+                        ForEach(Array(rows.enumerated()), id: \.element.id) { index, r in
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack {
+                                    Text(r.account).font(.caption.bold()).foregroundStyle(Theme.teal)
+                                    Text("uid \(r.uid)").font(.caption2).foregroundStyle(Theme.text3)
+                                    Spacer()
+                                    if let t = r.timestamp {
+                                        Text(t.formatted(date: .numeric, time: .shortened))
+                                            .font(.caption2.monospacedDigit()).foregroundStyle(Theme.text3)
+                                    }
+                                }
+                                Text(r.line + (r.host.isEmpty ? "" : " from \(r.host)"))
+                                    .font(.caption.monospaced()).foregroundStyle(Theme.text2).lineLimit(1)
+                            }
+                            .padding(.vertical, 5)
+                            if index < rows.count - 1 { Divider().background(Theme.hair2) }
+                        }
+                    }
+                }
+                Spacer(minLength: 26)
+            }
+            .padding(.horizontal)
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+    }
+}
+
 /// systemd journal entries (read-only, capped, errors-first emphasis).
 struct JournaldDrillView: View {
     @EnvironmentObject private var model: AppModel

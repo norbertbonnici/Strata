@@ -7,6 +7,33 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ### Added
 
+- **auditd, system-log, and lastlog parsing** (new **Audit**, **System Log**,
+  **Last Login** tabs) — completes the Linux log layer, all pure-Swift:
+  - **auditd** (`/var/log/audit/audit.log`) — groups the multiple records of
+    one event by their `audit(epoch:serial)` id and folds them into one row:
+    hex-decoded fields, EXECVE command-line reconstruction, per-arch syscall
+    resolution, and the immutable login-uid (`auid`) attribution. The **Linux
+    Audit** analyzer flags shells/interpreters run under service accounts and
+    from staging paths (T1059.004), account/group creation (T1136.001),
+    sensitive-file writes — authorized_keys/sudoers/passwd (T1098.004/T1548.003),
+    non-SSH PAM auth-failure bursts (T1110), and execmem/execstack SELinux
+    denials (T1211).
+  - **system log** (`/var/log/syslog`, `/var/log/messages`) — the non-auth
+    kernel/systemd/cron telemetry, classified into categories (USB insertion,
+    OOM, segfault, disk error, service crash-loop, cron exec, …) via the same
+    line scanner `auth.log` uses. The **System Log** analyzer flags USB
+    mass-storage attachment (T1091), segfault bursts on network daemons
+    (T1203), unknown-unit crash loops (T1543.002), and download-pipe cron
+    commands (T1053.003).
+  - **lastlog** (`/var/log/lastlog`) — the per-UID last-login binary database
+    (292-byte records, positional UID, username resolved via `/etc/passwd`).
+    The **Last Login** analyzer flags a non-interactive service account that
+    has logged in (T1078.003) and a privileged account whose last login came
+    from a public/external host (T1078).
+  - All three feed the timeline (three new sources) and auto-hide on Windows
+    evidence. The shared syslog prefix parser was factored out of
+    `AuthLogParser` into `SyslogLineScanner`.
+
 - **systemd journal (journald) parsing** (new **Journal** tab) — a pure-Swift
   decoder for the binary journal format (`/var/log/journal/**/*.journal`), no
   vendored tool. On a modern systemd host the journal is often the *only* place
