@@ -302,6 +302,77 @@ struct LinuxAccessDrillView: View {
     }
 }
 
+/// Package install/remove/upgrade history (read-only, capped).
+struct PackageDrillView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var query = ""
+
+    private var filtered: [PackageEvent] {
+        let rows = model.packages
+        guard !query.isEmpty else { return rows }
+        return rows.filter { $0.package.localizedCaseInsensitiveContains(query) }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitle(title: "Packages",
+                           subtitle: "\(model.packageCount) event\(model.packageCount == 1 ? "" : "s")")
+                TextField("Filter package...", text: $query)
+                    .textFieldStyle(.roundedBorder).padding(.top, 10)
+                let rows = filtered
+                if rows.isEmpty {
+                    ContentUnavailableView("No package history", systemImage: "shippingbox").padding(.top, 40)
+                } else {
+                    if rows.count > 500 {
+                        Text("Showing first 500 of \(rows.count).")
+                            .font(.caption2).foregroundStyle(Theme.text3).padding(.top, 6)
+                    }
+                    Card {
+                        ForEach(Array(rows.prefix(500).enumerated()), id: \.element.id) { index, e in
+                            HStack(spacing: 8) {
+                                Text(e.action.label)
+                                    .font(.caption2.bold())
+                                    .foregroundStyle(actionColor(e.action))
+                                    .frame(width: 64, alignment: .leading)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(e.package).font(.caption.monospaced()).foregroundStyle(Theme.text)
+                                    if let v = e.version {
+                                        Text(v).font(.caption2).foregroundStyle(Theme.text3)
+                                    }
+                                }
+                                Spacer()
+                                if let t = e.timestamp {
+                                    Text(t.formatted(date: .numeric, time: .shortened))
+                                        .font(.caption2.monospacedDigit()).foregroundStyle(Theme.text3)
+                                }
+                            }
+                            .padding(.vertical, 5)
+                            if index < min(rows.count, 500) - 1 {
+                                Divider().background(Theme.hair2)
+                            }
+                        }
+                    }
+                }
+                Spacer(minLength: 26)
+            }
+            .padding(.horizontal)
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+    }
+
+    private func actionColor(_ action: PackageEvent.Action) -> Color {
+        switch action {
+        case .install, .reinstall:  return Theme.teal
+        case .remove, .purge:       return Theme.high
+        case .upgrade, .downgrade:  return Theme.low
+        }
+    }
+}
+
 /// Web access-log requests (read-only, capped, errors-first emphasis).
 struct WebLogDrillView: View {
     @EnvironmentObject private var model: AppModel

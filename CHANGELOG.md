@@ -7,6 +7,20 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ### Added
 
+- **Expanded Linux persistence + package history.** The **Linux Persistence**
+  analyzer now sweeps the full set of auto-run locations beyond cron + systemd
+  services: **systemd timers**, **`/etc/ld.so.preload`** (library injection —
+  any entry flagged), **XDG autostart** (`~/.config/autostart/*.desktop`),
+  **boot/init scripts** (`/etc/rc.local`, `/etc/init.d`, `/etc/cron.{hourly,
+  daily,weekly,monthly}`), and **shell-init files** (`~/.bashrc`,
+  `/etc/profile.d` — surfaced only for execution-bearing lines, so a normal
+  `.bashrc` is silent), each mapped to its own ATT&CK technique. A new **Package
+  History** tab parses **dpkg / apt / yum / dnf** logs into an install/remove/
+  upgrade timeline; its analyzer flags **offensive/dual-use tool installs**
+  (nmap, socat, netcat, sqlmap, … — `T1588.002`) and **mass-removal bursts**
+  (cleanup / anti-forensics — `T1070`). Both feed the timeline (package events
+  as a new source). macOS views + iOS drills.
+
 - **Web server access logs** (new **Web Logs** tab) — parses nginx/apache
   access logs (Common + Combined Log Format) into per-request rows, with the
   request's real (timezone-explicit) timestamp on the timeline. A new **Web

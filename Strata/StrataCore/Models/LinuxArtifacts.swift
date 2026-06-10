@@ -164,25 +164,38 @@ public nonisolated struct ShellHistoryEntry: Identifiable, Hashable, Sendable, C
 
 // MARK: - Persistence (cron + systemd)
 
-/// One Linux persistence mechanism: a cron job (system crontab, `/etc/cron.d`,
-/// or a user spool crontab) or a systemd service unit. The Linux analogue of
-/// the Run-key / scheduled-task / service detections on Windows.
+/// One Linux persistence mechanism. The Linux analogue of the Run-key /
+/// scheduled-task / service detections on Windows - covering the full sweep of
+/// auto-run locations attackers favour, not just cron + systemd services.
 public nonisolated struct LinuxPersistenceEntry: Identifiable, Hashable, Sendable, Codable {
-    public enum Kind: String, Sendable, Codable {
-        case cron
-        case systemdService
+    public enum Kind: String, Sendable, Codable, CaseIterable {
+        case cron               // crontab / cron.d / spool / cron.{hourly,…}
+        case systemdService     // *.service
+        case systemdTimer       // *.timer (the modern cron replacement)
+        case initScript         // /etc/rc.local, /etc/init.d/*
+        case shellInit          // ~/.bashrc, ~/.profile, /etc/profile.d/* (exec lines)
+        case xdgAutostart       // ~/.config/autostart/*.desktop
+        case ldPreload          // /etc/ld.so.preload (library hijack)
+        case atJob              // /var/spool/cron/atjobs
 
         public var label: String {
             switch self {
             case .cron:           return "Cron"
             case .systemdService: return "systemd service"
+            case .systemdTimer:   return "systemd timer"
+            case .initScript:     return "Init script"
+            case .shellInit:      return "Shell init"
+            case .xdgAutostart:   return "XDG autostart"
+            case .ldPreload:      return "ld.so.preload"
+            case .atJob:          return "at job"
             }
         }
     }
 
     public let id: UUID
     public let kind: Kind
-    /// Cron: the schedule expression ("* * * * *", "@reboot"). nil for systemd.
+    /// Cron: the schedule expression ("* * * * *", "@reboot"). systemd timer:
+    /// the OnCalendar=/OnBootSec= spec. nil where there's no schedule.
     public let schedule: String?
     /// Cron: the user the job runs as (column 6 of system crontabs; the spool
     /// file's owner for user crontabs). systemd: the unit's User=, if set.

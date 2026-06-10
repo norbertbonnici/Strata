@@ -337,6 +337,26 @@ public nonisolated enum TimelineBuilder {
         return events.sorted { $0.date < $1.date }
     }
 
+    /// Project package-manager events onto the timeline - install/remove/upgrade
+    /// of software, one event each. `kind` is `.born` for installs, `.changed`
+    /// otherwise. Events without a timestamp are dropped.
+    public static func build(from events: [PackageEvent]) -> [TimelineEvent] {
+        var out: [TimelineEvent] = []
+        out.reserveCapacity(events.count)
+        for event in events {
+            guard let date = event.timestamp else { continue }
+            let version = event.version.map { " \($0)" } ?? ""
+            out.append(TimelineEvent(date: date,
+                                     kind: event.action == .install ? .born : .changed,
+                                     source: .package,
+                                     fileID: 0,
+                                     path: "\(event.manager.label) \(event.action.label): \(event.package)\(version)",
+                                     size: 0,
+                                     isDeleted: event.action.isRemoval))
+        }
+        return out.sorted { $0.date < $1.date }
+    }
+
     /// Project `$MFT` records onto the timeline as their `$STANDARD_INFORMATION`
     /// MACB rows — the *true* NTFS file timeline (the only real one for loose
     /// collections, which otherwise fall back to collection-host times). One row

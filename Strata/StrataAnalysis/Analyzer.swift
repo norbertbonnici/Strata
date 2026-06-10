@@ -26,6 +26,7 @@ public nonisolated struct AnalysisContext: Sendable {
     public let linuxInfo: LinuxHostInfo?
     public let linuxAccess: LinuxAccessInfo?
     public let webAccess: [WebAccessLogEntry]
+    public let packages: [PackageEvent]
 
     public init(files: [FileEntry], events: [EventLogRecord],
                 timeline: [TimelineEvent], registryValues: [RegistryValue],
@@ -38,7 +39,7 @@ public nonisolated struct AnalysisContext: Sendable {
                 shellHistory: [ShellHistoryEntry] = [],
                 linuxPersistence: [LinuxPersistenceEntry] = [],
                 linuxInfo: LinuxHostInfo? = nil, linuxAccess: LinuxAccessInfo? = nil,
-                webAccess: [WebAccessLogEntry] = []) {
+                webAccess: [WebAccessLogEntry] = [], packages: [PackageEvent] = []) {
         self.files = files
         self.events = events
         self.timeline = timeline
@@ -60,6 +61,7 @@ public nonisolated struct AnalysisContext: Sendable {
         self.linuxInfo = linuxInfo
         self.linuxAccess = linuxAccess
         self.webAccess = webAccess
+        self.packages = packages
     }
 }
 
