@@ -35,6 +35,23 @@ public nonisolated struct HostProfile: Sendable {
         return joined.isEmpty ? nil : joined
     }
 
+    /// Build a profile from Linux host-info files (`os-release`, `hostname`,
+    /// `passwd`, `timezone`) - the Linux counterpart of the registry walk
+    /// below. PRETTY_NAME already carries the version ("Ubuntu 22.04.4 LTS"),
+    /// so it maps onto `osProductName` alone. The primary user is the
+    /// lowest-UID human account (UID ≥ 1000) with a real login shell.
+    public static func derive(fromLinux info: LinuxHostInfo) -> HostProfile {
+        var profile = HostProfile()
+        profile.hostname = info.hostname
+        profile.osProductName = info.prettyName ?? info.osID
+        profile.timeZone = info.timeZone
+        profile.primaryUser = info.users
+            .filter { $0.uid >= 1000 && $0.uid < 65_000 && $0.hasLoginShell }
+            .min { $0.uid < $1.uid }?
+            .name
+        return profile
+    }
+
     /// Walk a registry-value list and pull the well-known identity / config
     /// values. Missing values stay nil - we never invent defaults.
     public static func derive(from values: [RegistryValue]) -> HostProfile {

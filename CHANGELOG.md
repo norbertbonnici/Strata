@@ -7,6 +7,35 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ### Added
 
+- **ext3/4 support + basic Linux triage.** The vendored Sleuth Kit already
+  enumerates ext2/3/4, so Linux disk images get the file tree and FS MACB
+  timeline like Windows images do (loose UAC-style collection folders work
+  too). New `StrataLinux` parsers (all pure Swift - no new vendored tools)
+  feed the rest of the pipeline:
+  - **Auth log** (`auth.log`/`secure`; classic syslog with year inference from
+    file mtime, plus modern RFC 3339 lines) — classified SSH logins/failures,
+    sudo, session and account-change events.
+  - **Login records** (`wtmp`/`btmp`) — binary utmp parsing; btmp rows are
+    failed logins, often the only brute-force evidence left after log rotation.
+  - **Shell history** (bash + zsh) — zsh extended / bash `HISTTIMEFORMAT`
+    timestamps land on the timeline; plain bash history stays list-only.
+  - **Persistence** — system + user crontabs (incl. `@reboot`) and systemd
+    service units (`ExecStart`, `User=`, description).
+  - **Linux host profile** — `os-release`/`hostname`/`passwd`/`timezone` fill
+    the Overview host card and report profile when there's no registry.
+  - **Three new analyzers**: SSH brute force (per-IP bursts, password spraying,
+    "burst then accepted login" critical escalation, account creation, direct
+    root logins), shell-history tradecraft (reverse shells, download-pipe-exec,
+    history tampering, staging-dir chmod, base64 decode), and cron/systemd
+    persistence (staging paths, download/decode tooling, boot-persistent
+    `@reboot` jobs).
+  - **Three new timeline sources** (Auth Log, Logins, Shell History) and three
+    new tabs — "Auth & Logins" (segmented auth/utmp), "Shell History", "Linux
+    Persistence" — with iOS drill equivalents.
+  - Known v1 limits: classic syslog timestamps carry no timezone (treated as
+    UTC); `.gz`-rotated logs and journald are not parsed; undated bash history
+    is kept off the timeline by design.
+
 - **Super-timeline** — the timeline now unifies **12 artifact sources**. New
   splices: **registry key writes** (deduped to one event per key; kept per
   hive *file* so two users' NTUSER hives stay distinct), **prefetch runs**

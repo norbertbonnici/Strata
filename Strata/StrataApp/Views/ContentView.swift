@@ -17,6 +17,9 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case browser = "Browser History"
     case mft = "MFT"
     case wmi = "WMI"
+    case linuxLogs = "Auth & Logins"
+    case shellHistory = "Shell History"
+    case linuxPersistence = "Linux Persistence"
     case lateral = "Lateral"
     case killChain = "Kill Chain"
     case iocs = "IOCs"
@@ -41,6 +44,9 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .browser:   return "globe"
         case .mft:       return "tablecells"
         case .wmi:       return "gearshape.2"
+        case .linuxLogs: return "person.badge.key"
+        case .shellHistory: return "terminal"
+        case .linuxPersistence: return "calendar.badge.clock"
         case .lateral:   return "point.3.connected.trianglepath.dotted"
         case .killChain: return "link"
         case .iocs:      return "scope"
@@ -139,6 +145,9 @@ struct ContentView: View {
                 case .browser:   BrowserHistoryView()
                 case .mft:       MftView()
                 case .wmi:       WmiView()
+                case .linuxLogs: LinuxLogsView()
+                case .shellHistory: ShellHistoryView()
+                case .linuxPersistence: LinuxPersistenceView()
                 case .lateral:   LateralMovementView()
                 case .killChain: KillChainView()
                 case .iocs:      IOCView()

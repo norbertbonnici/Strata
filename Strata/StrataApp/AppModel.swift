@@ -29,8 +29,22 @@ nonisolated struct EvidenceState: Sendable {
     var browserHistory: [BrowserHistoryEntry] = []
     var mft: [MftEntry] = []
     var wmi: [WmiPersistenceEntry] = []
+    // Linux artifacts (empty on Windows evidence - the parsers no-op).
+    var authLog: [AuthLogEntry] = []
+    var logins: [UtmpRecord] = []
+    var shellHistory: [ShellHistoryEntry] = []
+    var linuxPersistence: [LinuxPersistenceEntry] = []
+    var linuxInfo: LinuxHostInfo?
     var findings: [Finding] = []
     var iocMatches: [IOCMatch] = []
+
+    /// Whether any Linux artifact has been parsed for this host - the
+    /// "already done" guard `parseLinux` uses (mirrors the per-artifact
+    /// `state.X.isEmpty` guards of the Windows parsers).
+    var hasLinuxArtifacts: Bool {
+        !authLog.isEmpty || !logins.isEmpty || !shellHistory.isEmpty
+            || !linuxPersistence.isEmpty || linuxInfo != nil
+    }
 }
 
 /// A one-shot "reveal this range on the Timeline tab" request. The token makes
@@ -470,6 +484,20 @@ final class AppModel: ObservableObject {
                 state.timeline.sort { $0.date < $1.date }
             }
             state.wmi = (try? CaseStore.readWmi(forHostID: evidence.id, in: bundleURL)) ?? []
+            // Linux artifacts: rehydrate + splice the timestamped ones onto the
+            // timeline (mirrors the evtx splice). Cheap on Windows hosts (all
+            // empty). One sort covers the three.
+            state.authLog = (try? CaseStore.readAuthLog(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.logins = (try? CaseStore.readLogins(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.shellHistory = (try? CaseStore.readShellHistory(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.linuxPersistence = (try? CaseStore.readLinuxPersistence(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.linuxInfo = try? CaseStore.readLinuxInfo(forHostID: evidence.id, in: bundleURL)
+            if !state.authLog.isEmpty || !state.logins.isEmpty || !state.shellHistory.isEmpty {
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.authLog))
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.logins))
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.shellHistory))
+                state.timeline.sort { $0.date < $1.date }
+            }
             state.findings = (try? CaseStore.readFindings(forHostID: evidence.id, in: bundleURL)) ?? []
             state.iocMatches = (try? CaseStore.readIOCMatches(forHostID: evidence.id, in: bundleURL)) ?? []
             return .loaded(state)
@@ -770,7 +798,8 @@ final class AppModel: ObservableObject {
                 eventCount: state?.events.count ?? 0,
                 evidenceID: evidence.id,
                 acquisition: evidence.acquisition,
-                sourceHashes: evidence.sourceHashes)
+                sourceHashes: evidence.sourceHashes,
+                linuxInfo: state?.linuxInfo)
         }
         let now = Date()
         // Custody log and annotations are case-wide; include the entries for
@@ -856,6 +885,10 @@ final class AppModel: ObservableObject {
         var browserHistory: [BrowserHistoryEntry] = []
         var mft: [MftEntry] = []
         var wmi: [WmiPersistenceEntry] = []
+        var authLog: [AuthLogEntry] = []
+        var logins: [UtmpRecord] = []
+        var shellHistory: [ShellHistoryEntry] = []
+        var linuxPersistence: [LinuxPersistenceEntry] = []
         var iocMatches: [IOCMatch] = []
     }
     private var derivedCache: Derived?
@@ -912,6 +945,10 @@ final class AppModel: ObservableObject {
             d.browserHistory = s.browserHistory
             d.mft = s.mft
             d.wmi = s.wmi
+            d.authLog = s.authLog
+            d.logins = s.logins
+            d.shellHistory = s.shellHistory
+            d.linuxPersistence = s.linuxPersistence
             d.iocMatches = s.iocMatches
             return d
         }
@@ -933,6 +970,10 @@ final class AppModel: ObservableObject {
             d.browserHistory.append(contentsOf: s.browserHistory)
             d.mft.append(contentsOf: s.mft)
             d.wmi.append(contentsOf: s.wmi)
+            d.authLog.append(contentsOf: s.authLog)
+            d.logins.append(contentsOf: s.logins)
+            d.shellHistory.append(contentsOf: s.shellHistory)
+            d.linuxPersistence.append(contentsOf: s.linuxPersistence)
             d.iocMatches.append(contentsOf: s.iocMatches)
         }
         d.events.sort { $0.writtenAt < $1.writtenAt }
@@ -948,6 +989,9 @@ final class AppModel: ObservableObject {
         d.srum.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
         d.browserHistory.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
         d.mft.sort { $0.recordNumber < $1.recordNumber }
+        d.authLog.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+        d.logins.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+        d.shellHistory.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
         return d
     }
 
@@ -972,6 +1016,16 @@ final class AppModel: ObservableObject {
     var browserHistory: [BrowserHistoryEntry] { derived().browserHistory }
     var mft: [MftEntry] { derived().mft }
     var wmi: [WmiPersistenceEntry] { derived().wmi }
+    var authLog: [AuthLogEntry] { derived().authLog }
+    var logins: [UtmpRecord] { derived().logins }
+    var shellHistory: [ShellHistoryEntry] { derived().shellHistory }
+    var linuxPersistence: [LinuxPersistenceEntry] { derived().linuxPersistence }
+    /// Linux host info for the active scope (tiny; not worth caching). In the
+    /// combined scope the first host that has one wins.
+    var linuxInfo: LinuxHostInfo? {
+        if let id = activeEvidenceID { return states[id]?.linuxInfo }
+        return evidenceList.lazy.compactMap { self.states[$0.id]?.linuxInfo }.first
+    }
     var iocMatches: [IOCMatch] { derived().iocMatches }
 
     // Count-only accessors: sum per-host counts without building or sorting the
@@ -991,6 +1045,10 @@ final class AppModel: ObservableObject {
     var browserHistoryCount: Int { scopedCount(\.browserHistory.count) }
     var mftCount: Int { scopedCount(\.mft.count) }
     var wmiCount: Int { scopedCount(\.wmi.count) }
+    var authLogCount: Int { scopedCount(\.authLog.count) }
+    var loginsCount: Int { scopedCount(\.logins.count) }
+    var shellHistoryCount: Int { scopedCount(\.shellHistory.count) }
+    var linuxPersistenceCount: Int { scopedCount(\.linuxPersistence.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
     private func scopedCount(_ kp: KeyPath<EvidenceState, Int>) -> Int {
@@ -1352,6 +1410,7 @@ final class AppModel: ObservableObject {
         await parseBrowserHistory()
         await parseMft()
         await parseWmi()
+        await parseLinux()
         await runAnalyzers()
     }
 
@@ -2732,6 +2791,221 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // MARK: - Linux artifact parsing
+
+    /// Parse the Linux triage artifacts in every loaded evidence that doesn't
+    /// already have them: auth logs (`auth.log`/`secure`), wtmp/btmp login
+    /// records, per-user shell history, cron + systemd persistence, and the
+    /// host-info files (os-release / hostname / passwd / timezone). All
+    /// parsers are pure Swift (text or fixed-layout binary - no vendored
+    /// tool); extraction mirrors `parsePrefetch` (icat for images, in-place
+    /// for loose folders, e.g. a UAC collection). A Windows host has no
+    /// candidates and is skipped silently, so this is safe in the standard
+    /// `parseArtifacts` chain. Does NOT run analyzers.
+    func parseLinux() async {
+        guard !evidenceList.isEmpty else {
+            errorMessage = "No evidence loaded."
+            return
+        }
+        errorMessage = nil
+        isWorking = true
+        defer {
+            isWorking = false
+            progress = nil
+        }
+
+        enum LinuxKind { case auth, utmp, shellHistory, cron, systemd, sysinfo }
+
+        func classify(_ entry: FileEntry) -> LinuxKind? {
+            guard !entry.isDirectory, !entry.isDeleted else { return nil }
+            let path = entry.fullPath.lowercased()
+            let name = entry.name.lowercased()
+            if name.hasSuffix(".gz") { return nil }   // compressed rotations: v1 skips
+            if path.contains("/var/log/") {
+                if entry.size > 0, name.hasPrefix("auth.log") || name.hasPrefix("secure") {
+                    return .auth
+                }
+                if entry.size > 0, name == "wtmp" || name == "btmp"
+                    || name.hasPrefix("wtmp.") || name.hasPrefix("btmp.") {
+                    return .utmp
+                }
+            }
+            if entry.size > 0, name == ".bash_history" || name == ".zsh_history" {
+                return .shellHistory
+            }
+            if entry.size > 0, path.hasSuffix("/etc/crontab") || path.contains("/etc/cron.d/")
+                || path.contains("/var/spool/cron") {
+                return .cron
+            }
+            if entry.size > 0, entry.fileExtension == "service",
+               path.contains("/etc/systemd/system") {
+                return .systemd
+            }
+            if path.hasSuffix("/etc/os-release") || path.hasSuffix("/usr/lib/os-release")
+                || path.hasSuffix("/etc/hostname") || path.hasSuffix("/etc/passwd")
+                || path.hasSuffix("/etc/timezone") {
+                return .sysinfo
+            }
+            return nil
+        }
+
+        func candidates(_ state: EvidenceState) -> [(FileEntry, LinuxKind)] {
+            state.files.compactMap { entry in classify(entry).map { (entry, $0) } }
+        }
+
+        let totalCandidates = evidenceList.reduce(0) { acc, evidence in
+            guard let state = states[evidence.id], !state.hasLinuxArtifacts else { return acc }
+            return acc + candidates(state).count
+        }
+        guard totalCandidates > 0 else {
+            statusMessage = "No new Linux artifacts to parse."
+            return
+        }
+        progress = ProgressInfo(current: 0, total: totalCandidates, label: "Parsing Linux artifacts")
+        var completed = 0
+
+        do {
+            let tskEnv = try TSKEnvironment.discover()
+
+            for evidence in evidenceList {
+                guard var state = states[evidence.id] else { continue }
+                if state.hasLinuxArtifacts { continue }
+                let found = candidates(state)
+                guard !found.isEmpty else { continue }
+
+                // Image hosts need TSK to pull each file out of the image;
+                // loose folders read the file in place.
+                let isLoose = evidence.kind == .kapeLooseFolder
+                var database: TSKDatabase?
+                var extractor: TSKFileExtractor?
+                var scratch: URL?
+                if !isLoose {
+                    guard let dbURL = state.dbURL else { continue }
+                    database = try TSKDatabase(path: dbURL)
+                    extractor = TSKFileExtractor(
+                        environment: tskEnv,
+                        imageURL: evidence.sourceURL,
+                        imageType: TSKImageIngestor.imageType(for: evidence.sourceURL))
+                    guard let bundleURL = currentCaseBundleURL else { continue }
+                    let dir = CaseStore.linuxScratchDirectory(forHostID: evidence.id, in: bundleURL)
+                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    scratch = dir
+                }
+
+                var authLog: [AuthLogEntry] = []
+                var logins: [UtmpRecord] = []
+                var shellHistory: [ShellHistoryEntry] = []
+                var persistence: [LinuxPersistenceEntry] = []
+                var info = LinuxHostInfo()
+
+                for (entry, kind) in found {
+                    progress = ProgressInfo(
+                        current: completed,
+                        total: totalCandidates,
+                        label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+
+                    let fileURL: URL
+                    if isLoose {
+                        guard let disk = entry.diskURL,
+                              FileManager.default.fileExists(atPath: disk.path) else { continue }
+                        fileURL = disk
+                    } else {
+                        guard let extractInfo = try database!.fetchExtractInfo(forFileID: entry.id) else {
+                            continue
+                        }
+                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name)")
+                        try await extractor!.extract(metaAddr: extractInfo.metaAddr,
+                                                     imageOffsetSectors: extractInfo.imageOffsetSectors,
+                                                     to: outURL)
+                        fileURL = outURL
+                    }
+                    // A malformed file shouldn't abort the whole run.
+                    guard let data = try? Data(contentsOf: fileURL) else { continue }
+
+                    switch kind {
+                    case .utmp:
+                        let isBtmp = entry.name.lowercased().hasPrefix("btmp")
+                        logins.append(contentsOf: UtmpParser.parse(
+                            data: data, sourceFile: entry.fullPath, isFailedLogin: isBtmp))
+                    case .auth:
+                        authLog.append(contentsOf: AuthLogParser.parse(
+                            text: String(decoding: data, as: UTF8.self),
+                            sourceFile: entry.fullPath,
+                            anchor: entry.modified))
+                    case .shellHistory:
+                        let shell: ShellHistoryEntry.Shell =
+                            entry.name.lowercased().contains("zsh") ? .zsh : .bash
+                        shellHistory.append(contentsOf: ShellHistoryParser.parse(
+                            text: String(decoding: data, as: UTF8.self),
+                            user: ShellHistoryParser.user(fromPath: entry.fullPath),
+                            shell: shell, sourceFile: entry.fullPath))
+                    case .cron:
+                        let isSpool = entry.fullPath.lowercased().contains("/var/spool/cron")
+                        persistence.append(contentsOf: LinuxPersistenceParser.parseCrontab(
+                            text: String(decoding: data, as: UTF8.self),
+                            sourceFile: entry.fullPath,
+                            hasUserField: !isSpool,
+                            defaultUser: isSpool ? entry.name : nil))
+                    case .systemd:
+                        if let unit = LinuxPersistenceParser.parseSystemdUnit(
+                            text: String(decoding: data, as: UTF8.self),
+                            sourceFile: entry.fullPath) {
+                            persistence.append(unit)
+                        }
+                    case .sysinfo:
+                        let text = String(decoding: data, as: UTF8.self)
+                        let path = entry.fullPath.lowercased()
+                        if path.hasSuffix("os-release") {
+                            LinuxHostInfoParser.applyOSRelease(text, to: &info)
+                        } else if path.hasSuffix("hostname") {
+                            LinuxHostInfoParser.applyHostname(text, to: &info)
+                        } else if path.hasSuffix("passwd") {
+                            LinuxHostInfoParser.applyPasswd(text, to: &info)
+                        } else if path.hasSuffix("timezone") {
+                            LinuxHostInfoParser.applyTimezone(text, to: &info)
+                        }
+                    }
+                }
+
+                // Newest-first for the list views; shell history keeps file +
+                // line order (undated bash entries have no clock to sort by).
+                authLog.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+                logins.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+
+                state.authLog = authLog
+                state.logins = logins
+                state.shellHistory = shellHistory
+                state.linuxPersistence = persistence
+                state.linuxInfo = info.isEmpty ? nil : info
+                // Splice the timestamped Linux sources onto the timeline
+                // (mirrors evtx; persistence entries carry no timestamps).
+                state.timeline.removeAll {
+                    $0.source == .authlog || $0.source == .logins || $0.source == .shellHistory
+                }
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: authLog))
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: logins))
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: shellHistory))
+                state.timeline.sort { $0.date < $1.date }
+                states[evidence.id] = state
+                if let bundleURL = currentCaseBundleURL {
+                    try? CaseStore.writeAuthLog(authLog, forHostID: evidence.id, in: bundleURL)
+                    try? CaseStore.writeLogins(logins, forHostID: evidence.id, in: bundleURL)
+                    try? CaseStore.writeShellHistory(shellHistory, forHostID: evidence.id, in: bundleURL)
+                    try? CaseStore.writeLinuxPersistence(persistence, forHostID: evidence.id, in: bundleURL)
+                    if let linuxInfo = state.linuxInfo {
+                        try? CaseStore.writeLinuxInfo(linuxInfo, forHostID: evidence.id, in: bundleURL)
+                    }
+                }
+            }
+            progress = ProgressInfo(current: completed, total: totalCandidates,
+                                    label: "Linux artifact parse complete")
+        } catch {
+            self.errorMessage = error.localizedDescription
+            self.statusMessage = ""
+        }
+    }
+
     #endif
 
     // MARK: - Analysis
@@ -2757,7 +3031,11 @@ final class AppModel: ObservableObject {
                                           srum: state.srum,
                                           browserHistory: state.browserHistory,
                                           mft: state.mft,
-                                          wmi: state.wmi)
+                                          wmi: state.wmi,
+                                          authLog: state.authLog,
+                                          logins: state.logins,
+                                          shellHistory: state.shellHistory,
+                                          linuxPersistence: state.linuxPersistence)
             let results = await analysisEngine.run(on: context)
             state.findings = results
             states[evidence.id] = state

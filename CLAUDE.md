@@ -5,10 +5,13 @@ Operational context for working on **Strata**. Read this first.
 ## What Strata is
 
 A native macOS DFIR triage tool (with an iOS companion viewer). It ingests a
-Windows disk image or KAPE collection, enumerates the file system, parses event
-logs + registry hives, builds a MACB timeline, and surfaces attacker activity
-through ATT&CK-tagged detection analyzers, a Cyber Kill Chain view, an
-interactive lateral-movement graph, and IOC matching.
+**Windows or Linux** disk image (NTFS, ext2/3/4 - anything the vendored TSK
+enumerates) or a loose collection folder (KAPE / UAC), enumerates the file
+system, parses the OS's triage artifacts (Windows: event logs + registry hives
++ execution artifacts; Linux: auth logs, login records, shell history,
+cron/systemd persistence), builds a MACB timeline, and surfaces attacker
+activity through ATT&CK-tagged detection analyzers, a Cyber Kill Chain view,
+an interactive lateral-movement graph, and IOC matching.
 
 - **macOS app** = full pipeline (ingest + analyze). Non-sandboxed; reads raw
   disk images via Full Disk Access.
@@ -68,9 +71,10 @@ Per-release notes live in `docs/releases/`; keep `CHANGELOG.md` updated.
 | `StrataCore` (MFT) | Pure-Swift NTFS `$MFT` byte-parser (`MftParser`, `MftEntry`, `MftNode` tree, `FileTime`) — no vendored tool; applies the USA fixup, decodes `$SI` + `$FN` MACB as **raw FILETIME** (`FileTime.precise` renders the full 100-ns string; `Date` is lossy), resolves paths from parent refs, and captures **resident `$DATA`** (small-file recovery). Enables timestomp detection ($SI vs $FN) and true loose-folder MACB. `$MFT` extracted via icat (images) / read in place (loose) |
 | `StrataSRUM` | Parse the SRUM `SRUDB.dat` (ESE database) via `esedbexport` (libesedb); pure `SrumExportDecoder` (`StrataCore`) resolves the export TSV + SruDbIdMapTable foreign keys |
 | `StrataBrowser` | Parse web-browser history — Chromium `History` + Firefox `places.sqlite` (both SQLite) read directly via GRDB (no vendored tool); `BrowserHistoryParser` (macOS) copies the DB to scratch + opens read-only; pure decoders on `BrowserHistoryEntry` (`StrataCore`) |
-| `StrataTimeline` | MACB timeline + per-artifact timeline projections (12 sources) + gap/session analysis |
+| `StrataTimeline` | MACB timeline + per-artifact timeline projections (15 sources) + gap/session analysis |
 | `StrataCore` (WMI) | Pure-Swift carve of the WMI CIM repository `OBJECTS.DATA` (`WmiRepositoryParser`, `WmiPersistenceEntry`) — no full CIM parse; keyword-carves event-subscription persistence (bindings + WQL filter + command + script payloads), à la PyWMIPersistenceFinder. `OBJECTS.DATA` extracted via icat (images) / read in place (loose) |
-| `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **25 analyzers**, IOC matcher, lateral graph |
+| `StrataLinux` | Pure-Swift Linux artifact parsers (no vendored tool): `AuthLogParser` (syslog classic + RFC3339, year inference), `UtmpParser` (384-byte wtmp/btmp records), `ShellHistoryParser` (bash + zsh extended), `LinuxPersistenceParser` (crontabs + systemd units), `LinuxHostInfoParser` (os-release/hostname/passwd/timezone) |
+| `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **28 analyzers**, IOC matcher, lateral graph |
 | `StrataApp` | SwiftUI app. `AppModel` (the store), `CaseStore` (.strata bundle layout), `CaseLibrary`, `RecentCases`, `Views/` (macOS) + `Views/iOS/` |
 
 `.strata` case bundle = a directory: `case.json`, `hosts.json`, `iocs.json`,
@@ -122,16 +126,30 @@ treat it as one item. The macOS-only ingest code is gated `#if os(macOS)`.
 
 Ingestion (E01/VHD/raw + loose KAPE folders), file tree (volume-grouped, deleted
 & slack toggles), MACB timeline (histogram drag-select, gap analysis), EVTX +
-registry + prefetch + Amcache/Shimcache + LNK + JumpList + USN-journal + SRUM + browser-history + `$MFT` + WMI-persistence parsing → host profile, 25 ATT&CK analyzers → kill chain, IOC matching,
+registry + prefetch + Amcache/Shimcache + LNK + JumpList + USN-journal + SRUM + browser-history + `$MFT` + WMI-persistence parsing → host profile, 28 ATT&CK analyzers → kill chain, IOC matching,
 interactive lateral graph, multi-host `.strata` cases, iOS viewer, Case
 Library / iCloud-Drive sync, case reporting & export (HTML/Markdown examiner
 report + CSV/JSON data exports; per-endpoint selection + report severity filter),
 registry explorer (regedit-style hive→key→value browser, macOS + iOS),
 chain of custody & evidence integrity (acquisition metadata, source hashes +
 verification, append-only custody ledger, formal PDF CoC report),
-super-timeline (12 artifact sources incl. registry/prefetch/LNK/JumpList/
+super-timeline (15 artifact sources incl. registry/prefetch/LNK/JumpList/
 amcache/shimcache) + analyst annotations (bookmarks/tags, case narrative,
-report-integrated).
+report-integrated),
+**ext2/3/4 + basic Linux triage** (TSK enumerates ext natively - no toolchain
+change; `StrataLinux` parses auth.log/secure (classic-syslog year inference +
+RFC3339), wtmp/btmp, bash/zsh history, crontabs + systemd units, and
+os-release/hostname/passwd → Linux host profile fallback; 3 Linux sources on
+the timeline; AuthLog/ShellHistory/LinuxPersistence analyzers (SSH brute
+force incl. btmp-only + success-after-burst, reverse shells, download-pipe-
+exec, history tampering, @reboot cron, staging-path services); "Auth &
+Logins" / "Shell History" / "Linux Persistence" tabs + iOS drills. Works for
+ext images via TSK *and* loose UAC-style collections. **Known limits:**
+classic syslog times have no TZ (treated as UTC) and the year is inferred
+from file mtime; `.gz` rotations skipped; journald/lastlog not parsed; plain
+bash history is undated (kept off the timeline); utmp layout assumes the
+standard glibc 384-byte record; not yet E2E-validated against a real ext4
+image - parsers validated against synthetic fixtures).
 Two betas shipped. A full 56-issue view review was completed and remediated.
 
 ## Roadmap

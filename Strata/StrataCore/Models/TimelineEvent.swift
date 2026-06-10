@@ -34,8 +34,11 @@ public enum TimelineSource: String, CaseIterable, Sendable, Codable {
     case srum       = "SRUM"
     case browser    = "BROWSER"
     case mft        = "MFT"
+    case authlog    = "AUTH"
+    case logins     = "LOGIN"
+    case shellHistory = "SHELL"
 
-    public var label: String {
+    public nonisolated var label: String {
         switch self {
         case .filesystem: return "Filesystem"
         case .evtx:       return "Event Log"
@@ -49,6 +52,9 @@ public enum TimelineSource: String, CaseIterable, Sendable, Codable {
         case .srum:       return "SRUM"
         case .browser:    return "Browser History"
         case .mft:        return "MFT"
+        case .authlog:    return "Auth Log"
+        case .logins:     return "Logins"
+        case .shellHistory: return "Shell History"
         }
     }
 }
