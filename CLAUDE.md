@@ -69,7 +69,8 @@ Per-release notes live in `docs/releases/`; keep `CHANGELOG.md` updated.
 | `StrataSRUM` | Parse the SRUM `SRUDB.dat` (ESE database) via `esedbexport` (libesedb); pure `SrumExportDecoder` (`StrataCore`) resolves the export TSV + SruDbIdMapTable foreign keys |
 | `StrataBrowser` | Parse web-browser history — Chromium `History` + Firefox `places.sqlite` (both SQLite) read directly via GRDB (no vendored tool); `BrowserHistoryParser` (macOS) copies the DB to scratch + opens read-only; pure decoders on `BrowserHistoryEntry` (`StrataCore`) |
 | `StrataTimeline` | MACB timeline + gap/session analysis |
-| `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **24 analyzers**, IOC matcher, lateral graph |
+| `StrataCore` (WMI) | Pure-Swift carve of the WMI CIM repository `OBJECTS.DATA` (`WmiRepositoryParser`, `WmiPersistenceEntry`) — no full CIM parse; keyword-carves event-subscription persistence (bindings + WQL filter + command + script payloads), à la PyWMIPersistenceFinder. `OBJECTS.DATA` extracted via icat (images) / read in place (loose) |
+| `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **25 analyzers**, IOC matcher, lateral graph |
 | `StrataApp` | SwiftUI app. `AppModel` (the store), `CaseStore` (.strata bundle layout), `CaseLibrary`, `RecentCases`, `Views/` (macOS) + `Views/iOS/` |
 
 `.strata` case bundle = a directory: `case.json`, `hosts.json`,
@@ -120,7 +121,7 @@ treat it as one item. The macOS-only ingest code is gated `#if os(macOS)`.
 
 Ingestion (E01/VHD/raw + loose KAPE folders), file tree (volume-grouped, deleted
 & slack toggles), MACB timeline (histogram drag-select, gap analysis), EVTX +
-registry + prefetch + Amcache/Shimcache + LNK + JumpList + USN-journal + SRUM + browser-history + `$MFT` parsing → host profile, 24 ATT&CK analyzers → kill chain, IOC matching,
+registry + prefetch + Amcache/Shimcache + LNK + JumpList + USN-journal + SRUM + browser-history + `$MFT` + WMI-persistence parsing → host profile, 25 ATT&CK analyzers → kill chain, IOC matching,
 interactive lateral graph, multi-host `.strata` cases, iOS viewer, Case
 Library / iCloud-Drive sync, case reporting & export (HTML/Markdown examiner
 report + CSV/JSON data exports; per-endpoint selection + report severity filter),
@@ -263,7 +264,27 @@ Two betas shipped. A full 56-issue view review was completed and remediated.
      the read-only-open failure) built in-test via the SQLite3 C API. **Known v1
      limits:** one row per URL (not per individual visit); Firefox downloads
      (stored as `moz_annos`) not parsed.
-   - Still pending: WMI persistence.
+   - ~~**WMI persistence**~~ — **shipped.** `StrataCore` `WmiRepositoryParser` is a
+     pure-Swift **carve** of the WMI CIM repository (`OBJECTS.DATA` under
+     `\Windows\System32\wbem\Repository\`). A full CIM parse (pages + `INDEX.BTR`
+     B-tree) is too involved, so — like FireEye's PyWMIPersistenceFinder — it
+     keyword-carves the high-signal strings of **event-subscription persistence**
+     (T1546.003): `__FilterToConsumerBinding` references (`<Type>EventConsumer.Name="..."`
+     + `__EventFilter.Name="..."`), the filter WQL (`<name>\0\0<query>`), the
+     `CommandLineEventConsumer` command (`marker\0<command>`), and `ActiveScriptEventConsumer`
+     script payloads (a printable-run scan gated on script-execution indicators,
+     so an unbound `Invoke-Mimikatz` consumer is caught too). `WmiPersistenceEntry`
+     (`.binding` / `.scriptConsumer`); per-host `wmi.json`; **no timeline splice**
+     (carve yields no per-object timestamps). `WmiAnalyzer` flags every non-built-in
+     binding (medium; high on a script consumer or a suspicious command/WQL token)
+     and carved script payloads (high), all T1546.003 / `.installation`. macOS
+     `WmiView` + iOS `WmiDrillView`; built-in BVT/SCM subscriptions are flagged and
+     hidden by default. **Validated against a real repository** (flare-wmi's
+     `wmikatz` sample: the BVT binding + WQL + `cscript` command + the
+     `Invoke-Mimikatz` PowerShell payload all extracted). **Known limits:** carve
+     is heuristic (bindings in unallocated repo space, or consumers whose binding
+     wasn't carved, may be missed/partial); built-in subscription names are
+     de-emphasised but the canonical PoC `BVTConsumer` is among them.
 5. **Super-timeline + tagging/notes** — unify FS MACB + EVTX + registry (+ future
    artifacts) into one pivotable timeline; bookmark/tag findings, analyst notes,
    case narrative.

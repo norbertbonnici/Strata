@@ -36,17 +36,20 @@ case "$VERSION" in
     *-beta.*) DEFAULT_BUILD="${VERSION##*-beta.}" ;;
     *)        DEFAULT_BUILD=1 ;;
 esac
-BUILD="${BUILD:-$DEFAULT_BUILD}"
+BUILD_NUMBER="${BUILD:-$DEFAULT_BUILD}"   # CFBundleVersion (numeric)
 TEAM_ID="${TEAM_ID:-96ZD8RMB92}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-strata-notary}"
 SCHEME="Strata"
-APP_NAME="Strata"
+APP_NAME="Strata"                         # release-artifact name (dmg / volume / zip)
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BUILD="$ROOT/build/release"
+BUILD="$ROOT/build/release"               # build/work directory
 ARCHIVE="$BUILD/$APP_NAME.xcarchive"
 EXPORT="$BUILD/export"
-APP="$EXPORT/$APP_NAME.app"
+# The exported bundle is named after the target's PRODUCT_NAME (currently
+# "StrataDFIR"), which differs from APP_NAME — resolve it from the export dir
+# after the export step rather than assuming a name here.
+APP=""
 DMG="$ROOT/build/$APP_NAME-$VERSION.dmg"
 ENTITLEMENTS="$ROOT/scripts/StrataRelease.entitlements"
 EXPORT_PLIST="$ROOT/scripts/ExportOptions-DeveloperID.plist"
@@ -91,7 +94,7 @@ xcodebuild archive \
     CODE_SIGN_ENTITLEMENTS="$ENTITLEMENTS" \
     ENABLE_HARDENED_RUNTIME=YES \
     MARKETING_VERSION="$SHORT_VERSION" \
-    CURRENT_PROJECT_VERSION="$BUILD" \
+    CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
     OTHER_CODE_SIGN_FLAGS="--timestamp"
 
 # ── Export the Developer ID-signed app ─────────────────────────────────────
@@ -100,6 +103,14 @@ xcodebuild -exportArchive \
     -archivePath "$ARCHIVE" \
     -exportOptionsPlist "$EXPORT_PLIST" \
     -exportPath "$EXPORT"
+
+# Resolve the exported bundle by extension — its name follows PRODUCT_NAME
+# (StrataDFIR), not APP_NAME (Strata).
+APP="$(find "$EXPORT" -maxdepth 1 -name '*.app' -print -quit)"
+if [ -z "$APP" ] || [ ! -d "$APP" ]; then
+    echo "ERROR: no .app found in $EXPORT after export." >&2
+    exit 1
+fi
 
 # ── Verify the signature looks right before we spend minutes notarizing ─────
 log "Verifying signature"

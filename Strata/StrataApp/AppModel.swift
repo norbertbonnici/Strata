@@ -28,6 +28,7 @@ nonisolated struct EvidenceState: Sendable {
     var srum: [SrumEntry] = []
     var browserHistory: [BrowserHistoryEntry] = []
     var mft: [MftEntry] = []
+    var wmi: [WmiPersistenceEntry] = []
     var findings: [Finding] = []
     var iocMatches: [IOCMatch] = []
 }
@@ -376,6 +377,7 @@ final class AppModel: ObservableObject {
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: state.mft))
                 state.timeline.sort { $0.date < $1.date }
             }
+            state.wmi = (try? CaseStore.readWmi(forHostID: evidence.id, in: bundleURL)) ?? []
             state.findings = (try? CaseStore.readFindings(forHostID: evidence.id, in: bundleURL)) ?? []
             state.iocMatches = (try? CaseStore.readIOCMatches(forHostID: evidence.id, in: bundleURL)) ?? []
             return .loaded(state)
@@ -683,6 +685,7 @@ final class AppModel: ObservableObject {
         var srum: [SrumEntry] = []
         var browserHistory: [BrowserHistoryEntry] = []
         var mft: [MftEntry] = []
+        var wmi: [WmiPersistenceEntry] = []
         var iocMatches: [IOCMatch] = []
     }
     private var derivedCache: Derived?
@@ -738,6 +741,7 @@ final class AppModel: ObservableObject {
             d.srum = s.srum
             d.browserHistory = s.browserHistory
             d.mft = s.mft
+            d.wmi = s.wmi
             d.iocMatches = s.iocMatches
             return d
         }
@@ -758,6 +762,7 @@ final class AppModel: ObservableObject {
             d.srum.append(contentsOf: s.srum)
             d.browserHistory.append(contentsOf: s.browserHistory)
             d.mft.append(contentsOf: s.mft)
+            d.wmi.append(contentsOf: s.wmi)
             d.iocMatches.append(contentsOf: s.iocMatches)
         }
         d.events.sort { $0.writtenAt < $1.writtenAt }
@@ -796,6 +801,7 @@ final class AppModel: ObservableObject {
     var srum: [SrumEntry] { derived().srum }
     var browserHistory: [BrowserHistoryEntry] { derived().browserHistory }
     var mft: [MftEntry] { derived().mft }
+    var wmi: [WmiPersistenceEntry] { derived().wmi }
     var iocMatches: [IOCMatch] { derived().iocMatches }
 
     // Count-only accessors: sum per-host counts without building or sorting the
@@ -814,6 +820,7 @@ final class AppModel: ObservableObject {
     var srumCount: Int { scopedCount(\.srum.count) }
     var browserHistoryCount: Int { scopedCount(\.browserHistory.count) }
     var mftCount: Int { scopedCount(\.mft.count) }
+    var wmiCount: Int { scopedCount(\.wmi.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
     private func scopedCount(_ kp: KeyPath<EvidenceState, Int>) -> Int {
@@ -1174,6 +1181,7 @@ final class AppModel: ObservableObject {
         await parseSrum()
         await parseBrowserHistory()
         await parseMft()
+        await parseWmi()
         await runAnalyzers()
     }
 
@@ -2057,6 +2065,125 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // MARK: - WMI persistence parsing
+
+    /// Carve the WMI CIM repository (`OBJECTS.DATA`, under
+    /// `\Windows\System32\wbem\Repository\`) for event-subscription persistence
+    /// for every loaded evidence without results. An ordinary file, extracted with
+    /// the plain icat path; the byte carve (`WmiRepositoryParser`) runs off the
+    /// main actor. Mirrors `parseMft`; does NOT run analyzers or splice the timeline.
+    func parseWmi() async {
+        guard !evidenceList.isEmpty else {
+            errorMessage = "No evidence loaded."
+            return
+        }
+        errorMessage = nil
+        isWorking = true
+        defer {
+            isWorking = false
+            progress = nil
+        }
+
+        func candidates(_ state: EvidenceState) -> [FileEntry] {
+            state.files.filter {
+                !$0.isDirectory && $0.size > 0 && $0.name.lowercased() == "objects.data"
+            }
+        }
+
+        let totalCandidates = evidenceList.reduce(0) { acc, evidence in
+            guard let state = states[evidence.id], state.wmi.isEmpty else { return acc }
+            return acc + candidates(state).count
+        }
+        guard totalCandidates > 0 else {
+            statusMessage = "No new WMI repository to parse."
+            return
+        }
+        progress = ProgressInfo(current: 0, total: totalCandidates, label: "Parsing WMI repository")
+        var completed = 0
+
+        do {
+            let tskEnv = try TSKEnvironment.discover()
+
+            for evidence in evidenceList {
+                guard var state = states[evidence.id] else { continue }
+                if !state.wmi.isEmpty { continue }
+
+                let found = candidates(state)
+                guard !found.isEmpty else { continue }
+
+                let isLoose = evidence.kind == .kapeLooseFolder
+                var database: TSKDatabase?
+                var extractor: TSKFileExtractor?
+                var scratch: URL?
+                if !isLoose {
+                    guard let dbURL = state.dbURL else { continue }
+                    database = try TSKDatabase(path: dbURL)
+                    extractor = TSKFileExtractor(
+                        environment: tskEnv,
+                        imageURL: evidence.sourceURL,
+                        imageType: TSKImageIngestor.imageType(for: evidence.sourceURL))
+                    guard let bundleURL = currentCaseBundleURL else { continue }
+                    let dir = CaseStore.wmiScratchDirectory(forHostID: evidence.id, in: bundleURL)
+                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    scratch = dir
+                }
+
+                var collected: [WmiPersistenceEntry] = []
+                for entry in found {
+                    progress = ProgressInfo(current: completed, total: totalCandidates,
+                                            label: "\(evidence.displayName): WMI repository")
+                    let fileURL: URL
+                    if isLoose {
+                        guard let disk = entry.diskURL,
+                              FileManager.default.fileExists(atPath: disk.path) else {
+                            completed += 1; continue
+                        }
+                        fileURL = disk
+                    } else {
+                        guard let info = try database!.fetchExtractInfo(forFileID: entry.id) else {
+                            completed += 1; continue
+                        }
+                        let outURL = scratch!.appendingPathComponent("\(entry.id)-OBJECTS.DATA")
+                        do {
+                            try await extractor!.extract(metaAddr: info.metaAddr,
+                                                         imageOffsetSectors: info.imageOffsetSectors,
+                                                         to: outURL)
+                        } catch {
+                            statusMessage = "\(evidence.displayName): OBJECTS.DATA extract failed (\(error.localizedDescription))"
+                            completed += 1; continue
+                        }
+                        fileURL = outURL
+                    }
+                    // Carve the repository off the main actor (scope the mapped
+                    // region so it isn't held alongside the [UInt8] copy).
+                    let bytes: [UInt8]
+                    if let data = try? Data(contentsOf: fileURL, options: .mappedIfSafe) {
+                        bytes = [UInt8](data)
+                    } else {
+                        completed += 1; continue
+                    }
+                    let source = entry.fullPath
+                    let parsed = await Task.detached(priority: .userInitiated) {
+                        WmiRepositoryParser.parse(bytes: bytes, sourceFile: source)
+                    }.value
+                    collected.append(contentsOf: parsed)
+                    completed += 1
+                }
+
+                state.wmi = collected
+                states[evidence.id] = state
+                if let bundleURL = currentCaseBundleURL {
+                    try? CaseStore.writeWmi(collected, forHostID: evidence.id, in: bundleURL)
+                }
+            }
+            progress = ProgressInfo(current: completed, total: totalCandidates,
+                                    label: "WMI repository parse complete")
+        } catch {
+            self.errorMessage = error.localizedDescription
+            self.statusMessage = ""
+        }
+    }
+
     // MARK: - Registry parsing
 
     /// Locate the standard Windows registry hives in each evidence's file
@@ -2437,7 +2564,8 @@ final class AppModel: ObservableObject {
                                           usn: state.usn,
                                           srum: state.srum,
                                           browserHistory: state.browserHistory,
-                                          mft: state.mft)
+                                          mft: state.mft,
+                                          wmi: state.wmi)
             let results = await analysisEngine.run(on: context)
             state.findings = results
             states[evidence.id] = state

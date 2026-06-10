@@ -17,6 +17,7 @@ public nonisolated struct AnalysisContext: Sendable {
     public let srum: [SrumEntry]
     public let browserHistory: [BrowserHistoryEntry]
     public let mft: [MftEntry]
+    public let wmi: [WmiPersistenceEntry]
 
     public init(files: [FileEntry], events: [EventLogRecord],
                 timeline: [TimelineEvent], registryValues: [RegistryValue],
@@ -24,7 +25,7 @@ public nonisolated struct AnalysisContext: Sendable {
                 shimcache: [ShimcacheEntry] = [], lnk: [LnkEntry] = [],
                 jumpList: [JumpListEntry] = [], usn: [UsnRecord] = [],
                 srum: [SrumEntry] = [], browserHistory: [BrowserHistoryEntry] = [],
-                mft: [MftEntry] = []) {
+                mft: [MftEntry] = [], wmi: [WmiPersistenceEntry] = []) {
         self.files = files
         self.events = events
         self.timeline = timeline
@@ -38,6 +39,7 @@ public nonisolated struct AnalysisContext: Sendable {
         self.srum = srum
         self.browserHistory = browserHistory
         self.mft = mft
+        self.wmi = wmi
     }
 }
 
