@@ -421,6 +421,16 @@ struct MoreTab: View {
                     .buttonStyle(.plain)
                     Divider().background(Theme.hair2).padding(.leading, 50)
                     }
+                    if model.shows(osFamily: .linux) {
+                    NavigationLink {
+                        JournaldDrillView()
+                    } label: {
+                        moreRow(icon: "doc.text.below.ecg", title: "Journal",
+                                trailing: counter(model.journaldCount))
+                    }
+                    .buttonStyle(.plain)
+                    Divider().background(Theme.hair2).padding(.leading, 50)
+                    }
 
                     NavigationLink {
                         LateralDrillView()

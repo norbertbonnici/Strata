@@ -40,6 +40,7 @@ public nonisolated enum CaseStore {
     private static let linuxAccessFilename = "linuxaccess.json"
     private static let webAccessFilename  = "weblog.json"
     private static let packagesFilename   = "packages.json"
+    private static let journaldFilename   = "journald.json"
     private static let findingsFilename   = "findings.json"
     private static let iocsFilename       = "iocs.json"
     private static let iocMatchesFilename = "iocmatches.json"
@@ -450,6 +451,16 @@ public nonisolated enum CaseStore {
                                      forHostID id: UUID, in bundle: URL) throws {
         try writeArray(events, at: hostDirectory(forHostID: id, in: bundle)
             .appendingPathComponent(packagesFilename))
+    }
+
+    public static func readJournald(forHostID id: UUID, in bundle: URL) throws -> [JournaldEntry]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(journaldFilename))
+    }
+    public static func writeJournald(_ entries: [JournaldEntry],
+                                     forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(entries, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(journaldFilename))
     }
 
     // MARK: - Annotations + case notes (case-wide analyst work product)

@@ -38,6 +38,7 @@ nonisolated struct EvidenceState: Sendable {
     var linuxAccess: LinuxAccessInfo?
     var webAccess: [WebAccessLogEntry] = []
     var packages: [PackageEvent] = []
+    var journald: [JournaldEntry] = []
     var findings: [Finding] = []
     var iocMatches: [IOCMatch] = []
     /// OS families detected for this host (from volume fs-types, or a file-tree
@@ -51,7 +52,7 @@ nonisolated struct EvidenceState: Sendable {
     var hasLinuxArtifacts: Bool {
         !authLog.isEmpty || !logins.isEmpty || !shellHistory.isEmpty
             || !linuxPersistence.isEmpty || linuxInfo != nil || linuxAccess != nil
-            || !webAccess.isEmpty || !packages.isEmpty
+            || !webAccess.isEmpty || !packages.isEmpty || !journald.isEmpty
     }
 }
 
@@ -503,13 +504,15 @@ final class AppModel: ObservableObject {
             state.linuxAccess = try? CaseStore.readLinuxAccess(forHostID: evidence.id, in: bundleURL)
             state.webAccess = (try? CaseStore.readWebAccess(forHostID: evidence.id, in: bundleURL)) ?? []
             state.packages = (try? CaseStore.readPackages(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.journald = (try? CaseStore.readJournald(forHostID: evidence.id, in: bundleURL)) ?? []
             if !state.authLog.isEmpty || !state.logins.isEmpty || !state.shellHistory.isEmpty
-                || !state.webAccess.isEmpty || !state.packages.isEmpty {
+                || !state.webAccess.isEmpty || !state.packages.isEmpty || !state.journald.isEmpty {
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: state.authLog))
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: state.logins))
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: state.shellHistory))
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: state.webAccess))
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: state.packages))
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.journald))
                 state.timeline.sort { $0.date < $1.date }
             }
             state.findings = (try? CaseStore.readFindings(forHostID: evidence.id, in: bundleURL)) ?? []
@@ -906,6 +909,7 @@ final class AppModel: ObservableObject {
         var linuxPersistence: [LinuxPersistenceEntry] = []
         var webAccess: [WebAccessLogEntry] = []
         var packages: [PackageEvent] = []
+        var journald: [JournaldEntry] = []
         var iocMatches: [IOCMatch] = []
     }
     private var derivedCache: Derived?
@@ -968,6 +972,7 @@ final class AppModel: ObservableObject {
             d.linuxPersistence = s.linuxPersistence
             d.webAccess = s.webAccess
             d.packages = s.packages
+            d.journald = s.journald
             d.iocMatches = s.iocMatches
             return d
         }
@@ -995,6 +1000,7 @@ final class AppModel: ObservableObject {
             d.linuxPersistence.append(contentsOf: s.linuxPersistence)
             d.webAccess.append(contentsOf: s.webAccess)
             d.packages.append(contentsOf: s.packages)
+            d.journald.append(contentsOf: s.journald)
             d.iocMatches.append(contentsOf: s.iocMatches)
         }
         d.events.sort { $0.writtenAt < $1.writtenAt }
@@ -1015,6 +1021,7 @@ final class AppModel: ObservableObject {
         d.shellHistory.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
         d.webAccess.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
         d.packages.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+        d.journald.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
         return d
     }
 
@@ -1045,6 +1052,7 @@ final class AppModel: ObservableObject {
     var linuxPersistence: [LinuxPersistenceEntry] { derived().linuxPersistence }
     var webAccess: [WebAccessLogEntry] { derived().webAccess }
     var packages: [PackageEvent] { derived().packages }
+    var journald: [JournaldEntry] { derived().journald }
     /// Linux host info for the active scope (tiny; not worth caching). In the
     /// combined scope the first host that has one wins.
     var linuxInfo: LinuxHostInfo? {
@@ -1086,6 +1094,7 @@ final class AppModel: ObservableObject {
     var linuxPersistenceCount: Int { scopedCount(\.linuxPersistence.count) }
     var webAccessCount: Int { scopedCount(\.webAccess.count) }
     var packageCount: Int { scopedCount(\.packages.count) }
+    var journaldCount: Int { scopedCount(\.journald.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
     private func scopedCount(_ kp: KeyPath<EvidenceState, Int>) -> Int {
@@ -2886,6 +2895,7 @@ final class AppModel: ObservableObject {
             case webAccess
             case systemdTimer, initScript, shellInit, xdgAutostart, ldPreload
             case packageDpkg, packageApt, packageYum, packageDnf
+            case journald
         }
 
         func classify(_ entry: FileEntry) -> LinuxKind? {
@@ -2893,6 +2903,12 @@ final class AppModel: ObservableObject {
             let path = entry.fullPath.lowercased()
             let name = entry.name.lowercased()
             let isGz = name.hasSuffix(".gz")
+            // systemd journal: binary, under /var/log/journal/<machine-id>/.
+            // (.journal~ are rotated/corrupt copies - parsed too, best effort.)
+            if path.contains("/var/log/journal/"),
+               name.hasSuffix(".journal") || name.hasSuffix(".journal~") {
+                return .journald
+            }
             if path.contains("/var/log/") {
                 // auth.log / secure incl. rotations (auth.log.2.gz) - the gz is
                 // decompressed in the handler. Other .gz logs aren't parsed here.
@@ -3026,6 +3042,7 @@ final class AppModel: ObservableObject {
                 var access = LinuxAccessInfo()
                 var web: [WebAccessLogEntry] = []
                 var packages: [PackageEvent] = []
+                var journald: [JournaldEntry] = []
 
                 for (entry, kind) in found {
                     progress = ProgressInfo(
@@ -3115,6 +3132,9 @@ final class AppModel: ObservableObject {
                     case .packageDnf:
                         packages.append(contentsOf: PackageParser.parseYumLog(
                             text: text(), sourceFile: entry.fullPath, anchor: entry.modified, manager: .dnf))
+                    case .journald:
+                        journald.append(contentsOf: JournaldParser.parse(
+                            data: data, sourceFile: entry.fullPath))
                     case .systemd:
                         if let unit = LinuxPersistenceParser.parseSystemdUnit(
                             text: String(decoding: data, as: UTF8.self),
@@ -3170,23 +3190,26 @@ final class AppModel: ObservableObject {
                 state.shellHistory = shellHistory
                 web.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
                 packages.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+                journald.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
                 state.linuxPersistence = persistence
                 state.linuxInfo = info.isEmpty ? nil : info
                 state.linuxAccess = access.isEmpty ? nil : access
                 state.webAccess = web
                 state.packages = packages
+                state.journald = journald
                 // Splice the timestamped Linux sources onto the timeline
                 // (mirrors evtx; persistence entries carry no timestamps).
                 state.timeline.removeAll {
                     $0.source == .authlog || $0.source == .logins
                         || $0.source == .shellHistory || $0.source == .weblog
-                        || $0.source == .package
+                        || $0.source == .package || $0.source == .journald
                 }
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: authLog))
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: logins))
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: shellHistory))
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: web))
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: packages))
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: journald))
                 state.timeline.sort { $0.date < $1.date }
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
@@ -3202,6 +3225,7 @@ final class AppModel: ObservableObject {
                     }
                     try? CaseStore.writeWebAccess(web, forHostID: evidence.id, in: bundleURL)
                     try? CaseStore.writePackages(packages, forHostID: evidence.id, in: bundleURL)
+                    try? CaseStore.writeJournald(journald, forHostID: evidence.id, in: bundleURL)
                 }
             }
             progress = ProgressInfo(current: completed, total: totalCandidates,
@@ -3245,7 +3269,8 @@ final class AppModel: ObservableObject {
                                           linuxInfo: state.linuxInfo,
                                           linuxAccess: state.linuxAccess,
                                           webAccess: state.webAccess,
-                                          packages: state.packages)
+                                          packages: state.packages,
+                                          journald: state.journald)
             let results = await analysisEngine.run(on: context)
             state.findings = results
             states[evidence.id] = state

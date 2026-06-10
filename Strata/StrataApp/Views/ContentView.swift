@@ -23,6 +23,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case linuxAccess = "Accounts & SSH"
     case webLogs = "Web Logs"
     case packages = "Packages"
+    case journald = "Journal"
     case lateral = "Lateral"
     case killChain = "Kill Chain"
     case iocs = "IOCs"
@@ -53,6 +54,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .linuxAccess: return "key.horizontal"
         case .webLogs: return "network"
         case .packages: return "shippingbox"
+        case .journald: return "doc.text.below.ecg"
         case .lateral:   return "point.3.connected.trianglepath.dotted"
         case .killChain: return "link"
         case .iocs:      return "scope"
@@ -70,7 +72,8 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .events, .registry, .prefetch, .amcache, .shimcache,
              .lnk, .jumpList, .usn, .srum, .mft, .wmi:
             return .windows
-        case .linuxLogs, .shellHistory, .linuxPersistence, .linuxAccess, .webLogs, .packages:
+        case .linuxLogs, .shellHistory, .linuxPersistence, .linuxAccess, .webLogs,
+             .packages, .journald:
             return .linux
         case .overview, .evidence, .timeline, .browser, .lateral,
              .killChain, .iocs, .annotations, .custody:
@@ -184,6 +187,7 @@ struct ContentView: View {
                 case .linuxAccess: LinuxAccessView()
                 case .webLogs: WebLogView()
                 case .packages: PackageView()
+                case .journald: JournaldView()
                 case .lateral:   LateralMovementView()
                 case .killChain: KillChainView()
                 case .iocs:      IOCView()

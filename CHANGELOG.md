@@ -7,6 +7,24 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ### Added
 
+- **systemd journal (journald) parsing** (new **Journal** tab) — a pure-Swift
+  decoder for the binary journal format (`/var/log/journal/**/*.journal`), no
+  vendored tool. On a modern systemd host the journal is often the *only* place
+  auth/service/kernel events live (`auth.log`/`secure` may not exist), so this
+  closes the biggest Linux log-coverage gap. Parses the `LPKSHHRH` header, the
+  entry-array chain, and entry/data objects — both the legacy and **COMPACT**
+  (systemd ≥ 252, 32-bit offsets) layouts — recovering `MESSAGE`, `_COMM`,
+  `PRIORITY`, `_SYSTEMD_UNIT`, `SYSLOG_IDENTIFIER`, `_PID`, `_HOSTNAME`, etc.
+  **LZ4**-compressed values are inflated via the Compression framework; **XZ/
+  ZSTD** values are skipped (those codecs aren't in the framework — only large
+  compressed MESSAGE bodies are lost; short fields/messages are uncompressed).
+  Entries feed the timeline (new Journal source). A new **Journald** analyzer
+  runs the same SSH brute-force (with success-after-burst escalation) and
+  sudo-failure detections as the auth-log analyzer, over the journal's
+  messages. Priority-coloured macOS table view + iOS drill. Parser validated
+  against journals built byte-by-byte to the documented format (legacy +
+  compact + LZ4).
+
 - **Expanded Linux persistence + package history.** The **Linux Persistence**
   analyzer now sweeps the full set of auto-run locations beyond cron + systemd
   services: **systemd timers**, **`/etc/ld.so.preload`** (library injection —
