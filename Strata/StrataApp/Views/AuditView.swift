@@ -8,6 +8,7 @@ struct AuditView: View {
     @State private var query = ""
     @State private var execOnly = false
     @State private var selectedID: AuditEvent.ID?
+    @State private var sort = [KeyPathComparator(\AuditEvent.sortTime, order: .reverse)]
 
     private static let maxRows = 20_000
 
@@ -27,7 +28,7 @@ struct AuditView: View {
 
     var body: some View {
         let rows = model.audit
-        let all = filtered(rows)
+        let all = filtered(rows).sorted(using: sort)
         let visible = Array(all.prefix(Self.maxRows))
         return Group {
             if rows.isEmpty {
@@ -64,16 +65,16 @@ struct AuditView: View {
     }
 
     private func table(_ visible: [AuditEvent]) -> some View {
-        Table(visible, selection: $selectedID) {
-            TableColumn("Time") { e in
+        Table(visible, selection: $selectedID, sortOrder: $sort) {
+            TableColumn("Time", value: \.sortTime) { e in
                 Text(e.timestamp.map { $0.formatted(date: .numeric, time: .standard) } ?? "—").monospacedDigit()
             }
             .width(min: 130, ideal: 150, max: 170)
-            TableColumn("Type") { e in
+            TableColumn("Type", value: \.recordType) { e in
                 Text(e.recordType).font(.caption).foregroundStyle(.secondary)
             }
             .width(min: 80, ideal: 90, max: 120)
-            TableColumn("Result") { e in
+            TableColumn("Result", value: \.sortResult) { e in
                 if let r = e.result {
                     Text(r).font(.caption.bold()).foregroundStyle(r == "failed" ? .orange : .green)
                 } else if let s = e.success {
@@ -81,7 +82,7 @@ struct AuditView: View {
                 } else { Text("—").foregroundStyle(.secondary) }
             }
             .width(min: 50, ideal: 60, max: 80)
-            TableColumn("Summary") { e in
+            TableColumn("Summary", value: \.summary) { e in
                 Text(e.summary).font(.caption.monospaced()).lineLimit(1).truncationMode(.middle)
             }
         }
@@ -100,6 +101,12 @@ struct AuditView: View {
         }
         #endif
     }
+}
+
+/// Non-optional sort keys for the sortable audit `Table`.
+private extension AuditEvent {
+    var sortTime: Date { timestamp ?? .distantPast }
+    var sortResult: String { result ?? (success.map { $0 ? "ok" : "fail" } ?? "") }
 }
 
 private struct AuditDetailView: View {

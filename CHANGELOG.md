@@ -5,6 +5,42 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Fixed (real ext4-image triage pass)
+
+First end-to-end run against a real Ubuntu ext4 VM image surfaced a batch of
+Linux-path issues, all fixed:
+
+- **New artifact types now backfill into already-parsed cases.** `parseLinux`
+  replaced its coarse "any Linux artifact present → skip host" guard with a
+  per-bucket check: a host is re-parsed when its file tree offers candidates for
+  a bucket (Accounts & SSH, Packages, Journal, System Log, …) that has no data
+  yet. Cases parsed by an earlier build (auth/logins only) now pick up every
+  artifact type added since, instead of being skipped wholesale.
+- **"file is not a database" crash on browser-history parse.** A Linux host
+  carries unrelated files named `History` (IPython, app state); opening one with
+  SQLite threw. The parser now gates on the 16-byte SQLite magic header and
+  silently skips name-collisions, and the "extracted no entries" warning only
+  fires when a *real* browser DB yielded nothing.
+- **Timeline no longer blank on a Linux image.** The default source selection
+  was Event Log only (empty on Linux). It now seeds, once, from the case's
+  populated *bounded* sources (Event Log on Windows; the auth/journal/syslog/
+  login set on Linux); the unbounded sources (filesystem MACB, USN, MFT) stay
+  off until enabled.
+
+### Changed
+
+- **Overview shows Linux host IPs.** A new `LinuxNetworkParser` recovers IPv4
+  addresses from netplan (`/etc/netplan/*.yaml`) and ifupdown
+  (`/etc/network/interfaces`) static config, plus the runtime DHCP lease from the
+  journal's NetworkManager / systemd-networkd / dhclient / avahi lines — the
+  only record of a DHCP-assigned address (validated against a real journal:
+  recovers `192.168.5.160`). Surfaced on the Overview host profile.
+- **Linux artifact tables are column-sortable.** Auth events, login records,
+  journal, system log, audit, packages, shell history, web logs, and last-login
+  tables gained click-to-sort ascending/descending columns (atop the existing
+  text filters). Row-capped tables sort before the cap so the visible slice
+  honours the order.
+
 ### Added
 
 - **auditd, system-log, and lastlog parsing** (new **Audit**, **System Log**,

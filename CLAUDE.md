@@ -73,7 +73,7 @@ Per-release notes live in `docs/releases/`; keep `CHANGELOG.md` updated.
 | `StrataBrowser` | Parse web-browser history — Chromium `History` + Firefox `places.sqlite` (both SQLite) read directly via GRDB (no vendored tool); `BrowserHistoryParser` (macOS) copies the DB to scratch + opens read-only; pure decoders on `BrowserHistoryEntry` (`StrataCore`) |
 | `StrataTimeline` | MACB timeline + per-artifact timeline projections (15 sources) + gap/session analysis |
 | `StrataCore` (WMI) | Pure-Swift carve of the WMI CIM repository `OBJECTS.DATA` (`WmiRepositoryParser`, `WmiPersistenceEntry`) — no full CIM parse; keyword-carves event-subscription persistence (bindings + WQL filter + command + script payloads), à la PyWMIPersistenceFinder. `OBJECTS.DATA` extracted via icat (images) / read in place (loose) |
-| `StrataLinux` | Pure-Swift Linux artifact parsers (no vendored tool): `AuthLogParser` (syslog classic + RFC3339, year inference), `UtmpParser` (384-byte wtmp/btmp records), `ShellHistoryParser` (bash + zsh extended), `LinuxPersistenceParser` (crontabs + systemd units), `LinuxHostInfoParser` (os-release/hostname/passwd/timezone), `LinuxAccessParser` (authorized_keys/known_hosts/sshd_config/sudoers/group/shadow), `WebLogParser` (nginx/apache access logs, CLF + Combined), `PackageParser` (dpkg/apt/yum/dnf logs), `AuditParser` (auditd `audit.log` - groups records by `audit(epoch:serial)`, hex-decodes fields, rebuilds EXECVE cmdlines, resolves syscalls per-arch), `SyslogParser` (general syslog/messages, classified via the shared `SyslogLineScanner` that `AuthLogParser` also uses), `LastlogParser` (292-byte UID-indexed records); `LinuxPersistenceParser` also covers systemd timers, ld.so.preload, XDG autostart, rc.local/init.d, shell-init. Rotated `.gz` logs read via `StrataCore/GzipDecoder` (Compression framework) |
+| `StrataLinux` | Pure-Swift Linux artifact parsers (no vendored tool): `AuthLogParser` (syslog classic + RFC3339, year inference), `UtmpParser` (384-byte wtmp/btmp records), `ShellHistoryParser` (bash + zsh extended), `LinuxPersistenceParser` (crontabs + systemd units), `LinuxHostInfoParser` (os-release/hostname/passwd/timezone), `LinuxAccessParser` (authorized_keys/known_hosts/sshd_config/sudoers/group/shadow), `WebLogParser` (nginx/apache access logs, CLF + Combined), `PackageParser` (dpkg/apt/yum/dnf logs), `AuditParser` (auditd `audit.log` - groups records by `audit(epoch:serial)`, hex-decodes fields, rebuilds EXECVE cmdlines, resolves syscalls per-arch), `SyslogParser` (general syslog/messages, classified via the shared `SyslogLineScanner` that `AuthLogParser` also uses), `LastlogParser` (292-byte UID-indexed records), `LinuxNetworkParser` (host IPv4 from netplan/ifupdown static config + journal NetworkManager/dhclient/avahi DHCP-lease lines → Overview); `LinuxPersistenceParser` also covers systemd timers, ld.so.preload, XDG autostart, rc.local/init.d, shell-init. Rotated `.gz` logs read via `StrataCore/GzipDecoder` (Compression framework) |
 | `StrataCore` (journald) | Pure-Swift decoder of the systemd **journald** binary journal (`JournaldParser`, `JournaldEntry`) — no vendored tool; parses the `LPKSHHRH` header, entry-array chain, entry + data objects (legacy **and** COMPACT le32-offset layouts), recovering `MESSAGE`/`_COMM`/`PRIORITY`/`_SYSTEMD_UNIT`/etc. **LZ4** values inflated via the Compression framework; **XZ/ZSTD** skipped (not in the framework — loses only large compressed MESSAGE bodies). `.journal` extracted via icat (images) / read in place (loose) |
 | `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **35 analyzers**, IOC matcher, lateral graph |
 | `StrataApp` | SwiftUI app. `AppModel` (the store), `CaseStore` (.strata bundle layout), `CaseLibrary`, `RecentCases`, `Views/` (macOS) + `Views/iOS/` |
@@ -172,15 +172,22 @@ scanner analyzer), **package history** (dpkg/apt/yum/dnf → install-timeline +
 offensive-tool-install analyzer), an **expanded persistence sweep** (systemd
 timers, ld.so.preload, XDG autostart, rc.local/init.d, shell-init), and the
 **systemd journal** (`journald` binary parser → Journal tab + SSH/sudo auth
-analyzer) round out the Linux layer. **Known limits:** classic syslog times
-have no TZ (treated as UTC) and the year is inferred from file mtime; `.gz`
-auth/package rotations are read but other `.gz` logs are skipped; journald
-**XZ/ZSTD**-compressed values are skipped (only large MESSAGE bodies — short
-fields/messages are uncompressed); `lastlog` not parsed; plain bash history is
-undated (kept off the timeline); utmp layout assumes the standard glibc
-384-byte record; not yet E2E-validated against a real ext4 image - parsers
-validated against synthetic fixtures (journald against byte-built legacy +
-compact + LZ4 journals).
+analyzer), **auditd / system-log / lastlog**, and **host IP recovery**
+(`LinuxNetworkParser`: netplan + ifupdown static config + journal DHCP-lease →
+Overview) round out the Linux layer. **Validated end-to-end against a real
+Ubuntu ext4 VM image** (`vulnticketing.vmdk`): journald (1162 entries from an
+8 MB journal), RFC3339 syslog, passwd, and DHCP-IP recovery (`192.168.5.160`)
+all confirmed on real evidence; the first real run drove a remediation pass
+(see CHANGELOG: per-bucket re-parse backfill, browser-history SQLite-magic
+guard, timeline default sources, Overview IPs, column-sortable tables).
+**Known limits:** classic syslog times have no TZ (treated as UTC) and the year
+is inferred from file mtime; `.gz` auth/package rotations are read but other
+`.gz` logs are skipped; journald **XZ/ZSTD**-compressed values are skipped
+(only large MESSAGE bodies — short fields/messages are uncompressed); the
+classic `lastlog` binary is parsed but modern Ubuntu (≥ glibc 2.40) migrated to
+an empty `lastlog` + a `lastlog2.db` SQLite store we don't yet read (so last
+logins come from wtmp on those hosts); plain bash history is undated (kept off
+the timeline); utmp layout assumes the standard glibc 384-byte record.
 Two betas shipped. A full 56-issue view review was completed and remediated.
 
 ## Roadmap

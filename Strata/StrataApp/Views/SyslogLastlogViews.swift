@@ -9,6 +9,7 @@ struct SyslogView: View {
     @State private var category: SyslogEntry.Category? = nil
     @State private var includeNoise = false
     @State private var selectedID: SyslogEntry.ID?
+    @State private var sort = [KeyPathComparator(\SyslogEntry.sortTime, order: .reverse)]
 
     private static let maxRows = 20_000
 
@@ -27,7 +28,7 @@ struct SyslogView: View {
 
     var body: some View {
         let rows = model.syslog
-        let all = filtered(rows)
+        let all = filtered(rows).sorted(using: sort)
         let visible = Array(all.prefix(Self.maxRows))
         return Group {
             if rows.isEmpty {
@@ -63,20 +64,20 @@ struct SyslogView: View {
                     }
                     .padding(8)
                     Divider()
-                    Table(visible, selection: $selectedID) {
-                        TableColumn("Time") { e in
+                    Table(visible, selection: $selectedID, sortOrder: $sort) {
+                        TableColumn("Time", value: \.sortTime) { e in
                             Text(e.timestamp.map { $0.formatted(date: .numeric, time: .standard) } ?? "—").monospacedDigit()
                         }
                         .width(min: 130, ideal: 150, max: 170)
-                        TableColumn("Category") { e in
+                        TableColumn("Category", value: \.sortCategory) { e in
                             Text(e.category.label).font(.caption.bold()).foregroundStyle(color(e.category))
                         }
                         .width(min: 90, ideal: 110, max: 140)
-                        TableColumn("Program") { e in
+                        TableColumn("Program", value: \.process) { e in
                             Text(e.process).font(.caption).foregroundStyle(.secondary)
                         }
                         .width(min: 70, ideal: 90, max: 130)
-                        TableColumn("Message") { e in
+                        TableColumn("Message", value: \.message) { e in
                             Text(e.message).font(.caption.monospaced()).lineLimit(1).truncationMode(.tail)
                         }
                     }
@@ -96,11 +97,18 @@ struct SyslogView: View {
     }
 }
 
+/// Non-optional sort keys for the sortable syslog `Table`.
+private extension SyslogEntry {
+    var sortTime: Date { timestamp ?? .distantPast }
+    var sortCategory: String { category.label }
+}
+
 /// /var/log/lastlog - last login per account. One row per account that has ever
 /// logged in.
 struct LastlogView: View {
     @EnvironmentObject private var model: AppModel
     @State private var query = ""
+    @State private var sort = [KeyPathComparator(\LastlogEntry.sortTime, order: .reverse)]
 
     private func filtered(_ rows: [LastlogEntry]) -> [LastlogEntry] {
         guard !query.isEmpty else { return rows }
@@ -113,7 +121,7 @@ struct LastlogView: View {
 
     var body: some View {
         let rows = model.lastlog
-        let visible = filtered(rows)
+        let visible = filtered(rows).sorted(using: sort)
         return Group {
             if rows.isEmpty {
                 ContentUnavailableView {
@@ -139,18 +147,18 @@ struct LastlogView: View {
                     }
                     .padding(8)
                     Divider()
-                    Table(visible) {
-                        TableColumn("Last login") { r in
+                    Table(visible, sortOrder: $sort) {
+                        TableColumn("Last login", value: \.sortTime) { r in
                             Text(r.timestamp.map { $0.formatted(date: .numeric, time: .standard) } ?? "—").monospacedDigit()
                         }
                         .width(min: 130, ideal: 150, max: 170)
-                        TableColumn("Account") { r in Text(r.account).font(.caption) }
+                        TableColumn("Account", value: \.account) { r in Text(r.account).font(.caption) }
                             .width(min: 80, ideal: 110, max: 160)
-                        TableColumn("UID") { r in
+                        TableColumn("UID", value: \.uid) { r in
                             Text(String(r.uid)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                         }
                         .width(min: 44, ideal: 50, max: 70)
-                        TableColumn("From") { r in
+                        TableColumn("From", value: \.sortFrom) { r in
                             Text(r.line + (r.host.isEmpty ? "" : "  \(r.host)")).font(.caption.monospaced())
                         }
                     }
@@ -159,4 +167,10 @@ struct LastlogView: View {
         }
         .navigationTitle(rows.isEmpty ? "Last Login" : "Last Login - \(visible.count) of \(rows.count)")
     }
+}
+
+/// Non-optional sort keys for the sortable lastlog `Table`.
+private extension LastlogEntry {
+    var sortTime: Date { timestamp ?? .distantPast }
+    var sortFrom: String { line + host }
 }

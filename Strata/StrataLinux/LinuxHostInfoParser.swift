@@ -38,6 +38,23 @@ public nonisolated enum LinuxHostInfoParser {
         if let zone { info.timeZone = zone }
     }
 
+    /// Netplan YAML (`/etc/netplan/*.yaml`): static interface addresses.
+    public static func applyNetplan(_ text: String, to info: inout LinuxHostInfo) {
+        mergeIPs(LinuxNetworkParser.parseNetplan(text), into: &info)
+    }
+
+    /// `/etc/network/interfaces` (ifupdown): `address …` lines.
+    public static func applyInterfaces(_ text: String, to info: inout LinuxHostInfo) {
+        mergeIPs(LinuxNetworkParser.parseInterfaces(text), into: &info)
+    }
+
+    /// Append host IPs to `info`, preserving discovery order and deduping.
+    public static func mergeIPs(_ ips: [String], into info: inout LinuxHostInfo) {
+        for ip in ips where !info.ipAddresses.contains(ip) {
+            info.ipAddresses.append(ip)
+        }
+    }
+
     /// `/etc/passwd`: `name:x:uid:gid:gecos:home:shell`.
     public static func applyPasswd(_ text: String, to info: inout LinuxHostInfo) {
         var users: [LinuxUser] = []

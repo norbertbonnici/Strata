@@ -3,11 +3,17 @@ import SwiftUI
 struct TimelineView: View {
     @EnvironmentObject private var model: AppModel
     @State private var enabledKinds: Set<MACBKind> = Set(MACBKind.allCases)
-    /// Default to event logs only. MACB expands to millions of rows on a
-    /// real disk image, so loading them on first render makes the table
-    /// (and gap analysis) sluggish for no immediate analyst value - they
-    /// can re-enable FS when they need it.
+    /// First-render source selection. Seeded once from
+    /// `model.defaultTimelineSources` (the populated *bounded* sources -
+    /// Event Log on Windows, the auth/journal/syslog/login set on Linux) so the
+    /// timeline isn't blank on a non-Windows image. The unbounded sources
+    /// (filesystem MACB, USN, MFT) stay off until the analyst enables them, since
+    /// they expand to millions of rows. `.evtx` is a placeholder until the
+    /// one-time seed runs (see `initSourcesIfNeeded`).
     @State private var enabledSources: Set<TimelineSource> = [.evtx]
+    /// Guards the one-time seed of `enabledSources` so it doesn't clobber the
+    /// analyst's manual source toggles on a later re-render.
+    @State private var didSeedSources = false
     @State private var query = ""
     @State private var dateSelection: ClosedRange<Date>?
     /// Restrict to bookmarked events only (the analyst's pinned story).
@@ -222,19 +228,20 @@ struct TimelineView: View {
         // Consume a pivot request (Annotations list / finding "Reveal in
         // Timeline"): widen the source scope so the target is actually
         // visible, zoom to the range, and clear the request.
-        .onAppear { applyPivotIfPending() }
+        .onAppear { initSourcesIfNeeded(); applyPivotIfPending() }
+        .onChange(of: model.timelineCount) { _, _ in initSourcesIfNeeded() }
         .onChange(of: model.timelinePivot) { _, _ in applyPivotIfPending() }
         .overlay {
             if model.timelineCount == 0 {
                 ContentUnavailableView("No timeline yet", systemImage: "clock",
                     description: Text("Ingest evidence to build a MACB timeline."))
             } else if afterToggles.isEmpty && !isDeriving {
-                // Default scope is EVTX-only; on a case without parsed event
-                // logs this would silently look empty. Nudge the analyst
-                // toward the filesystem toggle.
+                // The default scope is the populated bounded sources; if the
+                // analyst has narrowed Sources (or only unbounded data exists)
+                // this can look empty. Nudge them toward the Sources menu.
                 ContentUnavailableView("No events match",
                     systemImage: "line.3.horizontal.decrease.circle",
-                    description: Text("Toggle Filesystem on or parse event logs to populate this view."))
+                    description: Text("Widen the Sources menu (e.g. enable Filesystem) to populate this view."))
             }
         }
     }
@@ -243,6 +250,15 @@ struct TimelineView: View {
     /// full extent. Cheap, derived from cached state only.
     private var visibleRange: ClosedRange<Date>? {
         dateSelection ?? fullExtent
+    }
+
+    /// Seed `enabledSources` from the case's populated bounded sources, once,
+    /// the first time the timeline has data. Before this runs the selection is
+    /// the `.evtx` placeholder, which is empty (and thus blank) on a Linux image.
+    private func initSourcesIfNeeded() {
+        guard !didSeedSources, model.timelineCount > 0 else { return }
+        enabledSources = model.defaultTimelineSources
+        didSeedSources = true
     }
 
     private func applyPivotIfPending() {

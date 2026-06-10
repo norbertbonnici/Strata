@@ -16,10 +16,12 @@ struct LinuxLogsView: View {
     @State private var query = ""
     @State private var selectedAuthID: AuthLogEntry.ID?
     @State private var selectedLoginID: UtmpRecord.ID?
+    @State private var authSort = [KeyPathComparator(\AuthLogEntry.sortTime, order: .reverse)]
+    @State private var loginSort = [KeyPathComparator(\UtmpRecord.sortTime, order: .reverse)]
 
     var body: some View {
-        let authRows = filteredAuth(model.authLog)
-        let loginRows = filteredLogins(model.logins)
+        let authRows = filteredAuth(model.authLog).sorted(using: authSort)
+        let loginRows = filteredLogins(model.logins).sorted(using: loginSort)
         return Group {
             if model.authLog.isEmpty && model.logins.isEmpty {
                 ContentUnavailableView {
@@ -102,27 +104,27 @@ struct LinuxLogsView: View {
     }
 
     private func authTable(_ rows: [AuthLogEntry]) -> some View {
-        Table(rows, selection: $selectedAuthID) {
-            TableColumn("Time") { e in
+        Table(rows, selection: $selectedAuthID, sortOrder: $authSort) {
+            TableColumn("Time", value: \.sortTime) { e in
                 Text(e.timestamp.map { $0.formatted(date: .numeric, time: .standard) } ?? "—")
                     .monospacedDigit()
             }
             .width(min: 130, ideal: 150, max: 170)
-            TableColumn("Event") { e in
+            TableColumn("Event", value: \.sortEvent) { e in
                 Text(e.kind.label)
                     .font(.caption)
                     .foregroundStyle(authColor(e.kind))
             }
             .width(min: 90, ideal: 100, max: 120)
-            TableColumn("User") { e in
+            TableColumn("User", value: \.sortUser) { e in
                 Text(e.user ?? "—").font(.caption)
             }
             .width(min: 70, ideal: 90, max: 140)
-            TableColumn("Source") { e in
+            TableColumn("Source", value: \.sortSource) { e in
                 Text(e.sourceIP ?? "—").font(.caption.monospaced())
             }
             .width(min: 90, ideal: 110, max: 150)
-            TableColumn("Message") { e in
+            TableColumn("Message", value: \.message) { e in
                 Text("\(e.process): \(e.message)")
                     .font(.caption)
                     .lineLimit(1)
@@ -150,27 +152,27 @@ struct LinuxLogsView: View {
     }
 
     private func loginTable(_ rows: [UtmpRecord]) -> some View {
-        Table(rows, selection: $selectedLoginID) {
-            TableColumn("Time") { r in
+        Table(rows, selection: $selectedLoginID, sortOrder: $loginSort) {
+            TableColumn("Time", value: \.sortTime) { r in
                 Text(r.timestamp.map { $0.formatted(date: .numeric, time: .standard) } ?? "—")
                     .monospacedDigit()
             }
             .width(min: 130, ideal: 150, max: 170)
-            TableColumn("Type") { r in
+            TableColumn("Type", value: \.sortType) { r in
                 Text(r.isFailedLogin ? "Failed login" : r.type.label)
                     .font(.caption)
                     .foregroundStyle(r.isFailedLogin ? .orange : .secondary)
             }
             .width(min: 80, ideal: 95, max: 110)
-            TableColumn("User") { r in
+            TableColumn("User", value: \.user) { r in
                 Text(r.user.isEmpty ? "—" : r.user).font(.caption)
             }
             .width(min: 70, ideal: 90, max: 140)
-            TableColumn("Line") { r in
+            TableColumn("Line", value: \.line) { r in
                 Text(r.line.isEmpty ? "—" : r.line).font(.caption.monospaced())
             }
             .width(min: 60, ideal: 80, max: 110)
-            TableColumn("From") { r in
+            TableColumn("From", value: \.host) { r in
                 Text(r.host.isEmpty ? "—" : r.host).font(.caption.monospaced())
             }
         }
@@ -191,6 +193,20 @@ struct LinuxLogsView: View {
         }
         #endif
     }
+}
+
+/// Non-optional sort keys for the sortable `Table` columns (SwiftUI requires a
+/// `Comparable` value; nil times sort oldest, missing strings sort first).
+private extension AuthLogEntry {
+    var sortTime: Date { timestamp ?? .distantPast }
+    var sortEvent: String { kind.label }
+    var sortUser: String { user ?? "" }
+    var sortSource: String { sourceIP ?? "" }
+}
+
+private extension UtmpRecord {
+    var sortTime: Date { timestamp ?? .distantPast }
+    var sortType: String { isFailedLogin ? "Failed login" : type.label }
 }
 
 private struct AuthDetailView: View {
