@@ -39,6 +39,7 @@ public enum TimelineSource: String, CaseIterable, Sendable, Codable {
     case shellHistory = "SHELL"
     case weblog     = "WEB"
     case package    = "PKG"
+    case journald   = "JRNL"
 
     public nonisolated var label: String {
         switch self {
@@ -59,6 +60,7 @@ public enum TimelineSource: String, CaseIterable, Sendable, Codable {
         case .shellHistory: return "Shell History"
         case .weblog:     return "Web Logs"
         case .package:    return "Packages"
+        case .journald:   return "Journal"
         }
     }
 }

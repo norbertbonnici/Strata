@@ -302,6 +302,78 @@ struct LinuxAccessDrillView: View {
     }
 }
 
+/// systemd journal entries (read-only, capped, errors-first emphasis).
+struct JournaldDrillView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var query = ""
+    @State private var errorsOnly = false
+
+    private var filtered: [JournaldEntry] {
+        var rows = model.journald
+        if errorsOnly { rows = rows.filter { ($0.priority ?? 6) <= 3 } }
+        guard !query.isEmpty else { return rows }
+        return rows.filter {
+            $0.message.localizedCaseInsensitiveContains(query)
+                || ($0.program?.localizedCaseInsensitiveContains(query) ?? false)
+        }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitle(title: "Journal",
+                           subtitle: "\(model.journaldCount) entr\(model.journaldCount == 1 ? "y" : "ies")")
+                Toggle("Errors only", isOn: $errorsOnly)
+                    .font(.subheadline).foregroundStyle(Theme.text).tint(Theme.teal).padding(.top, 10)
+                TextField("Filter message / program...", text: $query)
+                    .textFieldStyle(.roundedBorder).padding(.top, 8)
+                let rows = filtered
+                if rows.isEmpty {
+                    ContentUnavailableView("No journal entries", systemImage: "doc.text.below.ecg").padding(.top, 40)
+                } else {
+                    if rows.count > 500 {
+                        Text("Showing first 500 of \(rows.count).")
+                            .font(.caption2).foregroundStyle(Theme.text3).padding(.top, 6)
+                    }
+                    Card {
+                        ForEach(Array(rows.prefix(500).enumerated()), id: \.element.id) { index, e in
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack {
+                                    Text(e.program ?? "journal")
+                                        .font(.caption.bold()).foregroundStyle(Theme.teal)
+                                    if let p = e.priorityLabel {
+                                        Text(p).font(.caption2)
+                                            .foregroundStyle((e.priority ?? 6) <= 3 ? Theme.high : Theme.text3)
+                                    }
+                                    Spacer()
+                                    if let t = e.timestamp {
+                                        Text(t.formatted(date: .numeric, time: .shortened))
+                                            .font(.caption2.monospacedDigit()).foregroundStyle(Theme.text3)
+                                    }
+                                }
+                                Text(e.message.isEmpty ? "(compressed value unavailable)" : e.message)
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(e.message.isEmpty ? Theme.text3 : Theme.text)
+                                    .lineLimit(3)
+                            }
+                            .padding(.vertical, 5)
+                            if index < min(rows.count, 500) - 1 {
+                                Divider().background(Theme.hair2)
+                            }
+                        }
+                    }
+                }
+                Spacer(minLength: 26)
+            }
+            .padding(.horizontal)
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+    }
+}
+
 /// Package install/remove/upgrade history (read-only, capped).
 struct PackageDrillView: View {
     @EnvironmentObject private var model: AppModel

@@ -74,7 +74,8 @@ Per-release notes live in `docs/releases/`; keep `CHANGELOG.md` updated.
 | `StrataTimeline` | MACB timeline + per-artifact timeline projections (15 sources) + gap/session analysis |
 | `StrataCore` (WMI) | Pure-Swift carve of the WMI CIM repository `OBJECTS.DATA` (`WmiRepositoryParser`, `WmiPersistenceEntry`) — no full CIM parse; keyword-carves event-subscription persistence (bindings + WQL filter + command + script payloads), à la PyWMIPersistenceFinder. `OBJECTS.DATA` extracted via icat (images) / read in place (loose) |
 | `StrataLinux` | Pure-Swift Linux artifact parsers (no vendored tool): `AuthLogParser` (syslog classic + RFC3339, year inference), `UtmpParser` (384-byte wtmp/btmp records), `ShellHistoryParser` (bash + zsh extended), `LinuxPersistenceParser` (crontabs + systemd units), `LinuxHostInfoParser` (os-release/hostname/passwd/timezone), `LinuxAccessParser` (authorized_keys/known_hosts/sshd_config/sudoers/group/shadow), `WebLogParser` (nginx/apache access logs, CLF + Combined), `PackageParser` (dpkg/apt/yum/dnf logs); `LinuxPersistenceParser` also covers systemd timers, ld.so.preload, XDG autostart, rc.local/init.d, shell-init. Rotated `.gz` logs read via `StrataCore/GzipDecoder` (Compression framework) |
-| `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **31 analyzers**, IOC matcher, lateral graph |
+| `StrataCore` (journald) | Pure-Swift decoder of the systemd **journald** binary journal (`JournaldParser`, `JournaldEntry`) — no vendored tool; parses the `LPKSHHRH` header, entry-array chain, entry + data objects (legacy **and** COMPACT le32-offset layouts), recovering `MESSAGE`/`_COMM`/`PRIORITY`/`_SYSTEMD_UNIT`/etc. **LZ4** values inflated via the Compression framework; **XZ/ZSTD** skipped (not in the framework — loses only large compressed MESSAGE bodies). `.journal` extracted via icat (images) / read in place (loose) |
+| `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **32 analyzers**, IOC matcher, lateral graph |
 | `StrataApp` | SwiftUI app. `AppModel` (the store), `CaseStore` (.strata bundle layout), `CaseLibrary`, `RecentCases`, `Views/` (macOS) + `Views/iOS/` |
 
 `.strata` case bundle = a directory: `case.json`, `hosts.json`, `iocs.json`,
@@ -165,12 +166,21 @@ download-pipe-exec, history tampering, @reboot cron, staging-path services,
 **backdoor SSH keys, PermitRootLogin/PermitEmptyPasswords, UID-0/passwordless
 accounts, NOPASSWD sudo, docker-group root-equiv**); "Auth & Logins" /
 "Shell History" / "Linux Persistence" / "Accounts & SSH" tabs + iOS drills.
-Works for ext images via TSK *and* loose UAC-style collections. **Known limits:**
-classic syslog times have no TZ (treated as UTC) and the year is inferred
-from file mtime; `.gz` rotations skipped; journald/lastlog not parsed; plain
-bash history is undated (kept off the timeline); utmp layout assumes the
-standard glibc 384-byte record; not yet E2E-validated against a real ext4
-image - parsers validated against synthetic fixtures).
+Works for ext images via TSK *and* loose UAC-style collections.
+**Web server access logs** (nginx/apache CLF+Combined → exploitation/webshell/
+scanner analyzer), **package history** (dpkg/apt/yum/dnf → install-timeline +
+offensive-tool-install analyzer), an **expanded persistence sweep** (systemd
+timers, ld.so.preload, XDG autostart, rc.local/init.d, shell-init), and the
+**systemd journal** (`journald` binary parser → Journal tab + SSH/sudo auth
+analyzer) round out the Linux layer. **Known limits:** classic syslog times
+have no TZ (treated as UTC) and the year is inferred from file mtime; `.gz`
+auth/package rotations are read but other `.gz` logs are skipped; journald
+**XZ/ZSTD**-compressed values are skipped (only large MESSAGE bodies — short
+fields/messages are uncompressed); `lastlog` not parsed; plain bash history is
+undated (kept off the timeline); utmp layout assumes the standard glibc
+384-byte record; not yet E2E-validated against a real ext4 image - parsers
+validated against synthetic fixtures (journald against byte-built legacy +
+compact + LZ4 journals).
 Two betas shipped. A full 56-issue view review was completed and remediated.
 
 ## Roadmap

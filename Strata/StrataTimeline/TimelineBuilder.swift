@@ -357,6 +357,22 @@ public nonisolated enum TimelineBuilder {
         return out.sorted { $0.date < $1.date }
     }
 
+    /// Project journald entries onto the timeline. `kind` is `.changed`; the
+    /// path encodes the program + message so rows read well and free-text
+    /// search matches. Entries without a timestamp are dropped.
+    public static func build(from entries: [JournaldEntry]) -> [TimelineEvent] {
+        var out: [TimelineEvent] = []
+        out.reserveCapacity(entries.count)
+        for entry in entries {
+            guard let date = entry.timestamp else { continue }
+            let prog = entry.program.map { "\($0): " } ?? ""
+            out.append(TimelineEvent(date: date, kind: .changed, source: .journald,
+                                     fileID: 0, path: "\(prog)\(entry.message)",
+                                     size: 0, isDeleted: false))
+        }
+        return out.sorted { $0.date < $1.date }
+    }
+
     /// Project `$MFT` records onto the timeline as their `$STANDARD_INFORMATION`
     /// MACB rows — the *true* NTFS file timeline (the only real one for loose
     /// collections, which otherwise fall back to collection-host times). One row

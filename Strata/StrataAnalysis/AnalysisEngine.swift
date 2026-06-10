@@ -53,5 +53,6 @@ public nonisolated struct AnalysisEngine: Sendable {
         LinuxAccessAnalyzer(),
         WebLogAnalyzer(),
         PackageAnalyzer(),
+        JournaldAnalyzer(),
     ]
 }
