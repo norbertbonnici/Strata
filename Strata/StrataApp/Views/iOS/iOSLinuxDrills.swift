@@ -227,6 +227,81 @@ struct ShellHistoryDrillView: View {
     }
 }
 
+/// SSH trust + privilege (read-only).
+struct LinuxAccessDrillView: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitle(title: "Accounts & SSH",
+                           subtitle: "\(model.sshKeyCount) SSH key\(model.sshKeyCount == 1 ? "" : "s")")
+                if let access = model.linuxAccess {
+                    if !access.sshKeys.isEmpty {
+                        SectionHeader(label: "SSH keys").padding(.top, 14)
+                        Card {
+                            ForEach(Array(access.sshKeys.enumerated()), id: \.element.id) { index, key in
+                                VStack(alignment: .leading, spacing: 3) {
+                                    HStack {
+                                        Text(key.kind.label)
+                                            .font(.caption.bold()).foregroundStyle(Theme.teal)
+                                        Spacer()
+                                        Text(key.user ?? key.host ?? "—")
+                                            .font(.caption2).foregroundStyle(Theme.text3)
+                                    }
+                                    Text(key.algorithm + (key.comment.isEmpty ? "" : "  \(key.comment)"))
+                                        .font(.caption.monospaced()).foregroundStyle(Theme.text)
+                                        .lineLimit(2).truncationMode(.middle)
+                                    if !key.options.isEmpty {
+                                        Text(key.options.joined(separator: ", "))
+                                            .font(.caption2).foregroundStyle(Theme.high)
+                                            .lineLimit(2)
+                                    }
+                                }
+                                .padding(.vertical, 5)
+                                if index < access.sshKeys.count - 1 {
+                                    Divider().background(Theme.hair2)
+                                }
+                            }
+                        }
+                    }
+                    if !access.sshdSettings.isEmpty {
+                        SectionHeader(label: "sshd_config").padding(.top, 14)
+                        Card {
+                            ForEach(LinuxAccessView.notableSSHD, id: \.0) { key, label in
+                                if let v = access.sshdSettings[key] {
+                                    KVRow(key: label, value: v)
+                                }
+                            }
+                        }
+                    }
+                    let priv = access.groups.filter {
+                        ["sudo","wheel","admin","docker","lxd","adm"].contains($0.name.lowercased())
+                            && !$0.members.isEmpty
+                    }
+                    if !priv.isEmpty {
+                        SectionHeader(label: "Privileged groups").padding(.top, 14)
+                        Card {
+                            ForEach(Array(priv.enumerated()), id: \.offset) { _, g in
+                                KVRow(key: g.name, value: g.members.joined(separator: ", "))
+                            }
+                        }
+                    }
+                } else {
+                    ContentUnavailableView("No access artifacts", systemImage: "key.horizontal")
+                        .padding(.top, 60)
+                }
+                Spacer(minLength: 26)
+            }
+            .padding(.horizontal)
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+    }
+}
+
 /// Cron + systemd persistence entries.
 struct LinuxPersistenceDrillView: View {
     @EnvironmentObject private var model: AppModel

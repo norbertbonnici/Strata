@@ -35,6 +35,7 @@ nonisolated struct EvidenceState: Sendable {
     var shellHistory: [ShellHistoryEntry] = []
     var linuxPersistence: [LinuxPersistenceEntry] = []
     var linuxInfo: LinuxHostInfo?
+    var linuxAccess: LinuxAccessInfo?
     var findings: [Finding] = []
     var iocMatches: [IOCMatch] = []
     /// OS families detected for this host (from volume fs-types, or a file-tree
@@ -47,7 +48,7 @@ nonisolated struct EvidenceState: Sendable {
     /// `state.X.isEmpty` guards of the Windows parsers).
     var hasLinuxArtifacts: Bool {
         !authLog.isEmpty || !logins.isEmpty || !shellHistory.isEmpty
-            || !linuxPersistence.isEmpty || linuxInfo != nil
+            || !linuxPersistence.isEmpty || linuxInfo != nil || linuxAccess != nil
     }
 }
 
@@ -496,6 +497,7 @@ final class AppModel: ObservableObject {
             state.shellHistory = (try? CaseStore.readShellHistory(forHostID: evidence.id, in: bundleURL)) ?? []
             state.linuxPersistence = (try? CaseStore.readLinuxPersistence(forHostID: evidence.id, in: bundleURL)) ?? []
             state.linuxInfo = try? CaseStore.readLinuxInfo(forHostID: evidence.id, in: bundleURL)
+            state.linuxAccess = try? CaseStore.readLinuxAccess(forHostID: evidence.id, in: bundleURL)
             if !state.authLog.isEmpty || !state.logins.isEmpty || !state.shellHistory.isEmpty {
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: state.authLog))
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: state.logins))
@@ -1030,6 +1032,16 @@ final class AppModel: ObservableObject {
     var linuxInfo: LinuxHostInfo? {
         if let id = activeEvidenceID { return states[id]?.linuxInfo }
         return evidenceList.lazy.compactMap { self.states[$0.id]?.linuxInfo }.first
+    }
+    /// Access/privilege artifacts for the active scope (tiny; not cached). In
+    /// the combined scope the first host that has them wins.
+    var linuxAccess: LinuxAccessInfo? {
+        if let id = activeEvidenceID { return states[id]?.linuxAccess }
+        return evidenceList.lazy.compactMap { self.states[$0.id]?.linuxAccess }.first
+    }
+    var sshKeyCount: Int {
+        if let id = activeEvidenceID { return states[id]?.linuxAccess?.sshKeys.count ?? 0 }
+        return evidenceList.reduce(0) { $0 + (states[$1.id]?.linuxAccess?.sshKeys.count ?? 0) }
     }
     var iocMatches: [IOCMatch] { derived().iocMatches }
 
@@ -2848,31 +2860,50 @@ final class AppModel: ObservableObject {
             progress = nil
         }
 
-        enum LinuxKind { case auth, utmp, shellHistory, cron, systemd, sysinfo }
+        enum LinuxKind {
+            case auth, utmp, shellHistory, cron, systemd, sysinfo
+            case sshAuthorized, sshKnown, sshdConfig, sudoers, group, shadow
+        }
 
         func classify(_ entry: FileEntry) -> LinuxKind? {
-            guard !entry.isDirectory, !entry.isDeleted else { return nil }
+            guard !entry.isDirectory, !entry.isDeleted, entry.size > 0 else { return nil }
             let path = entry.fullPath.lowercased()
             let name = entry.name.lowercased()
-            if name.hasSuffix(".gz") { return nil }   // compressed rotations: v1 skips
+            let isGz = name.hasSuffix(".gz")
             if path.contains("/var/log/") {
-                if entry.size > 0, name.hasPrefix("auth.log") || name.hasPrefix("secure") {
+                // auth.log / secure incl. rotations (auth.log.2.gz) - the gz is
+                // decompressed in the handler. Other .gz logs aren't parsed here.
+                if name.hasPrefix("auth.log") || name.hasPrefix("secure") {
                     return .auth
                 }
-                if entry.size > 0, name == "wtmp" || name == "btmp"
+                if !isGz, name == "wtmp" || name == "btmp"
                     || name.hasPrefix("wtmp.") || name.hasPrefix("btmp.") {
                     return .utmp
                 }
             }
-            if entry.size > 0, name == ".bash_history" || name == ".zsh_history" {
+            if isGz { return nil }   // only auth.* rotations are read compressed
+            if name == ".bash_history" || name == ".zsh_history" {
                 return .shellHistory
             }
-            if entry.size > 0, path.hasSuffix("/etc/crontab") || path.contains("/etc/cron.d/")
+            // SSH trust artifacts.
+            if name == "authorized_keys" || name == "authorized_keys2" {
+                return .sshAuthorized
+            }
+            if name == "known_hosts" || path.hasSuffix("/etc/ssh/ssh_known_hosts") {
+                return .sshKnown
+            }
+            if path.hasSuffix("/etc/ssh/sshd_config") { return .sshdConfig }
+            // Privilege.
+            if path.hasSuffix("/etc/sudoers") || path.contains("/etc/sudoers.d/") {
+                return .sudoers
+            }
+            if path.hasSuffix("/etc/group") { return .group }
+            if path.hasSuffix("/etc/shadow") { return .shadow }
+            if path.hasSuffix("/etc/crontab") || path.contains("/etc/cron.d/")
                 || path.contains("/var/spool/cron") {
                 return .cron
             }
-            if entry.size > 0, entry.fileExtension == "service",
-               path.contains("/etc/systemd/system") {
+            if entry.fileExtension == "service", path.contains("/etc/systemd/system") {
                 return .systemd
             }
             if path.hasSuffix("/etc/os-release") || path.hasSuffix("/usr/lib/os-release")
@@ -2931,6 +2962,7 @@ final class AppModel: ObservableObject {
                 var shellHistory: [ShellHistoryEntry] = []
                 var persistence: [LinuxPersistenceEntry] = []
                 var info = LinuxHostInfo()
+                var access = LinuxAccessInfo()
 
                 for (entry, kind) in found {
                     progress = ProgressInfo(
@@ -2955,7 +2987,13 @@ final class AppModel: ObservableObject {
                         fileURL = outURL
                     }
                     // A malformed file shouldn't abort the whole run.
-                    guard let data = try? Data(contentsOf: fileURL) else { continue }
+                    guard let rawData = try? Data(contentsOf: fileURL) else { continue }
+                    // Transparently gunzip rotated auth logs (auth.log.2.gz).
+                    let data: Data = entry.name.lowercased().hasSuffix(".gz")
+                        ? ((try? GzipDecoder.decompress(rawData)) ?? rawData)
+                        : rawData
+                    func text() -> String { String(decoding: data, as: UTF8.self) }
+                    let owner = ShellHistoryParser.user(fromPath: entry.fullPath)
 
                     switch kind {
                     case .utmp:
@@ -2964,7 +3002,7 @@ final class AppModel: ObservableObject {
                             data: data, sourceFile: entry.fullPath, isFailedLogin: isBtmp))
                     case .auth:
                         authLog.append(contentsOf: AuthLogParser.parse(
-                            text: String(decoding: data, as: UTF8.self),
+                            text: text(),
                             sourceFile: entry.fullPath,
                             anchor: entry.modified))
                     case .shellHistory:
@@ -2988,17 +3026,33 @@ final class AppModel: ObservableObject {
                             persistence.append(unit)
                         }
                     case .sysinfo:
-                        let text = String(decoding: data, as: UTF8.self)
+                        let body = text()
                         let path = entry.fullPath.lowercased()
                         if path.hasSuffix("os-release") {
-                            LinuxHostInfoParser.applyOSRelease(text, to: &info)
+                            LinuxHostInfoParser.applyOSRelease(body, to: &info)
                         } else if path.hasSuffix("hostname") {
-                            LinuxHostInfoParser.applyHostname(text, to: &info)
+                            LinuxHostInfoParser.applyHostname(body, to: &info)
                         } else if path.hasSuffix("passwd") {
-                            LinuxHostInfoParser.applyPasswd(text, to: &info)
+                            LinuxHostInfoParser.applyPasswd(body, to: &info)
                         } else if path.hasSuffix("timezone") {
-                            LinuxHostInfoParser.applyTimezone(text, to: &info)
+                            LinuxHostInfoParser.applyTimezone(body, to: &info)
                         }
+                    case .sshAuthorized:
+                        access.sshKeys.append(contentsOf: LinuxAccessParser.parseAuthorizedKeys(
+                            text: text(), user: owner, sourceFile: entry.fullPath))
+                    case .sshKnown:
+                        access.sshKeys.append(contentsOf: LinuxAccessParser.parseKnownHosts(
+                            text: text(), user: owner, sourceFile: entry.fullPath))
+                    case .sshdConfig:
+                        access.sshdSettings.merge(LinuxAccessParser.parseSSHDConfig(text: text())) { _, new in new }
+                        access.sshdSourceFile = entry.fullPath
+                    case .sudoers:
+                        access.sudoRules.append(contentsOf: LinuxAccessParser.parseSudoers(
+                            text: text(), sourceFile: entry.fullPath))
+                    case .group:
+                        access.groups = LinuxAccessParser.parseGroup(text: text())
+                    case .shadow:
+                        access.shadow = LinuxAccessParser.parseShadow(text: text())
                     }
                 }
 
@@ -3012,6 +3066,7 @@ final class AppModel: ObservableObject {
                 state.shellHistory = shellHistory
                 state.linuxPersistence = persistence
                 state.linuxInfo = info.isEmpty ? nil : info
+                state.linuxAccess = access.isEmpty ? nil : access
                 // Splice the timestamped Linux sources onto the timeline
                 // (mirrors evtx; persistence entries carry no timestamps).
                 state.timeline.removeAll {
@@ -3029,6 +3084,9 @@ final class AppModel: ObservableObject {
                     try? CaseStore.writeLinuxPersistence(persistence, forHostID: evidence.id, in: bundleURL)
                     if let linuxInfo = state.linuxInfo {
                         try? CaseStore.writeLinuxInfo(linuxInfo, forHostID: evidence.id, in: bundleURL)
+                    }
+                    if let linuxAccess = state.linuxAccess {
+                        try? CaseStore.writeLinuxAccess(linuxAccess, forHostID: evidence.id, in: bundleURL)
                     }
                 }
             }
@@ -3069,7 +3127,9 @@ final class AppModel: ObservableObject {
                                           authLog: state.authLog,
                                           logins: state.logins,
                                           shellHistory: state.shellHistory,
-                                          linuxPersistence: state.linuxPersistence)
+                                          linuxPersistence: state.linuxPersistence,
+                                          linuxInfo: state.linuxInfo,
+                                          linuxAccess: state.linuxAccess)
             let results = await analysisEngine.run(on: context)
             state.findings = results
             states[evidence.id] = state
