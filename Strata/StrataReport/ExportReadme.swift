@@ -54,6 +54,8 @@ nonisolated enum ExportReadme {
         if name.hasSuffix("-chain-of-custody.html") { return "  — chain-of-custody report (HTML; print to PDF)" }
         if name.hasSuffix("-custody.csv")     { return "  — custody log (CSV)" }
         if name.hasSuffix("-custody.json")    { return "  — custody log (JSON)" }
+        if name.hasSuffix("-annotations.csv") { return "  — analyst annotations (CSV)" }
+        if name.hasSuffix("-annotations.json"){ return "  — analyst annotations (JSON)" }
         return ""
     }
 }

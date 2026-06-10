@@ -130,6 +130,132 @@ public nonisolated enum TimelineBuilder {
         return events.sorted { $0.date < $1.date }
     }
 
+    /// Project registry keys onto the timeline as key last-written events. The
+    /// parse output is per-*value*, but the timestamp libregf surfaces is the
+    /// *key's*, so values are deduped to one event per key write (keyed on
+    /// source hive file + key path + timestamp, so two users' NTUSER hives -
+    /// same logical label - never merge). Keys without a timestamp are dropped.
+    public static func build(from values: [RegistryValue]) -> [TimelineEvent] {
+        var events: [TimelineEvent] = []
+        var seen = Set<String>()
+        for value in values {
+            guard let date = value.lastWritten else { continue }
+            let key = "\(value.sourceFile)|\(value.hive)|\(value.path)|\(date.timeIntervalSinceReferenceDate.bitPattern)"
+            guard seen.insert(key).inserted else { continue }
+            events.append(TimelineEvent(date: date,
+                                        kind: .modified,
+                                        source: .registry,
+                                        fileID: 0,
+                                        path: "\(value.fullPath)  [key written]",
+                                        size: 0,
+                                        isDeleted: false))
+        }
+        return events.sorted { $0.date < $1.date }
+    }
+
+    /// Project prefetch entries onto the timeline - one event per *recorded*
+    /// run timestamp (up to 8 on Win8+). Execution evidence is the single
+    /// highest-signal artifact on the timeline, so each run is its own row.
+    public static func build(from entries: [PrefetchEntry]) -> [TimelineEvent] {
+        var events: [TimelineEvent] = []
+        events.reserveCapacity(entries.count * 2)
+        for entry in entries {
+            for run in entry.lastRunTimes {
+                events.append(TimelineEvent(date: run,
+                                            kind: .changed,
+                                            source: .prefetch,
+                                            fileID: 0,
+                                            path: "\(entry.executableName)  [executed; \(entry.runCount) runs total]",
+                                            size: 0,
+                                            isDeleted: false))
+            }
+        }
+        return events.sorted { $0.date < $1.date }
+    }
+
+    /// Project Shimcache entries onto the timeline. The timestamp is the
+    /// target's `$SI` last-modified *as captured by AppCompat* - presence
+    /// evidence, not execution - so the row says so.
+    public static func build(from entries: [ShimcacheEntry]) -> [TimelineEvent] {
+        var events: [TimelineEvent] = []
+        events.reserveCapacity(entries.count)
+        for entry in entries {
+            guard let date = entry.lastModified else { continue }
+            events.append(TimelineEvent(date: date,
+                                        kind: .modified,
+                                        source: .shimcache,
+                                        fileID: 0,
+                                        path: "\(entry.path)  [shimcache presence]",
+                                        size: 0,
+                                        isDeleted: false))
+        }
+        return events.sorted { $0.date < $1.date }
+    }
+
+    /// Project Amcache entries onto the timeline at their registry-key write
+    /// time (~ when Windows inventoried the binary - first-seen, not run time).
+    public static func build(from entries: [AmcacheEntry]) -> [TimelineEvent] {
+        var events: [TimelineEvent] = []
+        events.reserveCapacity(entries.count)
+        for entry in entries {
+            guard let date = entry.registeredAt else { continue }
+            events.append(TimelineEvent(date: date,
+                                        kind: .changed,
+                                        source: .amcache,
+                                        fileID: 0,
+                                        path: "\(entry.fullPath ?? entry.name)  [amcache registered]",
+                                        size: 0,
+                                        isDeleted: false))
+        }
+        return events.sorted { $0.date < $1.date }
+    }
+
+    /// Project LNK shortcuts onto the timeline as the *target's* MAC times as
+    /// of the access that wrote the shortcut - file-access evidence that
+    /// survives the target's deletion. One event per non-nil timestamp.
+    public static func build(from entries: [LnkEntry]) -> [TimelineEvent] {
+        var events: [TimelineEvent] = []
+        events.reserveCapacity(entries.count * 2)
+        for entry in entries {
+            let target = entry.targetPath ?? entry.name
+            let macb: [(Date?, MACBKind)] = [
+                (entry.targetModified, .modified),
+                (entry.targetAccessed, .accessed),
+                (entry.targetCreated, .born),
+            ]
+            for (date, kind) in macb {
+                guard let date else { continue }
+                events.append(TimelineEvent(date: date,
+                                            kind: kind,
+                                            source: .lnk,
+                                            fileID: 0,
+                                            path: "\(target)  [lnk: \(entry.name)]",
+                                            size: entry.targetSize ?? 0,
+                                            isDeleted: false))
+            }
+        }
+        return events.sorted { $0.date < $1.date }
+    }
+
+    /// Project JumpList destinations onto the timeline at their DestList
+    /// last-access time - a true per-target user-activity timestamp. Custom
+    /// destinations (no DestList) carry no time and are dropped.
+    public static func build(from entries: [JumpListEntry]) -> [TimelineEvent] {
+        var events: [TimelineEvent] = []
+        events.reserveCapacity(entries.count)
+        for entry in entries {
+            guard let date = entry.lastAccessed else { continue }
+            events.append(TimelineEvent(date: date,
+                                        kind: .accessed,
+                                        source: .jumplist,
+                                        fileID: 0,
+                                        path: "\(entry.targetPath ?? entry.name)  [jumplist: \(entry.application ?? entry.appID)]",
+                                        size: 0,
+                                        isDeleted: false))
+        }
+        return events.sorted { $0.date < $1.date }
+    }
+
     /// Project `$MFT` records onto the timeline as their `$STANDARD_INFORMATION`
     /// MACB rows — the *true* NTFS file timeline (the only real one for loose
     /// collections, which otherwise fall back to collection-host times). One row

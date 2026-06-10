@@ -68,12 +68,13 @@ Per-release notes live in `docs/releases/`; keep `CHANGELOG.md` updated.
 | `StrataCore` (MFT) | Pure-Swift NTFS `$MFT` byte-parser (`MftParser`, `MftEntry`, `MftNode` tree, `FileTime`) — no vendored tool; applies the USA fixup, decodes `$SI` + `$FN` MACB as **raw FILETIME** (`FileTime.precise` renders the full 100-ns string; `Date` is lossy), resolves paths from parent refs, and captures **resident `$DATA`** (small-file recovery). Enables timestomp detection ($SI vs $FN) and true loose-folder MACB. `$MFT` extracted via icat (images) / read in place (loose) |
 | `StrataSRUM` | Parse the SRUM `SRUDB.dat` (ESE database) via `esedbexport` (libesedb); pure `SrumExportDecoder` (`StrataCore`) resolves the export TSV + SruDbIdMapTable foreign keys |
 | `StrataBrowser` | Parse web-browser history — Chromium `History` + Firefox `places.sqlite` (both SQLite) read directly via GRDB (no vendored tool); `BrowserHistoryParser` (macOS) copies the DB to scratch + opens read-only; pure decoders on `BrowserHistoryEntry` (`StrataCore`) |
-| `StrataTimeline` | MACB timeline + gap/session analysis |
+| `StrataTimeline` | MACB timeline + per-artifact timeline projections (12 sources) + gap/session analysis |
 | `StrataCore` (WMI) | Pure-Swift carve of the WMI CIM repository `OBJECTS.DATA` (`WmiRepositoryParser`, `WmiPersistenceEntry`) — no full CIM parse; keyword-carves event-subscription persistence (bindings + WQL filter + command + script payloads), à la PyWMIPersistenceFinder. `OBJECTS.DATA` extracted via icat (images) / read in place (loose) |
 | `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **25 analyzers**, IOC matcher, lateral graph |
 | `StrataApp` | SwiftUI app. `AppModel` (the store), `CaseStore` (.strata bundle layout), `CaseLibrary`, `RecentCases`, `Views/` (macOS) + `Views/iOS/` |
 
-`.strata` case bundle = a directory: `case.json`, `hosts.json`,
+`.strata` case bundle = a directory: `case.json`, `hosts.json`, `iocs.json`,
+`custody.json`, `annotations.json`, `notes.json`,
 `hosts/<uuid>/{tsk.db, events.json, registry.json, findings.json, iocmatches.json}`.
 Registered as a **package UTI** (`com.bonnicilabs.strata-case`) so Finder/Files
 treat it as one item. The macOS-only ingest code is gated `#if os(macOS)`.
@@ -127,7 +128,10 @@ Library / iCloud-Drive sync, case reporting & export (HTML/Markdown examiner
 report + CSV/JSON data exports; per-endpoint selection + report severity filter),
 registry explorer (regedit-style hive→key→value browser, macOS + iOS),
 chain of custody & evidence integrity (acquisition metadata, source hashes +
-verification, append-only custody ledger, formal PDF CoC report).
+verification, append-only custody ledger, formal PDF CoC report),
+super-timeline (12 artifact sources incl. registry/prefetch/LNK/JumpList/
+amcache/shimcache) + analyst annotations (bookmarks/tags, case narrative,
+report-integrated).
 Two betas shipped. A full 56-issue view review was completed and remediated.
 
 ## Roadmap
@@ -300,9 +304,33 @@ Two betas shipped. A full 56-issue view review was completed and remediated.
      is heuristic (bindings in unallocated repo space, or consumers whose binding
      wasn't carved, may be missed/partial); built-in subscription names are
      de-emphasised but the canonical PoC `BVTConsumer` is among them.
-5. **Super-timeline + tagging/notes** — unify FS MACB + EVTX + registry (+ future
-   artifacts) into one pivotable timeline; bookmark/tag findings, analyst notes,
-   case narrative.
+5. ~~**Super-timeline + tagging/notes**~~ — **shipped.** The timeline now
+   unifies **12 sources**: the existing FS MACB / EVTX / USN / SRUM / browser /
+   `$MFT` plus **registry key writes** (deduped to one event per key, keyed per
+   hive *file* so two users' NTUSER never merge; spliced macOS-only like the FS
+   MACB - phone-hostile row counts), **prefetch runs** (one event per recorded
+   run time), **shimcache/amcache presence**, **LNK target MACs**, and
+   **JumpList DestList accesses** - all folded in at load and re-spliced after
+   parse (`removeAll(source:)` + append, the evtx pattern; see
+   `TimelineBuilder`). The source chips became a checkable **Sources menu**
+   (12 don't fit inline). **Tagging/notes:** `Annotation` (closed `AnalystTag`
+   set - malicious/suspicious/benign/follow-up - + free note, carrying a
+   denormalized title/timestamp/source snapshot) and `CaseNotes` (free-form
+   case narrative) persist **case-wide** (`annotations.json` / `notes.json`,
+   custody-ledger style, so per-host re-parses can't touch them). Targets key
+   off **stable identity**: `Finding.id` / `TimelineEvent.stableKey`
+   (content-derived - the parse-time `TimelineEvent.id` UUID is rebuilt every
+   load). Bookmark from the timeline (row context menu, star column,
+   "Bookmarked" filter) or the kill-chain inspector (star button); review in
+   the new **Annotations** tab (narrative editor with debounced autosave,
+   tag-filterable bookmark table, **Reveal in Timeline** pivot →
+   `AppModel.timelinePivot` switches tab + zooms ±30 min); iOS gets a
+   read-only Annotations drill. The examiner report gains **Analyst
+   narrative** + **Bookmarked items** sections (MD + HTML), and annotations
+   export as CSV/JSON. **Known limits:** a timeline bookmark's host
+   attribution is the active scope at bookmark time (nil under "All");
+   annotation editing is macOS-only; the narrative is plain text (rendered
+   verbatim into the report).
 6. **Global search** across files/events/registry/timeline.
 7. ~~**`$MFT` / `$FN` parsing → timestomping detection**~~ — **shipped.**
    `StrataCore` `MftParser` is a pure-Swift `$MFT` byte-parser (no vendored tool,

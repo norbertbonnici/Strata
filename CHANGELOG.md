@@ -7,6 +7,34 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ### Added
 
+- **Super-timeline** — the timeline now unifies **12 artifact sources**. New
+  splices: **registry key writes** (deduped to one event per key; kept per
+  hive *file* so two users' NTUSER hives stay distinct), **prefetch runs**
+  (one event per recorded run time — execution evidence on the timeline),
+  **shimcache** and **amcache** presence timestamps, **LNK target MAC times**
+  (file-access evidence that survives the target's deletion), and **JumpList
+  DestList access times**. The source filter became a compact checkable
+  **Sources** menu. The registry splice is macOS-only (like the FS MACB
+  timeline) to protect iPhone memory.
+- **Analyst annotations & case narrative** (new **Annotations** tab) — the
+  tagging/notes layer of the analyst workflow:
+  - **Bookmark any timeline event or finding** — right-click a timeline row or
+    click the star in the kill-chain inspector — with a verdict **tag**
+    (Malicious / Suspicious / Benign / Follow up) and a free-form **note**.
+    Bookmarked timeline rows show a tag-colored star and a **Bookmarked**
+    filter; bookmarks survive re-parses by keying off stable identities
+    (`Finding.id`, a content-derived `TimelineEvent.stableKey`), persisted
+    case-wide in `annotations.json`.
+  - **Case narrative** — a free-form running "story of the incident"
+    (`notes.json`), edited in the Annotations tab with debounced autosave.
+  - **Annotations tab** — narrative editor + tag-filterable bookmark table,
+    chronological by the target's own timestamp, with edit/delete and a
+    **Reveal in Timeline** pivot that jumps the Timeline tab to ±30 minutes
+    around the bookmarked moment. iOS gains a read-only Annotations drill.
+  - **Report integration** — the examiner report (Markdown + HTML) gains
+    **Analyst narrative** and **Bookmarked items** sections, and annotations
+    export as CSV/JSON alongside the other data exports.
+
 - **WMI persistence parsing** (new **WMI** tab) — carves the WMI CIM repository
   (`OBJECTS.DATA`) for **event-subscription persistence** (T1546.003). A full CIM
   parse is intractable, so — like FireEye's PyWMIPersistenceFinder — it

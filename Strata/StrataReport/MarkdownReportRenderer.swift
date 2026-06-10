@@ -36,6 +36,25 @@ public nonisolated enum MarkdownReportRenderer {
             out += "\n"
         }
 
+        // Analyst narrative + bookmarked items - the case story as the analyst
+        // pinned it, ahead of the per-host detail.
+        if !model.narrative.isEmpty {
+            out += "## Analyst narrative\n\n"
+            out += model.narrative + "\n\n"
+        }
+        if !model.bookmarks.isEmpty {
+            out += "## Bookmarked items\n\n"
+            out += "| Time | Tag | Source | Item | Note |\n|---|---|---|---|---|\n"
+            for bookmark in model.bookmarks {
+                out += "| \(ReportFormat.display(bookmark.timestamp)) "
+                out += "| \(bookmark.tag?.label ?? "—") "
+                out += "| \(escapeCell(bookmark.sourceLabel)) "
+                out += "| \(escapeCell(bookmark.title)) "
+                out += "| \(escapeCell(bookmark.note)) |\n"
+            }
+            out += "\n"
+        }
+
         for host in model.hostSections {
             out += renderHost(host)
         }

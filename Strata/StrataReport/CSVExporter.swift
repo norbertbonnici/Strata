@@ -67,4 +67,17 @@ public nonisolated enum CSVExporter {
                 [ReportFormat.iso(r.timestamp), r.action, r.actor, r.detail, r.evidence]
             })
     }
+
+    public static func annotations(_ rows: [AnnotationExportRow]) -> String {
+        assemble(
+            header: ["target_timestamp_iso", "tag", "target_kind", "source",
+                     "title", "note", "author", "created_iso", "modified_iso",
+                     "evidence"],
+            rows: rows.map { r in
+                [ReportFormat.iso(r.targetTimestamp), r.tag, r.targetKind,
+                 r.source, r.title, r.note, r.author,
+                 ReportFormat.iso(r.created), ReportFormat.iso(r.modified),
+                 r.evidence]
+            })
+    }
 }

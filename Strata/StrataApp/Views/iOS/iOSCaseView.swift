@@ -353,6 +353,15 @@ struct MoreTab: View {
                     Divider().background(Theme.hair2).padding(.leading, 50)
 
                     NavigationLink {
+                        AnnotationsDrillView()
+                    } label: {
+                        moreRow(icon: "bookmark", title: "Annotations",
+                                trailing: counter(model.annotations.count))
+                    }
+                    .buttonStyle(.plain)
+                    Divider().background(Theme.hair2).padding(.leading, 50)
+
+                    NavigationLink {
                         CustodyDrillView()
                     } label: {
                         moreRow(icon: "checkmark.seal", title: "Chain of custody",

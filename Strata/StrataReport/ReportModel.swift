@@ -40,6 +40,11 @@ public nonisolated struct ReportModel: Sendable {
     public let examiner: String
     public let createdAt: Date
     public let generatedAt: Date
+    /// The analyst's free-form case narrative; empty when none was written.
+    public let narrative: String
+    /// Analyst bookmarks, chronological by the target's own timestamp
+    /// (undated last) - the pinned "story" items.
+    public let bookmarks: [Annotation]
     public let hostSections: [HostSection]
     public let totalFindings: Int
     public let totalIOCMatches: Int

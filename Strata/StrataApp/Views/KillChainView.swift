@@ -266,9 +266,14 @@ private struct GroupDetailPane: View {
 }
 
 private struct FindingRow: View {
+    @EnvironmentObject private var model: AppModel
     let finding: Finding
     let isExpanded: Bool
     let toggle: () -> Void
+
+    private var annotation: Annotation? {
+        model.annotation(forTargetKey: finding.id.uuidString)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -292,6 +297,21 @@ private struct FindingRow: View {
                         .font(.caption2)
                     }
                     Spacer()
+                    #if os(macOS)
+                    Button {
+                        model.activeSheet = .annotationEditor(
+                            AnnotationDraft(finding: finding,
+                                            evidenceID: model.evidenceID(forFinding: finding.id)))
+                    } label: {
+                        Image(systemName: annotation == nil ? "bookmark" : "bookmark.fill")
+                            .foregroundStyle(annotation == nil
+                                ? AnyShapeStyle(.secondary)
+                                : AnyShapeStyle(AnnotationStyle.color(for: annotation?.tag)))
+                    }
+                    .buttonStyle(.borderless)
+                    .help(annotation == nil ? "Bookmark this finding"
+                                            : "Edit bookmark (\(annotation?.tag?.label ?? "no tag"))")
+                    #endif
                 }
             }
             .buttonStyle(.plain)

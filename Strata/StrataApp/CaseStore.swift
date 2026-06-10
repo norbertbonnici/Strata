@@ -36,6 +36,8 @@ public nonisolated enum CaseStore {
     private static let iocsFilename       = "iocs.json"
     private static let iocMatchesFilename = "iocmatches.json"
     private static let custodyFilename    = "custody.json"
+    private static let annotationsFilename = "annotations.json"
+    private static let notesFilename      = "notes.json"
 
     // MARK: - URLs
 
@@ -348,6 +350,39 @@ public nonisolated enum CaseStore {
 
     public static func writeCustody(_ events: [CustodyEvent], in bundle: URL) throws {
         try writeArray(events, at: custodyFileURL(in: bundle))
+    }
+
+    // MARK: - Annotations + case notes (case-wide analyst work product)
+    //
+    // Bookmarks/tags and the case narrative live at the bundle root, like the
+    // custody ledger: they reference findings and timeline events across hosts
+    // and must survive per-host re-parses (artifact JSON rewrites) untouched.
+
+    public static func annotationsFileURL(in bundle: URL) -> URL {
+        bundle.appendingPathComponent(annotationsFilename)
+    }
+
+    public static func readAnnotations(in bundle: URL) throws -> [Annotation] {
+        try readArrayIfPresent(at: annotationsFileURL(in: bundle)) ?? []
+    }
+
+    public static func writeAnnotations(_ annotations: [Annotation], in bundle: URL) throws {
+        try writeArray(annotations, at: annotationsFileURL(in: bundle))
+    }
+
+    public static func notesFileURL(in bundle: URL) -> URL {
+        bundle.appendingPathComponent(notesFilename)
+    }
+
+    public static func readNotes(in bundle: URL) throws -> CaseNotes {
+        let url = notesFileURL(in: bundle)
+        guard FileManager.default.fileExists(atPath: url.path) else { return CaseNotes() }
+        return try jsonDecoder.decode(CaseNotes.self, from: Data(contentsOf: url))
+    }
+
+    public static func writeNotes(_ notes: CaseNotes, in bundle: URL) throws {
+        let data = try jsonEncoder.encode(notes)
+        try data.write(to: notesFileURL(in: bundle), options: .atomic)
     }
 
     private static func readArrayIfPresent<T: Decodable>(at url: URL) throws -> [T]? {

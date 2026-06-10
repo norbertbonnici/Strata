@@ -10,6 +10,10 @@ struct TimelineView: View {
     @State private var enabledSources: Set<TimelineSource> = [.evtx]
     @State private var query = ""
     @State private var dateSelection: ClosedRange<Date>?
+    /// Restrict to bookmarked events only (the analyst's pinned story).
+    @State private var bookmarksOnly = false
+    /// Table selection - enables the row context menu (bookmarking).
+    @State private var selection = Set<TimelineEvent.ID>()
     /// TSK emits a `<name>-slack` pseudo-entry for every allocated cluster's
     /// trailing slack. They carry epoch (1980) timestamps that swamp the
     /// histogram and clutter the table, so we hide them by default.
@@ -50,6 +54,8 @@ struct TimelineView: View {
         let hideSlack: Bool
         let query: String
         let gapThresholdMinutes: Int
+        let bookmarksOnly: Bool
+        let annotationCount: Int   // re-derive the bookmark filter on add/remove
     }
 
     private var deriveKey: DeriveKey {
@@ -58,7 +64,9 @@ struct TimelineView: View {
                   sources: enabledSources,
                   hideSlack: hideSlack,
                   query: query,
-                  gapThresholdMinutes: gapThresholdMinutes)
+                  gapThresholdMinutes: gapThresholdMinutes,
+                  bookmarksOnly: bookmarksOnly,
+                  annotationCount: model.annotations.count)
     }
 
     private struct TableKey: Equatable {
@@ -86,16 +94,34 @@ struct TimelineView: View {
                         .controlSize(.small)
                 }
                 Divider().frame(height: 16)
-                ForEach(TimelineSource.allCases, id: \.self) { source in
-                    Toggle(source.label, isOn: Binding(
-                        get: { enabledSources.contains(source) },
-                        set: { on in
-                            if on { enabledSources.insert(source) } else { enabledSources.remove(source) }
-                        }))
-                        .toggleStyle(.button)
-                        .controlSize(.small)
-                        .help("Restrict the timeline (and Gap Analysis) to \(source.label.lowercased()) events.")
+                // Twelve sources no longer fit as inline chips - a menu of
+                // checkable toggles keeps the bar usable at any window width.
+                Menu {
+                    ForEach(TimelineSource.allCases, id: \.self) { source in
+                        Toggle(source.label, isOn: Binding(
+                            get: { enabledSources.contains(source) },
+                            set: { on in
+                                if on { enabledSources.insert(source) } else { enabledSources.remove(source) }
+                            }))
+                    }
+                    Divider()
+                    Button("All sources") { enabledSources = Set(TimelineSource.allCases) }
+                    Button("Event Log only") { enabledSources = [.evtx] }
+                } label: {
+                    Text("Sources (\(enabledSources.count)/\(TimelineSource.allCases.count))")
                 }
+                #if os(macOS)
+                .menuStyle(.borderedButton)
+                #endif
+                .controlSize(.small)
+                .fixedSize()
+                .help("Restrict the timeline (and Gap Analysis) to the checked artifact sources.")
+                Toggle(isOn: $bookmarksOnly) {
+                    Label("Bookmarked", systemImage: "bookmark")
+                }
+                .toggleStyle(.button)
+                .controlSize(.small)
+                .help("Show only events the analyst has bookmarked.")
                 Divider().frame(height: 16)
                 Toggle("Hide slack", isOn: $hideSlack)
                     .toggleStyle(.button)
@@ -139,7 +165,18 @@ struct TimelineView: View {
                 .background(Color.secondary.opacity(0.08))
             }
 
-            Table(tableRows) {
+            // Snapshot once per body - row closures run for up to 20k rows
+            // and must not hit the model per row beyond a dict lookup.
+            let annotationIndex = model.annotationsByTargetKey
+            Table(tableRows, selection: $selection) {
+                TableColumn("") { e in
+                    if let a = annotationIndex[e.stableKey] {
+                        Image(systemName: "bookmark.fill")
+                            .foregroundStyle(AnnotationStyle.color(for: a.tag))
+                            .help(a.note.isEmpty ? (a.tag?.label ?? "Bookmarked") : a.note)
+                    }
+                }
+                .width(min: 18, ideal: 18, max: 22)
                 TableColumn("Time") { e in
                     Text(e.date.formatted(date: .numeric, time: .standard)).monospacedDigit()
                 }
@@ -157,6 +194,23 @@ struct TimelineView: View {
                     }
                 }
             }
+            .contextMenu(forSelectionType: TimelineEvent.ID.self) { ids in
+                if let id = ids.first,
+                   let event = tableRows.first(where: { $0.id == id }) {
+                    let bookmarked = annotationIndex[event.stableKey] != nil
+                    Button(bookmarked ? "Edit Bookmark…" : "Add Bookmark…") {
+                        model.activeSheet = .annotationEditor(
+                            AnnotationDraft(event: event, evidenceID: model.activeEvidenceID))
+                    }
+                    if bookmarked {
+                        Button("Remove Bookmark", role: .destructive) {
+                            if let a = annotationIndex[event.stableKey] {
+                                model.removeAnnotation(a.id)
+                            }
+                        }
+                    }
+                }
+            }
         }
         .navigationTitle("Timeline - \(tableTotal.formatted()) events")
         .task(id: deriveKey) {
@@ -165,6 +219,11 @@ struct TimelineView: View {
         .task(id: tableKey) {
             await deriveTableRows()
         }
+        // Consume a pivot request (Annotations list / finding "Reveal in
+        // Timeline"): widen the source scope so the target is actually
+        // visible, zoom to the range, and clear the request.
+        .onAppear { applyPivotIfPending() }
+        .onChange(of: model.timelinePivot) { _, _ in applyPivotIfPending() }
         .overlay {
             if model.timelineCount == 0 {
                 ContentUnavailableView("No timeline yet", systemImage: "clock",
@@ -184,6 +243,15 @@ struct TimelineView: View {
     /// full extent. Cheap, derived from cached state only.
     private var visibleRange: ClosedRange<Date>? {
         dateSelection ?? fullExtent
+    }
+
+    private func applyPivotIfPending() {
+        guard let pivot = model.timelinePivot else { return }
+        enabledSources = Set(TimelineSource.allCases)
+        bookmarksOnly = false
+        query = ""
+        dateSelection = pivot.range
+        model.timelinePivot = nil
     }
 
     @ViewBuilder
@@ -293,12 +361,17 @@ struct TimelineView: View {
         let hideSlackLocal = hideSlack
         let queryLocal = query
         let threshold = TimeInterval(max(1, gapThresholdMinutes) * 60)
+        // Snapshot the bookmarked keys (Sendable) for the detached filter.
+        let bookmarkedKeys: Set<String>? = bookmarksOnly
+            ? Set(model.annotations.filter { $0.targetKind == .timelineEvent }.map(\.targetKey))
+            : nil
         let result: ([TimelineEvent], ClosedRange<Date>?, [ActivitySession], [QuietGap]) = await Task.detached(priority: .userInitiated) {
             let filtered = source.filter { event in
                 guard kinds.contains(event.kind),
                       sources.contains(event.source),
                       hideSlackLocal == false || !event.path.hasSuffix("-slack")
                 else { return false }
+                if let bookmarkedKeys, !bookmarkedKeys.contains(event.stableKey) { return false }
                 if queryLocal.isEmpty { return true }
                 if event.path.localizedCaseInsensitiveContains(queryLocal) { return true }
                 // Event-ID search: "4624" should match Security:4624 rows

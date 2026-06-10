@@ -24,6 +24,12 @@ public enum MACBKind: String, CaseIterable, Sendable, Codable {
 public enum TimelineSource: String, CaseIterable, Sendable, Codable {
     case filesystem = "FS"
     case evtx       = "EVTX"
+    case registry   = "REG"
+    case prefetch   = "PF"
+    case shimcache  = "SHIM"
+    case amcache    = "AMC"
+    case lnk        = "LNK"
+    case jumplist   = "JUMP"
     case usn        = "USN"
     case srum       = "SRUM"
     case browser    = "BROWSER"
@@ -33,6 +39,12 @@ public enum TimelineSource: String, CaseIterable, Sendable, Codable {
         switch self {
         case .filesystem: return "Filesystem"
         case .evtx:       return "Event Log"
+        case .registry:   return "Registry"
+        case .prefetch:   return "Prefetch"
+        case .shimcache:  return "Shimcache"
+        case .amcache:    return "Amcache"
+        case .lnk:        return "LNK"
+        case .jumplist:   return "JumpLists"
         case .usn:        return "USN Journal"
         case .srum:       return "SRUM"
         case .browser:    return "Browser History"
@@ -68,5 +80,14 @@ public nonisolated struct TimelineEvent: Identifiable, Hashable, Sendable {
         self.date = date; self.kind = kind; self.source = source; self.fileID = fileID
         self.path = path; self.size = size; self.isDeleted = isDeleted
         self.eventID = eventID
+    }
+
+    /// Content-derived identity that survives reloads. `id` is a fresh UUID per
+    /// parse (the timeline is rebuilt from artifacts on every case open), so
+    /// anything persisted *about* an event - an analyst bookmark - keys off
+    /// this instead. The date uses the raw bit pattern: artifact decoding is
+    /// deterministic, and formatting a Double would risk locale/rounding drift.
+    public var stableKey: String {
+        "\(source.rawValue)|\(kind.rawValue)|\(date.timeIntervalSinceReferenceDate.bitPattern)|\(eventID ?? 0)|\(path)"
     }
 }
