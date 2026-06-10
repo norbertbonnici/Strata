@@ -38,6 +38,7 @@ public nonisolated enum CaseStore {
     private static let linuxPersistenceFilename = "linuxpersistence.json"
     private static let linuxInfoFilename  = "linuxinfo.json"
     private static let linuxAccessFilename = "linuxaccess.json"
+    private static let webAccessFilename  = "weblog.json"
     private static let findingsFilename   = "findings.json"
     private static let iocsFilename       = "iocs.json"
     private static let iocMatchesFilename = "iocmatches.json"
@@ -428,6 +429,16 @@ public nonisolated enum CaseStore {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
         try jsonEncoder.encode(access).write(to: url, options: .atomic)
+    }
+
+    public static func readWebAccess(forHostID id: UUID, in bundle: URL) throws -> [WebAccessLogEntry]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(webAccessFilename))
+    }
+    public static func writeWebAccess(_ entries: [WebAccessLogEntry],
+                                      forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(entries, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(webAccessFilename))
     }
 
     // MARK: - Annotations + case notes (case-wide analyst work product)

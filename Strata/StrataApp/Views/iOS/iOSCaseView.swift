@@ -401,6 +401,16 @@ struct MoreTab: View {
                     .buttonStyle(.plain)
                     Divider().background(Theme.hair2).padding(.leading, 50)
                     }
+                    if model.shows(osFamily: .linux) {
+                    NavigationLink {
+                        WebLogDrillView()
+                    } label: {
+                        moreRow(icon: "network", title: "Web Logs",
+                                trailing: counter(model.webAccessCount))
+                    }
+                    .buttonStyle(.plain)
+                    Divider().background(Theme.hair2).padding(.leading, 50)
+                    }
 
                     NavigationLink {
                         LateralDrillView()

@@ -302,6 +302,76 @@ struct LinuxAccessDrillView: View {
     }
 }
 
+/// Web access-log requests (read-only, capped, errors-first emphasis).
+struct WebLogDrillView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var query = ""
+    @State private var onlyErrors = false
+
+    private var filtered: [WebAccessLogEntry] {
+        var rows = model.webAccess
+        if onlyErrors { rows = rows.filter { $0.status >= 400 } }
+        guard !query.isEmpty else { return rows }
+        return rows.filter {
+            $0.target.localizedCaseInsensitiveContains(query)
+                || $0.clientIP.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitle(title: "Web Logs",
+                           subtitle: "\(model.webAccessCount) request\(model.webAccessCount == 1 ? "" : "s")")
+                Toggle("Errors only (4xx/5xx)", isOn: $onlyErrors)
+                    .font(.subheadline).foregroundStyle(Theme.text).tint(Theme.teal)
+                    .padding(.top, 10)
+                TextField("Filter path / IP...", text: $query)
+                    .textFieldStyle(.roundedBorder).padding(.top, 8)
+
+                let rows = filtered
+                if rows.isEmpty {
+                    ContentUnavailableView("No requests", systemImage: "network").padding(.top, 40)
+                } else {
+                    if rows.count > 500 {
+                        Text("Showing first 500 of \(rows.count).")
+                            .font(.caption2).foregroundStyle(Theme.text3).padding(.top, 6)
+                    }
+                    Card {
+                        ForEach(Array(rows.prefix(500).enumerated()), id: \.element.id) { index, e in
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack {
+                                    Text("\(e.method) \(e.status)")
+                                        .font(.caption.bold().monospacedDigit())
+                                        .foregroundStyle(e.status >= 400 ? Theme.high : Theme.teal)
+                                    Text(e.clientIP).font(.caption2.monospaced()).foregroundStyle(Theme.text2)
+                                    Spacer()
+                                    if let t = e.timestamp {
+                                        Text(t.formatted(date: .numeric, time: .shortened))
+                                            .font(.caption2.monospacedDigit()).foregroundStyle(Theme.text3)
+                                    }
+                                }
+                                Text(e.target).font(.caption.monospaced()).foregroundStyle(Theme.text)
+                                    .lineLimit(2).truncationMode(.middle)
+                            }
+                            .padding(.vertical, 5)
+                            if index < min(rows.count, 500) - 1 {
+                                Divider().background(Theme.hair2)
+                            }
+                        }
+                    }
+                }
+                Spacer(minLength: 26)
+            }
+            .padding(.horizontal)
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+    }
+}
+
 /// Cron + systemd persistence entries.
 struct LinuxPersistenceDrillView: View {
     @EnvironmentObject private var model: AppModel
