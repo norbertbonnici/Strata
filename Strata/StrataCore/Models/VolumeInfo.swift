@@ -23,17 +23,25 @@ public nonisolated struct VolumeInfo: Identifiable, Hashable, Sendable {
         return "\(fsType) · \(size)"
     }
 
-    /// Map TSK's `fs_type` code to a readable name. This TSK build uses
-    /// NTFS=1, FAT12=2, FAT16=4, FAT32=8, exFAT=0x0a, FAT(detect)=0x0e.
+    /// Map TSK's `fs_type` code (the `TSK_FS_TYPE_ENUM` bitmask) to a readable
+    /// name. NTFS=1, FAT12=2, FAT16=4, FAT32=8, exFAT=0x0a, FAT(detect)=0x0e,
+    /// ext2=0x80, ext3=0x100, ext4=0x2000, HFS=0x1000, APFS=0x8000.
     public static func fsTypeName(_ code: Int) -> String {
         switch code {
-        case 1:    return "NTFS"
-        case 2:    return "FAT12"
-        case 4:    return "FAT16"
-        case 8:    return "FAT32"
-        case 0x0a: return "exFAT"
-        case 0x0e: return "FAT"
-        default:   return "FS(0x" + String(code, radix: 16) + ")"
+        case 1:      return "NTFS"
+        case 2:      return "FAT12"
+        case 4:      return "FAT16"
+        case 8:      return "FAT32"
+        case 0x0a:   return "exFAT"
+        case 0x0e:   return "FAT"
+        case 0x80:   return "Ext2"
+        case 0x100:  return "Ext3"
+        case 0x2000: return "Ext4"
+        case 0x2180: return "ExtX"   // EXT_DETECT (ext2|ext3|ext4)
+        case 0x1000: return "HFS+"
+        case 0x8000: return "APFS"
+        case 0x800:  return "ISO9660"
+        default:     return "FS(0x" + String(code, radix: 16) + ")"
         }
     }
 }

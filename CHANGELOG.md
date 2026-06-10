@@ -7,6 +7,17 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ### Added
 
+- **Per-OS artifact tabs.** Tabs that can't apply to an evidence item's OS are
+  now hidden — a Linux (ext4) case no longer shows Registry / Prefetch / EVTX /
+  Amcache / MFT / WMI etc., and a Windows case hides the Auth & Logins / Shell
+  History / Linux Persistence tabs. The OS is detected per host from its
+  filesystem type (NTFS ⇒ Windows, ext ⇒ Linux), with a file-tree fallback for
+  loose collection folders. Hiding follows the active scope — the combined "All"
+  view shows the union across hosts, and anything undetermined shows everything.
+  A **"Show all tabs"** toggle reveals the hidden tabs when needed (shown only
+  when something is actually hidden). Browser History stays visible on both
+  (Chrome/Firefox run on either OS). Also: ext2/3/4, HFS+, and APFS volumes now
+  get proper names in the Evidence/volume labels instead of `FS(0x…)`.
 - **ext3/4 support + basic Linux triage.** The vendored Sleuth Kit already
   enumerates ext2/3/4, so Linux disk images get the file tree and FS MACB
   timeline like Windows images do (loose UAC-style collection folders work

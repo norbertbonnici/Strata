@@ -54,6 +54,23 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .custody:   return "checkmark.seal"
         }
     }
+
+    /// The OS whose artifacts this tab shows, or nil for cross-platform tabs
+    /// (always visible). Used to hide tabs that can't apply to the evidence's
+    /// OS - a registry hive can't exist on ext4, `auth.log` can't on NTFS.
+    /// Browser history is cross-platform (Chrome/Firefox run on both).
+    var osFamily: OSFamily? {
+        switch self {
+        case .events, .registry, .prefetch, .amcache, .shimcache,
+             .lnk, .jumpList, .usn, .srum, .mft, .wmi:
+            return .windows
+        case .linuxLogs, .shellHistory, .linuxPersistence:
+            return .linux
+        case .overview, .evidence, .timeline, .browser, .lateral,
+             .killChain, .iocs, .annotations, .custody:
+            return nil
+        }
+    }
 }
 
 struct ContentView: View {
@@ -115,15 +132,25 @@ struct ContentView: View {
     }
 
     #if os(macOS)
+    /// Tabs visible for the current scope: cross-platform tabs plus the OS
+    /// tabs that apply to the loaded evidence (all of them under "Show all").
+    private var visibleSidebarItems: [SidebarItem] {
+        SidebarItem.allCases.filter { model.shows(osFamily: $0.osFamily) }
+    }
+
     private var caseBody: some View {
         NavigationSplitView {
-            List(SidebarItem.allCases, selection: $item) { entry in
-                Label(entry.rawValue, systemImage: entry.symbol).tag(entry)
+            VStack(spacing: 0) {
+                List(visibleSidebarItems, selection: $item) { entry in
+                    Label(entry.rawValue, systemImage: entry.symbol).tag(entry)
+                }
+                // Hide the List's own scroll background so the Theme.bg2 paints
+                // straight through; otherwise the sidebar reads as system-dark
+                // gray and clashes with the deep blue-teal in the detail pane.
+                .scrollContentBackground(.hidden)
+                .background(Theme.bg2)
+                sidebarOSFooter
             }
-            // Hide the List's own scroll background so the Theme.bg2 paints
-            // straight through; otherwise the sidebar reads as system-dark
-            // gray and clashes with the deep blue-teal in the detail pane.
-            .scrollContentBackground(.hidden)
             .background(Theme.bg2)
             .navigationTitle(model.currentCase?.name ?? "Strata")
             .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 320)
@@ -162,6 +189,12 @@ struct ContentView: View {
             .onChange(of: model.timelinePivot) { _, pivot in
                 if pivot != nil { item = .timeline }
             }
+            // If the scope change hides the currently-selected tab (e.g.
+            // switching from a Linux host to a Windows one with Shell History
+            // selected), fall back to Overview so the detail pane isn't stuck
+            // on a now-hidden, empty tab.
+            .onChange(of: model.activeEvidenceID) { _, _ in clampSelection() }
+            .onChange(of: model.showAllArtifactTabs) { _, _ in clampSelection() }
             .toolbar {
                 ToolbarItem(placement: .navigation) {
                     EvidenceScopePicker()
@@ -204,6 +237,35 @@ struct ContentView: View {
                 }
             }
             #endif
+        }
+    }
+
+    /// Shown only when the OS filter is actually doing something - a single-OS
+    /// scope (some tabs hidden) or the override already on. Lets the analyst
+    /// reveal the hidden tabs without cluttering a mixed/undetermined case.
+    @ViewBuilder
+    private var sidebarOSFooter: some View {
+        let someHidden = visibleSidebarItems.count < SidebarItem.allCases.count
+        if someHidden || model.showAllArtifactTabs {
+            Divider()
+            Toggle(isOn: $model.showAllArtifactTabs) {
+                Label("Show all tabs", systemImage: "rectangle.stack")
+                    .font(.caption)
+            }
+            .toggleStyle(.checkbox)
+            .controlSize(.small)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .help("Show artifact tabs for every OS, even ones the loaded evidence doesn't use.")
+        }
+    }
+
+    /// Reset the selection to Overview when the current tab is no longer
+    /// visible for the scope.
+    private func clampSelection() {
+        if let current = item, !model.shows(osFamily: current.osFamily) {
+            item = .overview
         }
     }
     #endif
