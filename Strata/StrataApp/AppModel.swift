@@ -49,15 +49,6 @@ nonisolated struct EvidenceState: Sendable {
     /// hiding. Computed once when the working set is assembled.
     var osFamilies: Set<OSFamily> = []
 
-    /// Whether any Linux artifact has been parsed for this host - the
-    /// "already done" guard `parseLinux` uses (mirrors the per-artifact
-    /// `state.X.isEmpty` guards of the Windows parsers).
-    var hasLinuxArtifacts: Bool {
-        !authLog.isEmpty || !logins.isEmpty || !shellHistory.isEmpty
-            || !linuxPersistence.isEmpty || linuxInfo != nil || linuxAccess != nil
-            || !webAccess.isEmpty || !packages.isEmpty || !journald.isEmpty
-            || !audit.isEmpty || !syslog.isEmpty || !lastlog.isEmpty
-    }
 }
 
 /// A one-shot "reveal this range on the Timeline tab" request. The token makes
@@ -1131,6 +1122,36 @@ final class AppModel: ObservableObject {
         return evidenceList.reduce(0) { $0 + (states[$1.id]?[keyPath: kp] ?? 0) }
     }
 
+    /// The Timeline's first-render source selection. The unbounded sources
+    /// (filesystem MACB, USN, MFT, registry) are deliberately excluded - they
+    /// expand to millions of rows and make the table sluggish for no immediate
+    /// value - so we default to the *bounded, high-signal* sources that are
+    /// actually populated for this case: Event Log on Windows, the auth/journal/
+    /// syslog/package/login set on Linux, plus prefetch/browser/SRUM. Derived
+    /// from the cheap per-artifact counts (no timeline scan). Falls back to
+    /// Event Log, then filesystem, so the timeline is never blank when data
+    /// exists.
+    var defaultTimelineSources: Set<TimelineSource> {
+        var s: Set<TimelineSource> = []
+        if eventCount > 0 { s.insert(.evtx) }
+        // Linux (all bounded).
+        if authLogCount > 0 { s.insert(.authlog) }
+        if loginsCount > 0 { s.insert(.logins) }
+        if journaldCount > 0 { s.insert(.journald) }
+        if syslogCount > 0 { s.insert(.syslog) }
+        if auditCount > 0 { s.insert(.auditd) }
+        if packageCount > 0 { s.insert(.package) }
+        if lastlogCount > 0 { s.insert(.lastlog) }
+        if webAccessCount > 0 { s.insert(.weblog) }
+        if shellHistoryCount > 0 { s.insert(.shellHistory) }
+        // Windows bounded execution / usage.
+        if prefetchCount > 0 { s.insert(.prefetch) }
+        if browserHistoryCount > 0 { s.insert(.browser) }
+        if srumCount > 0 { s.insert(.srum) }
+        if s.isEmpty { s.insert(eventCount > 0 ? .evtx : .filesystem) }
+        return s
+    }
+
     // MARK: - Per-OS tab visibility
 
     /// When true, every artifact tab is shown regardless of the evidence OS -
@@ -2162,6 +2183,10 @@ final class AppModel: ObservableObject {
             let tskEnv = try TSKEnvironment.discover()
             var hostsTouched = 0
             var hostsCollected = 0
+            // A Linux host carries unrelated files named `History` (IPython, etc.);
+            // count how many candidates were *actually* SQLite databases so an
+            // image with only name-collisions reports "none found", not "corrupt".
+            var realDatabasesSeen = 0
 
             for evidence in evidenceList {
                 guard var state = states[evidence.id] else { continue }
@@ -2227,6 +2252,7 @@ final class AppModel: ObservableObject {
                     // (mirrors parseRegistry) so it isn't indistinguishable from
                     // "nothing was ever parsed".
                     let source = entry.fullPath
+                    if BrowserHistoryParser.isSQLiteDatabase(at: fileURL) { realDatabasesSeen += 1 }
                     do {
                         let parsed = try await Task.detached(priority: .userInitiated) {
                             try BrowserHistoryParser.parse(fileAt: fileURL, sourceFile: source)
@@ -2253,8 +2279,14 @@ final class AppModel: ObservableObject {
             }
             progress = ProgressInfo(current: completed, total: totalCandidates,
                                     label: "Browser history parse complete")
-            if hostsTouched > 0, hostsCollected == 0 {
+            if realDatabasesSeen > 0, hostsCollected == 0 {
+                // Real SQLite browser DBs were present but yielded nothing - a
+                // genuine problem (unreadable/corrupt/schema drift).
                 errorMessage = "Browser history parse extracted no entries - check that the History / places.sqlite databases are accessible and not corrupt."
+            } else if hostsTouched > 0, realDatabasesSeen == 0 {
+                // Only files *named* History/places.sqlite that aren't databases
+                // (common on Linux servers with no browser installed) - expected.
+                statusMessage = "No browser history databases found."
             }
         } catch {
             self.errorMessage = error.localizedDescription
@@ -3031,6 +3063,14 @@ final class AppModel: ObservableObject {
                 || path.hasSuffix("/etc/timezone") {
                 return .sysinfo
             }
+            // Network configuration → host IPs for the Overview.
+            if path.contains("/etc/netplan/"), name.hasSuffix(".yaml") || name.hasSuffix(".yml") {
+                return .sysinfo
+            }
+            if path.hasSuffix("/etc/network/interfaces")
+                || path.contains("/etc/network/interfaces.d/") {
+                return .sysinfo
+            }
             return nil
         }
 
@@ -3038,8 +3078,62 @@ final class AppModel: ObservableObject {
             state.files.compactMap { entry in classify(entry).map { (entry, $0) } }
         }
 
+        // A host is parsed once *per artifact bucket*: each `LinuxKind` feeds one
+        // bucket (the per-tab data set). We re-parse a host when its file tree
+        // offers candidates for a bucket that has no data in state yet - which is
+        // how cases parsed by an older build backfill newly-added artifact types
+        // (journald/syslog/packages/accounts/sysinfo) instead of being skipped
+        // wholesale by a coarse "any Linux artifact present" guard. The re-parse
+        // is a full rebuild from the (stable) file tree, so already-filled buckets
+        // are re-derived identically - no clobber.
+        enum LinuxBucket: Hashable {
+            case auth, logins, shellHistory, persistence, sysinfo, access
+            case web, packages, journald, audit, syslog, lastlog
+        }
+        func bucket(for kind: LinuxKind) -> LinuxBucket {
+            switch kind {
+            case .auth: return .auth
+            case .utmp: return .logins
+            case .shellHistory: return .shellHistory
+            case .cron, .systemd, .systemdTimer, .initScript, .shellInit,
+                 .ldPreload, .xdgAutostart: return .persistence
+            case .sysinfo: return .sysinfo
+            case .sshAuthorized, .sshKnown, .sshdConfig, .sudoers, .group, .shadow:
+                return .access
+            case .webAccess: return .web
+            case .packageDpkg, .packageApt, .packageYum, .packageDnf: return .packages
+            case .journald: return .journald
+            case .audit: return .audit
+            case .syslog: return .syslog
+            case .lastlog: return .lastlog
+            }
+        }
+        func neededBuckets(_ state: EvidenceState) -> Set<LinuxBucket> {
+            Set(candidates(state).map { bucket(for: $0.1) })
+        }
+        func filledBuckets(_ state: EvidenceState) -> Set<LinuxBucket> {
+            var s: Set<LinuxBucket> = []
+            if !state.authLog.isEmpty { s.insert(.auth) }
+            if !state.logins.isEmpty { s.insert(.logins) }
+            if !state.shellHistory.isEmpty { s.insert(.shellHistory) }
+            if !state.linuxPersistence.isEmpty { s.insert(.persistence) }
+            if state.linuxInfo != nil { s.insert(.sysinfo) }
+            if state.linuxAccess != nil { s.insert(.access) }
+            if !state.webAccess.isEmpty { s.insert(.web) }
+            if !state.packages.isEmpty { s.insert(.packages) }
+            if !state.journald.isEmpty { s.insert(.journald) }
+            if !state.audit.isEmpty { s.insert(.audit) }
+            if !state.syslog.isEmpty { s.insert(.syslog) }
+            if !state.lastlog.isEmpty { s.insert(.lastlog) }
+            return s
+        }
+        /// Parse this host when any bucket it has candidates for is still empty.
+        func needsParse(_ state: EvidenceState) -> Bool {
+            !neededBuckets(state).subtracting(filledBuckets(state)).isEmpty
+        }
+
         let totalCandidates = evidenceList.reduce(0) { acc, evidence in
-            guard let state = states[evidence.id], !state.hasLinuxArtifacts else { return acc }
+            guard let state = states[evidence.id], needsParse(state) else { return acc }
             return acc + candidates(state).count
         }
         guard totalCandidates > 0 else {
@@ -3054,7 +3148,7 @@ final class AppModel: ObservableObject {
 
             for evidence in evidenceList {
                 guard var state = states[evidence.id] else { continue }
-                if state.hasLinuxArtifacts { continue }
+                guard needsParse(state) else { continue }
                 let found = candidates(state)
                 guard !found.isEmpty else { continue }
 
@@ -3207,6 +3301,10 @@ final class AppModel: ObservableObject {
                             LinuxHostInfoParser.applyPasswd(body, to: &info)
                         } else if path.hasSuffix("timezone") {
                             LinuxHostInfoParser.applyTimezone(body, to: &info)
+                        } else if path.contains("/netplan/") {
+                            LinuxHostInfoParser.applyNetplan(body, to: &info)
+                        } else if path.contains("/network/interfaces") {
+                            LinuxHostInfoParser.applyInterfaces(body, to: &info)
                         }
                     case .sshAuthorized:
                         access.sshKeys.append(contentsOf: LinuxAccessParser.parseAuthorizedKeys(
@@ -3259,6 +3357,12 @@ final class AppModel: ObservableObject {
                     }
                 }
                 lastlog.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+                // Recover the host's runtime IP from the journal's DHCP/avahi
+                // lease lines - the only record of a DHCP-assigned address. Done
+                // after journald is built so static config (netplan) lists first.
+                for ip in journald.flatMap({ LinuxNetworkParser.leaseAddresses(inMessage: $0.message) }) {
+                    LinuxHostInfoParser.mergeIPs([ip], into: &info)
+                }
                 state.linuxPersistence = persistence
                 state.linuxInfo = info.isEmpty ? nil : info
                 state.linuxAccess = access.isEmpty ? nil : access

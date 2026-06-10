@@ -9,6 +9,7 @@ struct WebLogView: View {
     @State private var query = ""
     @State private var onlyErrors = false   // 4xx/5xx only
     @State private var selectedID: WebAccessLogEntry.ID?
+    @State private var sort = [KeyPathComparator(\WebAccessLogEntry.sortTime, order: .reverse)]
 
     private static let maxRows = 20_000
 
@@ -28,7 +29,7 @@ struct WebLogView: View {
 
     var body: some View {
         let rows = model.webAccess
-        let all = filtered(rows)
+        let all = filtered(rows).sorted(using: sort)
         let visible = Array(all.prefix(Self.maxRows))
         return Group {
             if rows.isEmpty {
@@ -78,27 +79,27 @@ struct WebLogView: View {
     }
 
     private func table(_ visible: [WebAccessLogEntry]) -> some View {
-        Table(visible, selection: $selectedID) {
-            TableColumn("Time") { e in
+        Table(visible, selection: $selectedID, sortOrder: $sort) {
+            TableColumn("Time", value: \.sortTime) { e in
                 Text(e.timestamp.map { $0.formatted(date: .numeric, time: .standard) } ?? "—")
                     .monospacedDigit()
             }
             .width(min: 130, ideal: 150, max: 170)
-            TableColumn("Client") { e in
+            TableColumn("Client", value: \.clientIP) { e in
                 Text(e.clientIP).font(.caption.monospaced())
             }
             .width(min: 90, ideal: 110, max: 150)
-            TableColumn("Method") { e in
+            TableColumn("Method", value: \.method) { e in
                 Text(e.method).font(.caption).foregroundStyle(.secondary)
             }
             .width(min: 50, ideal: 60, max: 80)
-            TableColumn("Status") { e in
+            TableColumn("Status", value: \.status) { e in
                 Text(String(e.status))
                     .font(.caption.monospacedDigit().bold())
                     .foregroundStyle(statusColor(e.status))
             }
             .width(min: 50, ideal: 55, max: 70)
-            TableColumn("Path") { e in
+            TableColumn("Path", value: \.target) { e in
                 Text(e.target).font(.caption.monospaced()).lineLimit(1).truncationMode(.middle)
             }
         }
@@ -129,6 +130,11 @@ struct WebLogView: View {
         }
         #endif
     }
+}
+
+/// Non-optional sort key for the sortable web-log `Table`.
+private extension WebAccessLogEntry {
+    var sortTime: Date { timestamp ?? .distantPast }
 }
 
 private struct WebLogDetailView: View {

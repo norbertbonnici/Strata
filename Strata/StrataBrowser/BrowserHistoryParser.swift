@@ -31,6 +31,14 @@ public nonisolated struct BrowserHistoryParser: Sendable {
     /// retained for display and used to classify the browser + profile (the
     /// on-disk name of the extracted copy is meaningless).
     public static func parse(fileAt fileURL: URL, sourceFile: String) throws -> [BrowserHistoryEntry] {
+        // The file was selected by name alone (`History` / `places.sqlite`), and
+        // a Linux host happily carries unrelated files of the same name — an
+        // IPython `History`, a readline buffer, an app's state file. Opening one
+        // with SQLite throws "file is not a database"; gate on the 16-byte SQLite
+        // magic header so a name collision is silently skipped, not surfaced as an
+        // error. (The header lives in the main DB, never the `-wal` sidecar.)
+        guard isSQLiteDatabase(at: fileURL) else { return [] }
+
         // First read with the `-wal`/`-shm` sidecars included, so committed-but-
         // not-yet-checkpointed history (which lives in the `-wal`) is recovered.
         // If that throws — a torn or locked `-wal` from a live acquisition can do
@@ -40,6 +48,17 @@ public nonisolated struct BrowserHistoryParser: Sendable {
             return rows
         }
         return try readDatabase(at: fileURL, sourceFile: sourceFile, includeSidecars: false)
+    }
+
+    /// True when `fileURL` begins with the SQLite file magic
+    /// (`"SQLite format 3\0"`, 16 bytes) — the cheap, definitive "is this even a
+    /// database" test before handing the file to GRDB.
+    static func isSQLiteDatabase(at fileURL: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: fileURL) else { return false }
+        defer { try? handle.close() }
+        guard let header = try? handle.read(upToCount: 16), header.count == 16 else { return false }
+        let magic: [UInt8] = Array("SQLite format 3".utf8) + [0]
+        return Array(header) == magic
     }
 
     private static func readDatabase(at fileURL: URL, sourceFile: String,

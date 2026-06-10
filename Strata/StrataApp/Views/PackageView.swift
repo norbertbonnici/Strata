@@ -9,6 +9,7 @@ struct PackageView: View {
     @State private var query = ""
     @State private var action: PackageEvent.Action? = nil
     @State private var selectedID: PackageEvent.ID?
+    @State private var sort = [KeyPathComparator(\PackageEvent.sortTime, order: .reverse)]
 
     private func filtered(_ rows: [PackageEvent]) -> [PackageEvent] {
         var out = rows
@@ -24,7 +25,7 @@ struct PackageView: View {
 
     var body: some View {
         let rows = model.packages
-        let visible = filtered(rows)
+        let visible = filtered(rows).sorted(using: sort)
         return Group {
             if rows.isEmpty {
                 ContentUnavailableView {
@@ -60,26 +61,26 @@ struct PackageView: View {
                     }
                     .padding(8)
                     Divider()
-                    Table(visible, selection: $selectedID) {
-                        TableColumn("Time") { e in
+                    Table(visible, selection: $selectedID, sortOrder: $sort) {
+                        TableColumn("Time", value: \.sortTime) { e in
                             Text(e.timestamp.map { $0.formatted(date: .numeric, time: .standard) } ?? "—")
                                 .monospacedDigit()
                         }
                         .width(min: 130, ideal: 150, max: 170)
-                        TableColumn("Action") { e in
+                        TableColumn("Action", value: \.sortAction) { e in
                             Text(e.action.label)
                                 .font(.caption.bold())
                                 .foregroundStyle(actionColor(e.action))
                         }
                         .width(min: 70, ideal: 80, max: 100)
-                        TableColumn("Package") { e in
+                        TableColumn("Package", value: \.package) { e in
                             Text(e.package).font(.caption.monospaced())
                         }
-                        TableColumn("Version") { e in
+                        TableColumn("Version", value: \.sortVersion) { e in
                             Text(e.version ?? "—").font(.caption).foregroundStyle(.secondary)
                                 .lineLimit(1).truncationMode(.middle)
                         }
-                        TableColumn("Mgr") { e in
+                        TableColumn("Mgr", value: \.sortManager) { e in
                             Text(e.manager.label).font(.caption).foregroundStyle(.secondary)
                         }
                         .width(min: 44, ideal: 50, max: 60)
@@ -97,4 +98,12 @@ struct PackageView: View {
         case .upgrade, .downgrade:  return .blue
         }
     }
+}
+
+/// Non-optional sort keys for the sortable package `Table`.
+private extension PackageEvent {
+    var sortTime: Date { timestamp ?? .distantPast }
+    var sortAction: String { action.label }
+    var sortVersion: String { version ?? "" }
+    var sortManager: String { manager.label }
 }

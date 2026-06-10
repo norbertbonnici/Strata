@@ -7,6 +7,10 @@ struct ShellHistoryView: View {
     @EnvironmentObject private var model: AppModel
     @State private var query = ""
     @State private var selectedID: ShellHistoryEntry.ID?
+    // Default to file order (user, then line) - most bash entries are undated, so
+    // sorting by time would collapse them all to the bottom on first view.
+    @State private var sort = [KeyPathComparator(\ShellHistoryEntry.user, order: .forward),
+                               KeyPathComparator(\ShellHistoryEntry.lineNumber, order: .forward)]
 
     private func filtered(_ rows: [ShellHistoryEntry]) -> [ShellHistoryEntry] {
         guard !query.isEmpty else { return rows }
@@ -18,7 +22,7 @@ struct ShellHistoryView: View {
 
     var body: some View {
         let rows = model.shellHistory
-        let visible = filtered(rows)
+        let visible = filtered(rows).sorted(using: sort)
         return Group {
             if rows.isEmpty {
                 ContentUnavailableView {
@@ -56,26 +60,26 @@ struct ShellHistoryView: View {
     }
 
     private func table(_ visible: [ShellHistoryEntry]) -> some View {
-        Table(visible, selection: $selectedID) {
-            TableColumn("User") { e in
+        Table(visible, selection: $selectedID, sortOrder: $sort) {
+            TableColumn("User", value: \.user) { e in
                 Text(e.user).font(.caption)
             }
             .width(min: 60, ideal: 80, max: 120)
-            TableColumn("Shell") { e in
+            TableColumn("Shell", value: \.sortShell) { e in
                 Text(e.shell.label).font(.caption).foregroundStyle(.secondary)
             }
             .width(min: 45, ideal: 50, max: 60)
-            TableColumn("#") { e in
+            TableColumn("#", value: \.lineNumber) { e in
                 Text(String(e.lineNumber)).font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
             .width(min: 40, ideal: 50, max: 60)
-            TableColumn("Time") { e in
+            TableColumn("Time", value: \.sortTime) { e in
                 Text(e.timestamp.map { $0.formatted(date: .numeric, time: .standard) } ?? "—")
                     .monospacedDigit()
             }
             .width(min: 130, ideal: 150, max: 170)
-            TableColumn("Command") { e in
+            TableColumn("Command", value: \.command) { e in
                 Text(e.command)
                     .font(.caption.monospaced())
                     .lineLimit(1)
@@ -99,6 +103,12 @@ struct ShellHistoryView: View {
         }
         #endif
     }
+}
+
+/// Non-optional sort keys for the sortable shell-history `Table`.
+private extension ShellHistoryEntry {
+    var sortTime: Date { timestamp ?? .distantPast }
+    var sortShell: String { shell.label }
 }
 
 private struct ShellDetailView: View {

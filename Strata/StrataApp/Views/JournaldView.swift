@@ -9,6 +9,7 @@ struct JournaldView: View {
     @State private var query = ""
     @State private var errorsOnly = false   // priority <= 3 (err and worse)
     @State private var selectedID: JournaldEntry.ID?
+    @State private var sort = [KeyPathComparator(\JournaldEntry.sortTime, order: .reverse)]
 
     private static let maxRows = 20_000
 
@@ -27,7 +28,8 @@ struct JournaldView: View {
 
     var body: some View {
         let rows = model.journald
-        let all = filtered(rows)
+        // Sort before the row cap so the visible slice honours the chosen order.
+        let all = filtered(rows).sorted(using: sort)
         let visible = Array(all.prefix(Self.maxRows))
         return Group {
             if rows.isEmpty {
@@ -77,23 +79,23 @@ struct JournaldView: View {
     }
 
     private func table(_ visible: [JournaldEntry]) -> some View {
-        Table(visible, selection: $selectedID) {
-            TableColumn("Time") { e in
+        Table(visible, selection: $selectedID, sortOrder: $sort) {
+            TableColumn("Time", value: \.sortTime) { e in
                 Text(e.timestamp.map { $0.formatted(date: .numeric, time: .standard) } ?? "—")
                     .monospacedDigit()
             }
             .width(min: 130, ideal: 150, max: 170)
-            TableColumn("Pri") { e in
+            TableColumn("Pri", value: \.sortPriority) { e in
                 Text(e.priorityLabel ?? "—")
                     .font(.caption2.bold())
                     .foregroundStyle(priorityColor(e.priority))
             }
             .width(min: 44, ideal: 52, max: 64)
-            TableColumn("Program") { e in
+            TableColumn("Program", value: \.sortProgram) { e in
                 Text(e.program ?? "—").font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             .width(min: 80, ideal: 110, max: 160)
-            TableColumn("Message") { e in
+            TableColumn("Message", value: \.message) { e in
                 Text(e.message).font(.caption.monospaced()).lineLimit(1).truncationMode(.tail)
             }
         }
@@ -123,6 +125,13 @@ struct JournaldView: View {
         }
         #endif
     }
+}
+
+/// Non-optional sort keys for the sortable `Table` columns.
+private extension JournaldEntry {
+    var sortTime: Date { timestamp ?? .distantPast }
+    var sortPriority: Int { priority ?? 6 }   // default to "info" when absent
+    var sortProgram: String { program ?? "" }
 }
 
 private struct JournaldDetailView: View {

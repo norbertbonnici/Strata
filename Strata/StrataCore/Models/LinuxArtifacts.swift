@@ -263,11 +263,14 @@ public nonisolated struct LinuxHostInfo: Hashable, Sendable, Codable {
     public var hostname: String?
     public var timeZone: String?
     public var users: [LinuxUser] = []
+    /// IPv4 addresses of the host - static (netplan / ifupdown) or the runtime
+    /// DHCP lease recovered from the journal. Deduped, in discovery order.
+    public var ipAddresses: [String] = []
 
     public init() {}
 
     public var isEmpty: Bool {
         prettyName == nil && osID == nil && hostname == nil
-            && timeZone == nil && users.isEmpty
+            && timeZone == nil && users.isEmpty && ipAddresses.isEmpty
     }
 }

@@ -45,6 +45,7 @@ public nonisolated struct HostProfile: Sendable {
         profile.hostname = info.hostname
         profile.osProductName = info.prettyName ?? info.osID
         profile.timeZone = info.timeZone
+        profile.ipAddresses = info.ipAddresses
         profile.primaryUser = info.users
             .filter { $0.uid >= 1000 && $0.uid < 65_000 && $0.hasLoginShell }
             .min { $0.uid < $1.uid }?
