@@ -218,6 +218,12 @@ struct OverviewTab: View {
 struct MoreTab: View {
     @EnvironmentObject private var model: AppModel
 
+    /// Offer the override when the scope is a single OS (so the other OS's
+    /// rows are hidden) or the override is already on (so it can be turned off).
+    private var showsOSFilterToggle: Bool {
+        model.scopeOSFamilies().count == 1 || model.showAllArtifactTabs
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
@@ -234,6 +240,7 @@ struct MoreTab: View {
                     .buttonStyle(.plain)
                     Divider().background(Theme.hair2).padding(.leading, 50)
 
+                    if model.shows(osFamily: .windows) {
                     NavigationLink {
                         RegistryDrillView()
                     } label: {
@@ -242,7 +249,9 @@ struct MoreTab: View {
                     }
                     .buttonStyle(.plain)
                     Divider().background(Theme.hair2).padding(.leading, 50)
+                    }
 
+                    if model.shows(osFamily: .windows) {
                     NavigationLink {
                         PrefetchDrillView()
                     } label: {
@@ -251,7 +260,9 @@ struct MoreTab: View {
                     }
                     .buttonStyle(.plain)
                     Divider().background(Theme.hair2).padding(.leading, 50)
+                    }
 
+                    if model.shows(osFamily: .windows) {
                     NavigationLink {
                         AmcacheDrillView()
                     } label: {
@@ -260,7 +271,9 @@ struct MoreTab: View {
                     }
                     .buttonStyle(.plain)
                     Divider().background(Theme.hair2).padding(.leading, 50)
+                    }
 
+                    if model.shows(osFamily: .windows) {
                     NavigationLink {
                         ShimcacheDrillView()
                     } label: {
@@ -269,7 +282,9 @@ struct MoreTab: View {
                     }
                     .buttonStyle(.plain)
                     Divider().background(Theme.hair2).padding(.leading, 50)
+                    }
 
+                    if model.shows(osFamily: .windows) {
                     NavigationLink {
                         LnkDrillView()
                     } label: {
@@ -278,7 +293,9 @@ struct MoreTab: View {
                     }
                     .buttonStyle(.plain)
                     Divider().background(Theme.hair2).padding(.leading, 50)
+                    }
 
+                    if model.shows(osFamily: .windows) {
                     NavigationLink {
                         JumpListDrillView()
                     } label: {
@@ -287,7 +304,9 @@ struct MoreTab: View {
                     }
                     .buttonStyle(.plain)
                     Divider().background(Theme.hair2).padding(.leading, 50)
+                    }
 
+                    if model.shows(osFamily: .windows) {
                     NavigationLink {
                         UsnDrillView()
                     } label: {
@@ -296,7 +315,9 @@ struct MoreTab: View {
                     }
                     .buttonStyle(.plain)
                     Divider().background(Theme.hair2).padding(.leading, 50)
+                    }
 
+                    if model.shows(osFamily: .windows) {
                     NavigationLink {
                         SrumDrillView()
                     } label: {
@@ -305,6 +326,7 @@ struct MoreTab: View {
                     }
                     .buttonStyle(.plain)
                     Divider().background(Theme.hair2).padding(.leading, 50)
+                    }
 
                     NavigationLink {
                         BrowserHistoryDrillView()
@@ -315,6 +337,7 @@ struct MoreTab: View {
                     .buttonStyle(.plain)
                     Divider().background(Theme.hair2).padding(.leading, 50)
 
+                    if model.shows(osFamily: .windows) {
                     NavigationLink {
                         MftDrillView()
                     } label: {
@@ -323,7 +346,9 @@ struct MoreTab: View {
                     }
                     .buttonStyle(.plain)
                     Divider().background(Theme.hair2).padding(.leading, 50)
+                    }
 
+                    if model.shows(osFamily: .windows) {
                     NavigationLink {
                         WmiDrillView()
                     } label: {
@@ -332,7 +357,9 @@ struct MoreTab: View {
                     }
                     .buttonStyle(.plain)
                     Divider().background(Theme.hair2).padding(.leading, 50)
+                    }
 
+                    if model.shows(osFamily: .linux) {
                     NavigationLink {
                         LinuxLogsDrillView()
                     } label: {
@@ -341,7 +368,9 @@ struct MoreTab: View {
                     }
                     .buttonStyle(.plain)
                     Divider().background(Theme.hair2).padding(.leading, 50)
+                    }
 
+                    if model.shows(osFamily: .linux) {
                     NavigationLink {
                         ShellHistoryDrillView()
                     } label: {
@@ -350,7 +379,9 @@ struct MoreTab: View {
                     }
                     .buttonStyle(.plain)
                     Divider().background(Theme.hair2).padding(.leading, 50)
+                    }
 
+                    if model.shows(osFamily: .linux) {
                     NavigationLink {
                         LinuxPersistenceDrillView()
                     } label: {
@@ -359,6 +390,7 @@ struct MoreTab: View {
                     }
                     .buttonStyle(.plain)
                     Divider().background(Theme.hair2).padding(.leading, 50)
+                    }
 
                     NavigationLink {
                         LateralDrillView()
@@ -395,6 +427,20 @@ struct MoreTab: View {
                                 trailing: counter(model.custodyLog.count))
                     }
                     .buttonStyle(.plain)
+                }
+
+                // Reveal the artifact tabs hidden because they don't apply to
+                // this case's OS - shown only when the filter is doing something.
+                if showsOSFilterToggle {
+                    SectionHeader(label: "View").padding(.top, 14)
+                    Card {
+                        Toggle(isOn: $model.showAllArtifactTabs) {
+                            moreRow(icon: "rectangle.stack", title: "Show all artifact tabs",
+                                    trailing: "")
+                        }
+                        .tint(Theme.teal)
+                        .padding(.trailing, 16)
+                    }
                 }
 
                 SectionHeader(label: "Case").padding(.top, 14)

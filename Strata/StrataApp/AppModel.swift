@@ -37,6 +37,10 @@ nonisolated struct EvidenceState: Sendable {
     var linuxInfo: LinuxHostInfo?
     var findings: [Finding] = []
     var iocMatches: [IOCMatch] = []
+    /// OS families detected for this host (from volume fs-types, or a file-tree
+    /// sniff for loose folders). Empty = couldn't tell. Drives per-OS tab
+    /// hiding. Computed once when the working set is assembled.
+    var osFamilies: Set<OSFamily> = []
 
     /// Whether any Linux artifact has been parsed for this host - the
     /// "already done" guard `parseLinux` uses (mirrors the per-artifact
@@ -500,6 +504,7 @@ final class AppModel: ObservableObject {
             }
             state.findings = (try? CaseStore.readFindings(forHostID: evidence.id, in: bundleURL)) ?? []
             state.iocMatches = (try? CaseStore.readIOCMatches(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.osFamilies = OSFamily.detect(volumes: state.volumes, files: state.files)
             return .loaded(state)
         } catch {
             // Skip this host but keep going so a single corrupted DB doesn't
@@ -1056,6 +1061,34 @@ final class AppModel: ObservableObject {
         return evidenceList.reduce(0) { $0 + (states[$1.id]?[keyPath: kp] ?? 0) }
     }
 
+    // MARK: - Per-OS tab visibility
+
+    /// When true, every artifact tab is shown regardless of the evidence OS -
+    /// the escape hatch for mis-detection or an unusual collection. Session-
+    /// scoped; the analyst flips it from the sidebar / More tab.
+    @Published var showAllArtifactTabs = false
+
+    /// OS families present in the current scope: the active host's, or the
+    /// union across every host under "All". Empty when nothing is loaded or
+    /// the OS couldn't be determined - which the visibility check treats as
+    /// "show everything".
+    func scopeOSFamilies() -> Set<OSFamily> {
+        if let id = activeEvidenceID { return states[id]?.osFamilies ?? [] }
+        return evidenceList.reduce(into: Set<OSFamily>()) { acc, evidence in
+            if let families = states[evidence.id]?.osFamilies { acc.formUnion(families) }
+        }
+    }
+
+    /// Whether artifacts of `osFamily` should be shown in the current scope.
+    /// A nil family (cross-platform tab) is always shown; an undetermined
+    /// scope (empty set) shows everything rather than hide on a guess.
+    func shows(osFamily: OSFamily?) -> Bool {
+        guard !showAllArtifactTabs else { return true }
+        guard let osFamily else { return true }
+        let families = scopeOSFamilies()
+        return families.isEmpty || families.contains(osFamily)
+    }
+
     // MARK: - Ingest
 
     #if os(macOS)
@@ -1079,7 +1112,7 @@ final class AppModel: ObservableObject {
             let hostDir = CaseStore.hostDirectory(forHostID: evidence.id, in: bundleURL)
             try FileManager.default.createDirectory(at: hostDir, withIntermediateDirectories: true)
 
-            let state: EvidenceState
+            var state: EvidenceState
             if evidence.kind == .kapeLooseFolder {
                 statusMessage = "Scanning \(evidence.displayName)..."
                 // The folder can hold many thousands of files; walk it off the
@@ -1123,6 +1156,7 @@ final class AppModel: ObservableObject {
                 }
             }
 
+            state.osFamilies = OSFamily.detect(volumes: state.volumes, files: state.files)
             self.evidenceList.append(evidence)
             self.states[evidence.id] = state
             self.activeEvidenceID = evidence.id
