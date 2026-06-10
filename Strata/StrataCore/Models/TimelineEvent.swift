@@ -35,7 +35,7 @@ public enum TimelineSource: String, CaseIterable, Sendable, Codable {
     case browser    = "BROWSER"
     case mft        = "MFT"
 
-    public var label: String {
+    public nonisolated var label: String {
         switch self {
         case .filesystem: return "Filesystem"
         case .evtx:       return "Event Log"
