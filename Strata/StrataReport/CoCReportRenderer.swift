@@ -1,7 +1,9 @@
 import Foundation
 
-/// Renders a `CoCReportModel` to HTML or Markdown. Self-contained HTML (inline,
-/// print-friendly CSS) so a later WebKit `createPDF` pass needs no extra layout.
+/// Renders a `CoCReportModel` to HTML or Markdown — convenience copies of the
+/// formal paginated PDF produced by `CoCPDFRenderer` from the same model, which
+/// keeps all three formats in lockstep. The HTML stays self-contained with
+/// print-friendly CSS so it too survives a browser print.
 public nonisolated enum CoCReportRenderer {
 
     // MARK: - HTML
@@ -158,7 +160,8 @@ public nonisolated enum CoCReportRenderer {
 
     // MARK: - Helpers
 
-    private static func provenanceLabel(_ source: AcquisitionInfo.Source) -> String {
+    /// Shared with `CoCPDFRenderer` so the formats can't drift on wording.
+    static func provenanceLabel(_ source: AcquisitionInfo.Source) -> String {
         switch source {
         case .manual:      return "Examiner-entered"
         case .ewfMetadata: return "Auto (E01 header)"

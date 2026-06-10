@@ -125,7 +125,9 @@ registry + prefetch + Amcache/Shimcache + LNK + JumpList + USN-journal + SRUM + 
 interactive lateral graph, multi-host `.strata` cases, iOS viewer, Case
 Library / iCloud-Drive sync, case reporting & export (HTML/Markdown examiner
 report + CSV/JSON data exports; per-endpoint selection + report severity filter),
-registry explorer (regedit-style hive→key→value browser, macOS + iOS).
+registry explorer (regedit-style hive→key→value browser, macOS + iOS),
+chain of custody & evidence integrity (acquisition metadata, source hashes +
+verification, append-only custody ledger, formal PDF CoC report).
 Two betas shipped. A full 56-issue view review was completed and remediated.
 
 ## Roadmap
@@ -151,14 +153,27 @@ Two betas shipped. A full 56-issue view review was completed and remediated.
    Export…, ⇧⌘E). **In-app PDF was intentionally dropped** in favour of
    print-ready HTML (open in a browser → Print → Save as PDF) — revisit only if a
    hash-stable, canonical PDF is needed for legal weight.
-2. **Chain-of-custody & evidence integrity** — capture acquisition metadata
-   (examiner, acquisition method/tool, date/time, case #) and **source hashes**
-   per evidence item, with a verification status and a custody log (acquired /
-   added / analysed / exported, each with who + when). Produce a formal **CoC
-   report** (PDF). For E01, read the format's *embedded* acquisition MD5/SHA-1
-   rather than rehashing a huge image (add `ewfinfo`/`ewfverify` to the vendored
-   tools in `build-tsk.sh` — libewf is already built); compute for raw/VHD.
-   This is the legal-weight record, separate from the CTI enrichment audit log.
+2. ~~**Chain-of-custody & evidence integrity**~~ — **shipped.** Per-evidence
+   **acquisition metadata** (`AcquisitionInfo`: examiner, tool, method, date,
+   case #, media serial; auto-seeded from the E01 header) + **source hashes**
+   (`SourceHash` with origin embedded/computed + verification status) ride on
+   `Evidence` in `hosts.json`; the append-only **custody ledger**
+   (`CustodyEvent`, every acquire/add/analyse/hash/verify/enrich/export with
+   who + when) persists in its own `custody.json` so host-list rewrites can't
+   truncate it — all appends funnel through `AppModel.appendCustody`. E01
+   embedded MD5/SHA-1 are read via the vendored `ewfinfo` (DFXML + text
+   fallback parsers in `StrataTSK/EWFInfo.swift`) and re-checked via
+   `ewfverify` — never rehash the image; raw/VHD get on-demand cancellable
+   streaming MD5+SHA-256 (`StrataCore/Hashing.swift`). The formal **CoC report
+   is a paginated PDF** (`CoCPDFRenderer`: pure CoreText + `CGPDFContext`, no
+   WebKit — headless, cross-platform, repeated table headers + "Page N of M"
+   footers) with HTML/Markdown mirrors from the same `CoCReportModel`, plus a
+   custody-log CSV/JSON, all in the Export sheet. macOS **Custody** sidebar tab
+   (`ChainOfCustodyView` + `AcquisitionEditorSheet`); iOS read-only drill.
+   This is the legal-weight record, separate from the CTI enrichment audit log
+   (which feeds it via `.enrichmentPerformed`). **Known limits:** loose KAPE
+   folders get no source hash (no single image to hash); the custody ledger is
+   tamper-evident only by being a separate file (no hash chaining).
 3. ~~**Registry explorer**~~ — **shipped.** Interactive hive → key → value tree
    browser (SYSTEM/SOFTWARE/SAM/SECURITY/NTUSER/UsrClass…) with key last-write
    times, typed value decoding (REG_SZ/DWORD/BINARY/MULTI_SZ…), and search. Pure

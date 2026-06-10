@@ -28,6 +28,7 @@ struct ExportSheet: View {
     @State private var findingsJSON = false
     @State private var iocCSV = true
     @State private var iocJSON = false
+    @State private var cocPDF = true
     @State private var cocHTML = true
     @State private var cocMarkdown = false
     @State private var custodyCSV = false
@@ -41,7 +42,7 @@ struct ExportSheet: View {
                         timelineCSV: timelineCSV, timelineJSON: timelineJSON,
                         findingsCSV: findingsCSV, findingsJSON: findingsJSON,
                         iocMatchesCSV: iocCSV, iocMatchesJSON: iocJSON,
-                        cocHTML: cocHTML, cocMarkdown: cocMarkdown,
+                        cocPDF: cocPDF, cocHTML: cocHTML, cocMarkdown: cocMarkdown,
                         custodyCSV: custodyCSV, custodyJSON: custodyJSON,
                         reportSeverities: reportSeverities)
     }
@@ -175,9 +176,10 @@ struct ExportSheet: View {
 
     private var custodySection: some View {
         groupBox("Chain of custody") {
+            Toggle("Report — PDF (.pdf)", isOn: $cocPDF)
             Toggle("Report — HTML (.html)", isOn: $cocHTML)
             Toggle("Report — Markdown (.md)", isOn: $cocMarkdown)
-            Text("Acquisition provenance, source hashes, and the case's custody ledger (\(model.custodyLog.count) entr\(model.custodyLog.count == 1 ? "y" : "ies")).")
+            Text("Acquisition provenance, source hashes, and the case's custody ledger (\(model.custodyLog.count) entr\(model.custodyLog.count == 1 ? "y" : "ies")). The PDF is the formal, paginated record.")
                 .font(.caption).foregroundStyle(.secondary)
             Divider()
             dataRow("Custody log", count: model.custodyLog.count,

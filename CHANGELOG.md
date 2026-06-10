@@ -73,9 +73,11 @@ All notable changes to Strata are documented here. The format loosely follows
     computation with a progress bar.
   - **Custody log** — every acquire / add / analyse / hash / verify / enrich /
     export action is recorded with who + when, persisted to `custody.json`.
-  - **Chain-of-custody report** (HTML + Markdown) and a **custody-log CSV/JSON**
-    export, wired into the existing Export sheet. The iOS viewer gains a
-    read-only custody screen.
+  - **Chain-of-custody report** — a formal, paginated **PDF** (A4, repeated
+    table headers across page breaks, "Page N of M" footers; rendered in-app
+    with CoreText, no browser round-trip) plus HTML + Markdown mirrors, and a
+    **custody-log CSV/JSON** export, all wired into the existing Export sheet.
+    The iOS viewer gains a read-only custody screen.
   - Vendored `ewfinfo` / `ewfverify` added to the TSK toolchain build.
 - **Case reporting & export** (Tools ▸ Export…, ⇧⌘E) — generate an examiner
   report and data exports in one pass, written as a timestamped set into a

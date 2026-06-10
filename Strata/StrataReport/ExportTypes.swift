@@ -13,7 +13,9 @@ public nonisolated struct ExportSelection: Sendable, Equatable {
     public var iocMatchesCSV: Bool
     public var iocMatchesJSON: Bool
     /// Chain-of-custody report (acquisition provenance, source hashes, and the
-    /// custody ledger). Separate from the examiner report.
+    /// custody ledger). Separate from the examiner report. The PDF is the
+    /// formal, paginated record; HTML/Markdown mirror it.
+    public var cocPDF: Bool
     public var cocHTML: Bool
     public var cocMarkdown: Bool
     /// Raw custody-log data export.
@@ -29,7 +31,7 @@ public nonisolated struct ExportSelection: Sendable, Equatable {
                 timelineCSV: Bool = false, timelineJSON: Bool = false,
                 findingsCSV: Bool = false, findingsJSON: Bool = false,
                 iocMatchesCSV: Bool = false, iocMatchesJSON: Bool = false,
-                cocHTML: Bool = false, cocMarkdown: Bool = false,
+                cocPDF: Bool = false, cocHTML: Bool = false, cocMarkdown: Bool = false,
                 custodyCSV: Bool = false, custodyJSON: Bool = false,
                 reportSeverities: Set<Severity> = Set(Severity.allCases)) {
         self.reportMarkdown = reportMarkdown
@@ -40,6 +42,7 @@ public nonisolated struct ExportSelection: Sendable, Equatable {
         self.findingsJSON = findingsJSON
         self.iocMatchesCSV = iocMatchesCSV
         self.iocMatchesJSON = iocMatchesJSON
+        self.cocPDF = cocPDF
         self.cocHTML = cocHTML
         self.cocMarkdown = cocMarkdown
         self.custodyCSV = custodyCSV
@@ -51,14 +54,14 @@ public nonisolated struct ExportSelection: Sendable, Equatable {
     public var isEmpty: Bool {
         !(reportMarkdown || reportHTML || timelineCSV || timelineJSON ||
           findingsCSV || findingsJSON || iocMatchesCSV || iocMatchesJSON ||
-          cocHTML || cocMarkdown || custodyCSV || custodyJSON)
+          cocPDF || cocHTML || cocMarkdown || custodyCSV || custodyJSON)
     }
 
     /// Whether any examiner-report format was picked.
     public var wantsReport: Bool { reportMarkdown || reportHTML }
 
     /// Whether any chain-of-custody report format was picked.
-    public var wantsCoC: Bool { cocHTML || cocMarkdown }
+    public var wantsCoC: Bool { cocPDF || cocHTML || cocMarkdown }
 }
 
 /// One generated artifact: a bare filename (no path) and its bytes. The writer

@@ -10,6 +10,7 @@
 import Testing
 import Foundation
 import CryptoKit
+import PDFKit
 @testable import Strata
 
 struct CustodyTests {
@@ -186,14 +187,72 @@ struct CustodyTests {
     }
 
     @Test func exportGeneratorEmitsCoCArtifacts() {
-        let selection = ExportSelection(cocHTML: true, cocMarkdown: true,
+        let selection = ExportSelection(cocPDF: true, cocHTML: true, cocMarkdown: true,
                                         custodyCSV: true, custodyJSON: true)
         let files = ExportGenerator.generate(inputs: Self.sampleInputs(), selection: selection)
         let names = Set(files.map(\.filename))
+        #expect(names.contains("Operation Test-chain-of-custody.pdf"))
         #expect(names.contains("Operation Test-chain-of-custody.html"))
         #expect(names.contains("Operation Test-chain-of-custody.md"))
         #expect(names.contains("Operation Test-custody.csv"))
         #expect(names.contains("Operation Test-custody.json"))
+        // The README documents the formal PDF and the set's PDF guidance.
+        let readme = files.first { $0.filename == "README.txt" }
+            .map { String(decoding: $0.data, as: UTF8.self) } ?? ""
+        #expect(readme.contains("chain-of-custody report (PDF"))
+    }
+
+    // MARK: - CoC PDF renderer
+
+    @Test func cocPDFIsValidAndCarriesContent() throws {
+        let model = CoCReportModelBuilder.build(from: Self.sampleInputs())
+        let data = CoCPDFRenderer.pdf(model)
+        #expect(data.prefix(5) == Data("%PDF-".utf8))
+
+        let doc = try #require(PDFDocument(data: data))
+        #expect(doc.pageCount == 1)
+        let text = try #require(doc.page(at: 0)?.string)
+        #expect(text.contains("Operation Test"))
+        #expect(text.contains("Jane Examiner"))
+        #expect(text.contains("99bea62f7ac3e7d96518e6f0f0ab638e"))   // embedded MD5
+        #expect(text.contains("Evidence integrity"))
+        #expect(text.contains("Custody log"))
+        #expect(text.contains("Added to case"))
+        #expect(text.contains("Page 1 of 1"))
+    }
+
+    @Test func cocPDFPaginatesAndRepeatsTableHeader() throws {
+        // Enough ledger entries to spill the custody-log table across pages.
+        var inputs = Self.sampleInputs()
+        let id = inputs.hosts.first?.evidenceID
+        let log = (0..<150).map { i in
+            CustodyEvent(timestamp: Date(timeIntervalSinceReferenceDate: Double(i)),
+                         action: .noteAdded, actor: "Jane",
+                         detail: "Annotation #\(i)", evidenceID: id)
+        }
+        inputs = ReportInputs(caseName: inputs.caseName, examiner: inputs.examiner,
+                              createdAt: inputs.createdAt, generatedAt: inputs.generatedAt,
+                              hosts: inputs.hosts, custodyLog: log)
+        let doc = try #require(PDFDocument(
+            data: CoCPDFRenderer.pdf(CoCReportModelBuilder.build(from: inputs))))
+        #expect(doc.pageCount >= 2)
+        let page2 = try #require(doc.page(at: 1)?.string)
+        // A continued table re-draws its column header on the fresh page.
+        #expect(page2.contains("Timestamp"))
+        #expect(page2.contains("Page 2 of \(doc.pageCount)"))
+    }
+
+    @Test func cocPDFRendersEmptyCase() throws {
+        let inputs = ReportInputs(caseName: "Empty", examiner: "",
+                                  createdAt: Date(timeIntervalSinceReferenceDate: 0),
+                                  generatedAt: Date(timeIntervalSinceReferenceDate: 1),
+                                  hosts: [], custodyLog: [])
+        let doc = try #require(PDFDocument(
+            data: CoCPDFRenderer.pdf(CoCReportModelBuilder.build(from: inputs))))
+        #expect(doc.pageCount == 1)
+        let text = try #require(doc.page(at: 0)?.string)
+        #expect(text.contains("No evidence"))
+        #expect(text.contains("No recorded events"))
     }
 }
 
