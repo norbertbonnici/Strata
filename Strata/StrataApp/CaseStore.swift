@@ -37,6 +37,7 @@ public nonisolated enum CaseStore {
     private static let shellHistoryFilename = "shellhistory.json"
     private static let linuxPersistenceFilename = "linuxpersistence.json"
     private static let linuxInfoFilename  = "linuxinfo.json"
+    private static let linuxAccessFilename = "linuxaccess.json"
     private static let findingsFilename   = "findings.json"
     private static let iocsFilename       = "iocs.json"
     private static let iocMatchesFilename = "iocmatches.json"
@@ -414,6 +415,19 @@ public nonisolated enum CaseStore {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
         try jsonEncoder.encode(info).write(to: url, options: .atomic)
+    }
+
+    public static func readLinuxAccess(forHostID id: UUID, in bundle: URL) throws -> LinuxAccessInfo? {
+        let url = hostDirectory(forHostID: id, in: bundle).appendingPathComponent(linuxAccessFilename)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return try jsonDecoder.decode(LinuxAccessInfo.self, from: Data(contentsOf: url))
+    }
+    public static func writeLinuxAccess(_ access: LinuxAccessInfo,
+                                        forHostID id: UUID, in bundle: URL) throws {
+        let url = hostDirectory(forHostID: id, in: bundle).appendingPathComponent(linuxAccessFilename)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try jsonEncoder.encode(access).write(to: url, options: .atomic)
     }
 
     // MARK: - Annotations + case notes (case-wide analyst work product)

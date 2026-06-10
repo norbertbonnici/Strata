@@ -391,6 +391,16 @@ struct MoreTab: View {
                     .buttonStyle(.plain)
                     Divider().background(Theme.hair2).padding(.leading, 50)
                     }
+                    if model.shows(osFamily: .linux) {
+                    NavigationLink {
+                        LinuxAccessDrillView()
+                    } label: {
+                        moreRow(icon: "key.horizontal", title: "Accounts & SSH",
+                                trailing: counter(model.sshKeyCount))
+                    }
+                    .buttonStyle(.plain)
+                    Divider().background(Theme.hair2).padding(.leading, 50)
+                    }
 
                     NavigationLink {
                         LateralDrillView()

@@ -50,5 +50,6 @@ public nonisolated struct AnalysisEngine: Sendable {
         AuthLogAnalyzer(),
         ShellHistoryAnalyzer(),
         LinuxPersistenceAnalyzer(),
+        LinuxAccessAnalyzer(),
     ]
 }
