@@ -54,5 +54,8 @@ public nonisolated struct AnalysisEngine: Sendable {
         WebLogAnalyzer(),
         PackageAnalyzer(),
         JournaldAnalyzer(),
+        AuditAnalyzer(),
+        SyslogAnalyzer(),
+        LastlogAnalyzer(),
     ]
 }

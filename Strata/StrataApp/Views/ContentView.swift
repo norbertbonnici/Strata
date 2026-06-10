@@ -24,6 +24,9 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case webLogs = "Web Logs"
     case packages = "Packages"
     case journald = "Journal"
+    case audit = "Audit"
+    case syslog = "System Log"
+    case lastlog = "Last Login"
     case lateral = "Lateral"
     case killChain = "Kill Chain"
     case iocs = "IOCs"
@@ -55,6 +58,9 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .webLogs: return "network"
         case .packages: return "shippingbox"
         case .journald: return "doc.text.below.ecg"
+        case .audit:    return "checklist"
+        case .syslog:   return "doc.plaintext"
+        case .lastlog:  return "person.crop.square.badge.camera"
         case .lateral:   return "point.3.connected.trianglepath.dotted"
         case .killChain: return "link"
         case .iocs:      return "scope"
@@ -73,7 +79,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
              .lnk, .jumpList, .usn, .srum, .mft, .wmi:
             return .windows
         case .linuxLogs, .shellHistory, .linuxPersistence, .linuxAccess, .webLogs,
-             .packages, .journald:
+             .packages, .journald, .audit, .syslog, .lastlog:
             return .linux
         case .overview, .evidence, .timeline, .browser, .lateral,
              .killChain, .iocs, .annotations, .custody:
@@ -188,6 +194,9 @@ struct ContentView: View {
                 case .webLogs: WebLogView()
                 case .packages: PackageView()
                 case .journald: JournaldView()
+                case .audit:    AuditView()
+                case .syslog:   SyslogView()
+                case .lastlog:  LastlogView()
                 case .lateral:   LateralMovementView()
                 case .killChain: KillChainView()
                 case .iocs:      IOCView()

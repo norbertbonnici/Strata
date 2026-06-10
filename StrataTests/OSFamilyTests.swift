@@ -82,7 +82,7 @@ struct SidebarItemOSTests {
     }
 
     @Test func linuxArtifactsAreTaggedLinux() {
-        for item in [SidebarItem.linuxLogs, .shellHistory, .linuxPersistence, .linuxAccess, .webLogs, .packages, .journald] {
+        for item in [SidebarItem.linuxLogs, .shellHistory, .linuxPersistence, .linuxAccess, .webLogs, .packages, .journald, .audit, .syslog, .lastlog] {
             #expect(item.osFamily == .linux, "\(item) should be Linux")
         }
     }
@@ -102,6 +102,6 @@ struct SidebarItemOSTests {
         let cross = SidebarItem.allCases.filter { $0.osFamily == nil }
         #expect(windows.count + linux.count + cross.count == SidebarItem.allCases.count)
         #expect(windows.count == 11)
-        #expect(linux.count == 7)
+        #expect(linux.count == 10)
     }
 }

@@ -373,6 +373,52 @@ public nonisolated enum TimelineBuilder {
         return out.sorted { $0.date < $1.date }
     }
 
+    /// Project auditd events onto the timeline. `kind` is `.changed`; the path
+    /// encodes the record type + command/summary. Events without a timestamp
+    /// are dropped.
+    public static func build(from events: [AuditEvent]) -> [TimelineEvent] {
+        var out: [TimelineEvent] = []
+        out.reserveCapacity(events.count)
+        for event in events {
+            guard let date = event.timestamp else { continue }
+            out.append(TimelineEvent(date: date, kind: .changed, source: .auditd,
+                                     fileID: 0, path: "\(event.recordType): \(event.summary)",
+                                     size: 0, isDeleted: false))
+        }
+        return out.sorted { $0.date < $1.date }
+    }
+
+    /// Project general syslog/messages entries onto the timeline. Noise
+    /// categories (service start/stop, other) are dropped to avoid drowning
+    /// the timeline. Undated entries are dropped.
+    public static func build(from entries: [SyslogEntry]) -> [TimelineEvent] {
+        var out: [TimelineEvent] = []
+        out.reserveCapacity(entries.count)
+        for entry in entries {
+            guard let date = entry.timestamp, !entry.category.isNoise else { continue }
+            out.append(TimelineEvent(date: date, kind: .changed, source: .syslog,
+                                     fileID: 0, path: "[\(entry.category.label)] \(entry.process): \(entry.message)",
+                                     size: 0, isDeleted: false))
+        }
+        return out.sorted { $0.date < $1.date }
+    }
+
+    /// Project lastlog records onto the timeline - one point-in-time last-login
+    /// event per account.
+    public static func build(from records: [LastlogEntry]) -> [TimelineEvent] {
+        var out: [TimelineEvent] = []
+        out.reserveCapacity(records.count)
+        for record in records {
+            guard let date = record.timestamp else { continue }
+            let from = record.host.isEmpty ? "" : " from \(record.host)"
+            out.append(TimelineEvent(date: date, kind: .accessed, source: .lastlog,
+                                     fileID: 0,
+                                     path: "Last login: \(record.account) on \(record.line)\(from)",
+                                     size: 0, isDeleted: false))
+        }
+        return out.sorted { $0.date < $1.date }
+    }
+
     /// Project `$MFT` records onto the timeline as their `$STANDARD_INFORMATION`
     /// MACB rows — the *true* NTFS file timeline (the only real one for loose
     /// collections, which otherwise fall back to collection-host times). One row
