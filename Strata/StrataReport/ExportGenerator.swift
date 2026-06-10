@@ -66,6 +66,10 @@ public nonisolated enum ExportGenerator {
         // Chain-of-custody report (acquisition + hashes + ledger).
         if selection.wantsCoC {
             let model = CoCReportModelBuilder.build(from: inputs)
+            if selection.cocPDF {
+                files.append(ExportedFile(filename: "\(prefix)-chain-of-custody.pdf",
+                                          data: CoCPDFRenderer.pdf(model)))
+            }
             if selection.cocMarkdown {
                 files.append(ExportedFile(filename: "\(prefix)-chain-of-custody.md",
                                           data: Data(CoCReportRenderer.markdown(model).utf8)))
