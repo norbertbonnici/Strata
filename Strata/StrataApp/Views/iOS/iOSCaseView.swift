@@ -411,6 +411,16 @@ struct MoreTab: View {
                     .buttonStyle(.plain)
                     Divider().background(Theme.hair2).padding(.leading, 50)
                     }
+                    if model.shows(osFamily: .linux) {
+                    NavigationLink {
+                        PackageDrillView()
+                    } label: {
+                        moreRow(icon: "shippingbox", title: "Packages",
+                                trailing: counter(model.packageCount))
+                    }
+                    .buttonStyle(.plain)
+                    Divider().background(Theme.hair2).padding(.leading, 50)
+                    }
 
                     NavigationLink {
                         LateralDrillView()
