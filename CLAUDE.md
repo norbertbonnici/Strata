@@ -73,8 +73,8 @@ Per-release notes live in `docs/releases/`; keep `CHANGELOG.md` updated.
 | `StrataBrowser` | Parse web-browser history — Chromium `History` + Firefox `places.sqlite` (both SQLite) read directly via GRDB (no vendored tool); `BrowserHistoryParser` (macOS) copies the DB to scratch + opens read-only; pure decoders on `BrowserHistoryEntry` (`StrataCore`) |
 | `StrataTimeline` | MACB timeline + per-artifact timeline projections (15 sources) + gap/session analysis |
 | `StrataCore` (WMI) | Pure-Swift carve of the WMI CIM repository `OBJECTS.DATA` (`WmiRepositoryParser`, `WmiPersistenceEntry`) — no full CIM parse; keyword-carves event-subscription persistence (bindings + WQL filter + command + script payloads), à la PyWMIPersistenceFinder. `OBJECTS.DATA` extracted via icat (images) / read in place (loose) |
-| `StrataLinux` | Pure-Swift Linux artifact parsers (no vendored tool): `AuthLogParser` (syslog classic + RFC3339, year inference), `UtmpParser` (384-byte wtmp/btmp records), `ShellHistoryParser` (bash + zsh extended), `LinuxPersistenceParser` (crontabs + systemd units), `LinuxHostInfoParser` (os-release/hostname/passwd/timezone) |
-| `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **28 analyzers**, IOC matcher, lateral graph |
+| `StrataLinux` | Pure-Swift Linux artifact parsers (no vendored tool): `AuthLogParser` (syslog classic + RFC3339, year inference), `UtmpParser` (384-byte wtmp/btmp records), `ShellHistoryParser` (bash + zsh extended), `LinuxPersistenceParser` (crontabs + systemd units), `LinuxHostInfoParser` (os-release/hostname/passwd/timezone), `LinuxAccessParser` (authorized_keys/known_hosts/sshd_config/sudoers/group/shadow). Rotated `.gz` auth logs read via `StrataCore/GzipDecoder` (Compression framework) |
+| `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **29 analyzers**, IOC matcher, lateral graph |
 | `StrataApp` | SwiftUI app. `AppModel` (the store), `CaseStore` (.strata bundle layout), `CaseLibrary`, `RecentCases`, `Views/` (macOS) + `Views/iOS/` |
 
 `.strata` case bundle = a directory: `case.json`, `hosts.json`, `iocs.json`,
@@ -156,12 +156,16 @@ report-integrated),
 **ext2/3/4 + basic Linux triage** (TSK enumerates ext natively - no toolchain
 change; `StrataLinux` parses auth.log/secure (classic-syslog year inference +
 RFC3339), wtmp/btmp, bash/zsh history, crontabs + systemd units, and
-os-release/hostname/passwd → Linux host profile fallback; 3 Linux sources on
-the timeline; AuthLog/ShellHistory/LinuxPersistence analyzers (SSH brute
-force incl. btmp-only + success-after-burst, reverse shells, download-pipe-
-exec, history tampering, @reboot cron, staging-path services); "Auth &
-Logins" / "Shell History" / "Linux Persistence" tabs + iOS drills. Works for
-ext images via TSK *and* loose UAC-style collections. **Known limits:**
+os-release/hostname/passwd → Linux host profile fallback; **SSH trust +
+privilege** (authorized_keys/known_hosts/sshd_config/sudoers/group/shadow,
+rotated `.gz` auth logs decompressed inline); 3 Linux sources on the
+timeline; AuthLog/ShellHistory/LinuxPersistence/**LinuxAccess** analyzers
+(SSH brute force incl. btmp-only + success-after-burst, reverse shells,
+download-pipe-exec, history tampering, @reboot cron, staging-path services,
+**backdoor SSH keys, PermitRootLogin/PermitEmptyPasswords, UID-0/passwordless
+accounts, NOPASSWD sudo, docker-group root-equiv**); "Auth & Logins" /
+"Shell History" / "Linux Persistence" / "Accounts & SSH" tabs + iOS drills.
+Works for ext images via TSK *and* loose UAC-style collections. **Known limits:**
 classic syslog times have no TZ (treated as UTC) and the year is inferred
 from file mtime; `.gz` rotations skipped; journald/lastlog not parsed; plain
 bash history is undated (kept off the timeline); utmp layout assumes the

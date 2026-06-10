@@ -20,6 +20,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case linuxLogs = "Auth & Logins"
     case shellHistory = "Shell History"
     case linuxPersistence = "Linux Persistence"
+    case linuxAccess = "Accounts & SSH"
     case lateral = "Lateral"
     case killChain = "Kill Chain"
     case iocs = "IOCs"
@@ -47,6 +48,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .linuxLogs: return "person.badge.key"
         case .shellHistory: return "terminal"
         case .linuxPersistence: return "calendar.badge.clock"
+        case .linuxAccess: return "key.horizontal"
         case .lateral:   return "point.3.connected.trianglepath.dotted"
         case .killChain: return "link"
         case .iocs:      return "scope"
@@ -64,7 +66,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .events, .registry, .prefetch, .amcache, .shimcache,
              .lnk, .jumpList, .usn, .srum, .mft, .wmi:
             return .windows
-        case .linuxLogs, .shellHistory, .linuxPersistence:
+        case .linuxLogs, .shellHistory, .linuxPersistence, .linuxAccess:
             return .linux
         case .overview, .evidence, .timeline, .browser, .lateral,
              .killChain, .iocs, .annotations, .custody:
@@ -175,6 +177,7 @@ struct ContentView: View {
                 case .linuxLogs: LinuxLogsView()
                 case .shellHistory: ShellHistoryView()
                 case .linuxPersistence: LinuxPersistenceView()
+                case .linuxAccess: LinuxAccessView()
                 case .lateral:   LateralMovementView()
                 case .killChain: KillChainView()
                 case .iocs:      IOCView()

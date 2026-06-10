@@ -7,6 +7,18 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ### Added
 
+- **Linux access & privilege artifacts** (new **Accounts & SSH** tab) — parses
+  the "who can get in, and as whom" sources: SSH `authorized_keys` and
+  `known_hosts` (with `command=`/`from=` options), `sshd_config`, `sudoers`
+  (+ `sudoers.d`), `/etc/group`, and `/etc/shadow` password state. A new
+  **Linux Access & Privilege** analyzer flags backdoor-shaped SSH keys
+  (forced-command, root-authorized), dangerous sshd settings
+  (`PermitRootLogin`, `PermitEmptyPasswords`), UID-0 non-root and passwordless
+  accounts, passwordless full `sudo` (NOPASSWD ALL), and root-equivalent group
+  membership (`docker`/`lxd`). Rotated **`.gz` auth logs** (`auth.log.2.gz`)
+  are now read too — decompressed inline via a new `GzipDecoder` (Compression
+  framework, no new dependency) — extending the auth-log window we cover. macOS
+  view + iOS drill.
 - **Per-OS artifact tabs.** Tabs that can't apply to an evidence item's OS are
   now hidden — a Linux (ext4) case no longer shows Registry / Prefetch / EVTX /
   Amcache / MFT / WMI etc., and a Windows case hides the Auth & Logins / Shell
