@@ -74,7 +74,9 @@ public nonisolated struct RMMToolAnalyzer: Analyzer {
                 image = event.data("Image") ?? ""
             } else { return nil }
             guard !image.isEmpty else { return nil }
-            let base = (image as NSString).lastPathComponent.lowercased()
+            // Backslash-aware: Windows image paths use '\', which
+            // NSString.lastPathComponent doesn't split on (see WindowsPath).
+            let base = WindowsPath.basenameLower(image)
             guard let vendor = Self.exeIndex[base] else { return nil }
             let dropped = Self.droppedRoots.contains { image.lowercased().contains($0) }
             return Finding(

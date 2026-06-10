@@ -5,6 +5,42 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Added — detection coverage (Wave 1, +6 analyzers → 41)
+
+Six new ATT&CK analyzers, each with unit tests, authored in parallel and
+adversarially hardened for false-positive risk:
+
+- **Credential Dumping** (T1003/T1558) — LSASS access/dump (Sysmon 10 masks,
+  comsvcs MiniDump, procdump), SAM/SECURITY/SYSTEM hive theft (`reg save`, VSS
+  copy), NTDS.dit (`ntdsutil ifm`), and mimikatz/Rubeus/gsecdump/nanodump tool
+  fingerprints across prefetch/amcache/shimcache/lnk/browser/shell history.
+- **Impact / Destruction** (T1485/T1486/T1490/T1561) — recovery inhibition
+  (`vssadmin delete shadows`, `wbadmin`, `bcdedit recoveryenabled no`), disk
+  wipe (`cipher /w`, `dd of=/dev/sd*`, diskpart clean), and ransomware
+  mass-encryption bursts (≥25 distinct files gaining a novel uniform extension)
+  + ransom-note filenames, with broad benign-extension exclusions.
+- **Lateral Movement Breadth** (T1021.002/.003/.006, T1047) — WinRM/PSRemoting
+  (`wsmprovhost` spawning a shell), WMI remote exec (`WmiPrvSE` parent,
+  `wmic /node:`), DCOM monikers (MMC20/ShellWindows), and admin-share push —
+  complementing the existing RDP/Impacket/SSH coverage.
+- **AD Recon** (T1558.003/.004, T1087/T1018/T1046) — Kerberoasting (4769 RC4
+  bursts), AS-REP roasting (4768 no-preauth), and discovery-command clustering.
+- **Windows MRU** (T1059/T1204 intent) — surfaces suspicious RunMRU /
+  RecentDocs / TypedPaths / UserAssist entries already in the registry.
+- **Linux Anti-Forensics** (T1070.002/.003/.006) — history clearing/disable,
+  `/var/log` truncation, `journalctl --vacuum`, `touch -t/-r` timestomp, and
+  auditd/rsyslog tamper — complementing the existing log/history analyzers.
+
+### Fixed — Windows path basename bug (latent, suite-wide)
+
+`ProcessCreationAnalyzer` and `RMMToolAnalyzer` matched process basenames with
+`NSString.lastPathComponent`, which splits on `/` only — so a backslash Windows
+image path (`C:\…\powershell.exe`) passed through whole and the parent/child
+**equality checks silently never fired on real Windows evidence**. Added a
+shared backslash-and-slash-aware `WindowsPath.basename` and routed all three
+affected analyzers through it. (Caught by the new Lateral-Movement analyzer's
+own failing test during integration.)
+
 ### Fixed (real ext4-image triage pass)
 
 First end-to-end run against a real Ubuntu ext4 VM image surfaced a batch of

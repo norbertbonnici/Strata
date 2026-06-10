@@ -57,5 +57,12 @@ public nonisolated struct AnalysisEngine: Sendable {
         AuditAnalyzer(),
         SyslogAnalyzer(),
         LastlogAnalyzer(),
+        // Wave 1 — detection-coverage expansion.
+        CredentialDumpingAnalyzer(),
+        ImpactDestructionAnalyzer(),
+        LateralMovementBreadthAnalyzer(),
+        ADReconAnalyzer(),
+        WindowsMRUAnalyzer(),
+        LinuxAntiForensicsAnalyzer(),
     ]
 }
