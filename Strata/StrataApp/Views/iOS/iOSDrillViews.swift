@@ -1583,4 +1583,122 @@ enum MftHexDump {
     }
 }
 
+struct WmiDrillView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var hideBenign = true
+    @State private var displayLimit = 200
+    private let pageSize = 200
+
+    var body: some View {
+        let all = model.wmi
+        let rows = hideBenign ? all.filter { !$0.isCommonBenign } : all
+        let benign = all.lazy.filter(\.isCommonBenign).count
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitle(title: "WMI", subtitle: "\(human(all.count)) item\(all.count == 1 ? "" : "s")")
+                if all.isEmpty {
+                    ContentUnavailableView("No WMI persistence", systemImage: "gearshape.2",
+                        description: Text("Parse the WMI repository on the macOS app to browse it here."))
+                        .padding(.top, 60).frame(maxWidth: .infinity)
+                } else {
+                    if benign > 0 {
+                        Toggle(isOn: $hideBenign) {
+                            Label("Hide built-in (\(benign))", systemImage: "checkmark.seal")
+                                .font(.system(size: 13, weight: .medium))
+                        }.tint(Theme.teal).padding(.horizontal, 15).padding(.top, 10)
+                    }
+                    Card { rowViews(rows) }.padding(.top, 10)
+                }
+                Spacer(minLength: 26)
+            }
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+    }
+
+    @ViewBuilder private func rowViews(_ rows: [WmiPersistenceEntry]) -> some View {
+        ForEach(rows.prefix(displayLimit)) { e in
+            NavigationLink { WmiRecordDetail(entry: e) } label: {
+                HStack(spacing: 11) {
+                    Image(systemName: e.kind == .scriptConsumer ? "curlybraces" : "arrow.triangle.branch")
+                        .font(.system(size: 15)).frame(width: 22)
+                        .foregroundStyle(e.isCommonBenign ? Theme.text3 : Theme.amber)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(e.title).font(.system(size: 13.5, weight: .medium))
+                            .foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
+                        Text(e.detailSummary).font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(Theme.text3).lineLimit(1).truncationMode(.middle)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.system(size: 12)).foregroundStyle(Theme.text3)
+                }
+                .padding(.horizontal, 15).padding(.vertical, 11).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            Divider().background(Theme.hair2).padding(.leading, 48)
+        }
+        if rows.count > displayLimit {
+            Button { displayLimit += pageSize } label: {
+                Text("Show \(min(pageSize, rows.count - displayLimit)) more")
+                    .font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.teal)
+                    .frame(maxWidth: .infinity).padding(.vertical, 13)
+            }.buttonStyle(.plain)
+        }
+    }
+
+    private func human(_ n: Int) -> String {
+        let f = NumberFormatter(); f.numberStyle = .decimal
+        return f.string(from: NSNumber(value: n)) ?? "\(n)"
+    }
+}
+
+private struct WmiRecordDetail: View {
+    let entry: WmiPersistenceEntry
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitle(title: entry.title)
+                if !entry.isCommonBenign {
+                    Label("WMI persistence (T1546.003)", systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 12)).foregroundStyle(Theme.amber)
+                        .padding(.horizontal, 18).padding(.top, 4)
+                }
+                Card {
+                    kv("Kind", entry.kind.label)
+                    if let t = entry.consumerType { kv("Consumer type", t) }
+                    if let f = entry.filterName { kv("Filter", f) }
+                    if let e = entry.scriptEngine { kv("Engine", e) }
+                    if entry.isCommonBenign { kv("Note", "Built-in (BVT/SCM)") }
+                }.padding(.top, 10)
+                if let q = entry.query, !q.isEmpty { section("Trigger (WQL)", q) }
+                if let c = entry.command, !c.isEmpty { section("Command", c) }
+                if let s = entry.scriptText, !s.isEmpty { section("Script", s) }
+                Spacer(minLength: 26)
+            }
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+    }
+    private func kv(_ k: String, _ v: String) -> some View {
+        HStack(alignment: .top) {
+            Text(k).font(.system(size: 12.5)).foregroundStyle(Theme.text3).frame(width: 110, alignment: .leading)
+            Text(v).font(.system(size: 12.5, design: .monospaced)).foregroundStyle(Theme.text)
+                .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
+        }.padding(.horizontal, 15).padding(.vertical, 7)
+    }
+    private func section(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader(label: title).padding(.top, 14)
+            Card {
+                Text(value).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text2)
+                    .textSelection(.enabled).padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+}
+
 #endif

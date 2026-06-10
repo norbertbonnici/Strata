@@ -7,6 +7,17 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ### Added
 
+- **WMI persistence parsing** (new **WMI** tab) — carves the WMI CIM repository
+  (`OBJECTS.DATA`) for **event-subscription persistence** (T1546.003). A full CIM
+  parse is intractable, so — like FireEye's PyWMIPersistenceFinder — it
+  keyword-carves the high-signal strings: `__FilterToConsumerBinding` references,
+  the `__EventFilter` WQL trigger, the `CommandLineEventConsumer` command line,
+  and `ActiveScriptEventConsumer` script payloads (so an `Invoke-Mimikatz`
+  consumer is caught even unbound). A new **WMI Persistence** analyzer flags every
+  non-built-in binding (high when it runs a script or carries an attacker tell
+  like encoded PowerShell or a LOLBin), and built-in Microsoft (BVT/SCM)
+  subscriptions are marked and hidden by default. macOS table view + iOS drill.
+  Validated against a real WMI repository (flare-wmi's `wmikatz` sample).
 - **NTFS `$MFT` parsing + timestomping detection** (new **MFT** tab) — a
   pure-Swift `$MFT` byte parser (no vendored tool) that applies the NTFS fixup,
   decodes both the `$STANDARD_INFORMATION` and `$FILE_NAME` MACB sets, and

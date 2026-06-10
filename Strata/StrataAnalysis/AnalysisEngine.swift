@@ -46,5 +46,6 @@ public nonisolated struct AnalysisEngine: Sendable {
         SrumAnalyzer(),
         BrowserHistoryAnalyzer(),
         MftAnalyzer(),
+        WmiAnalyzer(),
     ]
 }

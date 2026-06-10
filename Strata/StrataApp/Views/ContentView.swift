@@ -16,6 +16,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case srum = "SRUM"
     case browser = "Browser History"
     case mft = "MFT"
+    case wmi = "WMI"
     case lateral = "Lateral"
     case killChain = "Kill Chain"
     case iocs = "IOCs"
@@ -38,6 +39,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .srum:      return "chart.bar.doc.horizontal"
         case .browser:   return "globe"
         case .mft:       return "tablecells"
+        case .wmi:       return "gearshape.2"
         case .lateral:   return "point.3.connected.trianglepath.dotted"
         case .killChain: return "link"
         case .iocs:      return "scope"
@@ -128,6 +130,7 @@ struct ContentView: View {
                 case .srum:      SrumView()
                 case .browser:   BrowserHistoryView()
                 case .mft:       MftView()
+                case .wmi:       WmiView()
                 case .lateral:   LateralMovementView()
                 case .killChain: KillChainView()
                 case .iocs:      IOCView()
