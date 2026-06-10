@@ -21,6 +21,9 @@ public nonisolated struct ExportSelection: Sendable, Equatable {
     /// Raw custody-log data export.
     public var custodyCSV: Bool
     public var custodyJSON: Bool
+    /// Raw analyst-annotations data export (bookmarks/tags/notes).
+    public var annotationsCSV: Bool
+    public var annotationsJSON: Bool
     /// Severities to include in the examiner *report*. Defaults to all. This
     /// filters only the narrative report (findings list, severity rollups, and
     /// the findings timeline excerpt) - the raw findings CSV/JSON export stays
@@ -33,6 +36,7 @@ public nonisolated struct ExportSelection: Sendable, Equatable {
                 iocMatchesCSV: Bool = false, iocMatchesJSON: Bool = false,
                 cocPDF: Bool = false, cocHTML: Bool = false, cocMarkdown: Bool = false,
                 custodyCSV: Bool = false, custodyJSON: Bool = false,
+                annotationsCSV: Bool = false, annotationsJSON: Bool = false,
                 reportSeverities: Set<Severity> = Set(Severity.allCases)) {
         self.reportMarkdown = reportMarkdown
         self.reportHTML = reportHTML
@@ -47,6 +51,8 @@ public nonisolated struct ExportSelection: Sendable, Equatable {
         self.cocMarkdown = cocMarkdown
         self.custodyCSV = custodyCSV
         self.custodyJSON = custodyJSON
+        self.annotationsCSV = annotationsCSV
+        self.annotationsJSON = annotationsJSON
         self.reportSeverities = reportSeverities
     }
 
@@ -54,7 +60,8 @@ public nonisolated struct ExportSelection: Sendable, Equatable {
     public var isEmpty: Bool {
         !(reportMarkdown || reportHTML || timelineCSV || timelineJSON ||
           findingsCSV || findingsJSON || iocMatchesCSV || iocMatchesJSON ||
-          cocPDF || cocHTML || cocMarkdown || custodyCSV || custodyJSON)
+          cocPDF || cocHTML || cocMarkdown || custodyCSV || custodyJSON ||
+          annotationsCSV || annotationsJSON)
     }
 
     /// Whether any examiner-report format was picked.

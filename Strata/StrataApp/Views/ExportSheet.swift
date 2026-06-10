@@ -33,6 +33,8 @@ struct ExportSheet: View {
     @State private var cocMarkdown = false
     @State private var custodyCSV = false
     @State private var custodyJSON = false
+    @State private var annotationsCSV = false
+    @State private var annotationsJSON = false
     @State private var showFolderPicker = false
 
     private var wantsReport: Bool { reportMarkdown || reportHTML }
@@ -44,6 +46,7 @@ struct ExportSheet: View {
                         iocMatchesCSV: iocCSV, iocMatchesJSON: iocJSON,
                         cocPDF: cocPDF, cocHTML: cocHTML, cocMarkdown: cocMarkdown,
                         custodyCSV: custodyCSV, custodyJSON: custodyJSON,
+                        annotationsCSV: annotationsCSV, annotationsJSON: annotationsJSON,
                         reportSeverities: reportSeverities)
     }
 
@@ -196,6 +199,9 @@ struct ExportSheet: View {
             dataRow("Findings", count: findingCount, csv: $findingsCSV, json: $findingsJSON)
             Divider()
             dataRow("IOC matches", count: iocCount, csv: $iocCSV, json: $iocJSON)
+            Divider()
+            dataRow("Annotations", count: model.annotations.count,
+                    csv: $annotationsCSV, json: $annotationsJSON)
         }
     }
 

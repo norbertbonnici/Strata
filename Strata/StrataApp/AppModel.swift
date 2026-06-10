@@ -33,6 +33,57 @@ nonisolated struct EvidenceState: Sendable {
     var iocMatches: [IOCMatch] = []
 }
 
+/// A one-shot "reveal this range on the Timeline tab" request. The token makes
+/// consecutive pivots to the same range distinguishable for `.onChange`.
+nonisolated struct TimelinePivot: Equatable, Sendable {
+    let token: UUID
+    let range: ClosedRange<Date>
+}
+
+/// Everything the annotation editor sheet needs to create or edit a bookmark:
+/// the target's stable identity plus the display snapshot that gets
+/// denormalized into the `Annotation`. Resolved by the presenting view (which
+/// has the live Finding / TimelineEvent in hand) so the sheet stays dumb.
+nonisolated struct AnnotationDraft: Identifiable, Hashable, Sendable {
+    let targetKind: Annotation.TargetKind
+    let targetKey: String
+    let evidenceID: UUID?
+    let title: String
+    let timestamp: Date?
+    let sourceLabel: String
+
+    var id: String { targetKey }
+
+    init(finding: Finding, evidenceID: UUID?) {
+        targetKind = .finding
+        targetKey = finding.id.uuidString
+        self.evidenceID = evidenceID
+        title = finding.title
+        timestamp = finding.timestamp
+        sourceLabel = "Finding"
+    }
+
+    init(event: TimelineEvent, evidenceID: UUID?) {
+        targetKind = .timelineEvent
+        targetKey = event.stableKey
+        self.evidenceID = evidenceID
+        title = event.path
+        timestamp = event.date
+        sourceLabel = event.source.label
+    }
+
+    /// Re-edit a stored annotation from its denormalized snapshot - used when
+    /// the live target isn't loaded (or no longer resolves).
+    init(stored annotation: Annotation) {
+        targetKind = annotation.targetKind
+        targetKey = annotation.targetKey
+        evidenceID = annotation.evidenceID
+        title = annotation.title
+        timestamp = annotation.timestamp
+        sourceLabel = annotation.sourceLabel
+    }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     /// The case currently open in the app. nil = show the WelcomeView.
@@ -53,6 +104,26 @@ final class AppModel: ObservableObject {
     /// Append-only chain-of-custody ledger for the open case (custody.json).
     /// Case-wide, so it lives here rather than in per-host `EvidenceState`.
     @Published private(set) var custodyLog: [CustodyEvent] = []
+
+    /// Analyst bookmarks/tags (case-wide, `annotations.json`). The index is
+    /// rebuilt on every change so timeline rows can do O(1) "is this event
+    /// bookmarked" lookups across 20k-row tables.
+    @Published private(set) var annotations: [Annotation] = [] {
+        didSet {
+            annotationsByTargetKey = Dictionary(annotations.map { ($0.targetKey, $0) },
+                                                uniquingKeysWith: { first, _ in first })
+        }
+    }
+    private(set) var annotationsByTargetKey: [String: Annotation] = [:]
+
+    /// Free-form case narrative (`notes.json`). Mutate via `updateCaseNotes`.
+    @Published private(set) var caseNotes = CaseNotes()
+
+    /// One-shot "reveal this range on the Timeline tab" request - set by the
+    /// Annotations list / findings, consumed by `TimelineView` (which clears
+    /// it after applying). The token forces `.onChange` to fire for repeat
+    /// pivots to the same range.
+    @Published var timelinePivot: TimelinePivot?
     /// Which picker WelcomeView should present. A SINGLE `.fileImporter` is
     /// driven off this: SwiftUI only honors one `.fileImporter` per view tree,
     /// so separate per-button flags silently no-op (that's why "Set Case
@@ -81,6 +152,7 @@ final class AppModel: ObservableObject {
         case enrichment
         case export
         case acquisitionEditor(UUID)
+        case annotationEditor(AnnotationDraft)
         var id: Int { hashValue }
     }
 
@@ -241,13 +313,18 @@ final class AppModel: ObservableObject {
                 }
             }
 
-            // Case-wide indicators + custody ledger, also decoded off-main.
+            // Case-wide indicators + custody ledger + analyst annotations,
+            // also decoded off-main.
             let caseWide = await Task.detached(priority: .userInitiated) {
                 (iocs: (try? CaseStore.readIOCs(in: bundleURL)) ?? [],
-                 custody: (try? CaseStore.readCustody(in: bundleURL)) ?? [])
+                 custody: (try? CaseStore.readCustody(in: bundleURL)) ?? [],
+                 annotations: (try? CaseStore.readAnnotations(in: bundleURL)) ?? [],
+                 notes: (try? CaseStore.readNotes(in: bundleURL)) ?? CaseNotes())
             }.value
             iocs = caseWide.iocs
             custodyLog = caseWide.custody
+            annotations = caseWide.annotations
+            caseNotes = caseWide.notes
 
             RecentCases.record(bundleURL)
             recentCases = RecentCases.load()
@@ -350,6 +427,21 @@ final class AppModel: ObservableObject {
             }
             state.lnk = (try? CaseStore.readLnk(forHostID: evidence.id, in: bundleURL)) ?? []
             state.jumpList = (try? CaseStore.readJumpList(forHostID: evidence.id, in: bundleURL)) ?? []
+            // Fold the registry/prefetch/LNK/JumpList-derived timestamps back
+            // into the timeline (mirrors the evtx splice): registry key writes,
+            // prefetch runs, shimcache/amcache presence, LNK target MACs, and
+            // JumpList accesses. One sort at the end covers the lot. The
+            // registry slice is macOS-only, like the FS MACB timeline - a big
+            // SOFTWARE hive expands to a phone-hostile row count.
+            #if os(macOS)
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.registryValues))
+            #endif
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.prefetch))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.amcache))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.shimcache))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.lnk))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.jumpList))
+            state.timeline.sort { $0.date < $1.date }
             state.usn = (try? CaseStore.readUsn(forHostID: evidence.id, in: bundleURL)) ?? []
             // Fold USN journal rows back into the timeline so the Source filter
             // works without re-parsing on every case open (mirrors the evtx splice).
@@ -397,6 +489,9 @@ final class AppModel: ObservableObject {
         states = [:]
         iocs = []
         custodyLog = []
+        annotations = []
+        caseNotes = CaseNotes()
+        timelinePivot = nil
         activeEvidenceID = nil
         progress = nil
         statusMessage = ""
@@ -411,6 +506,78 @@ final class AppModel: ObservableObject {
         } catch {
             errorMessage = "Failed to save host list: \(error.localizedDescription)"
         }
+    }
+
+    // MARK: - Annotations (analyst bookmarks + case narrative)
+
+    /// The annotation pinned to a target, if any. `key` is `Finding.id
+    /// .uuidString` or `TimelineEvent.stableKey`.
+    func annotation(forTargetKey key: String) -> Annotation? {
+        annotationsByTargetKey[key]
+    }
+
+    /// Create or update the bookmark for `draft`'s target. One annotation per
+    /// target: editing an existing bookmark updates its tag/note in place.
+    func upsertAnnotation(for draft: AnnotationDraft, tag: AnalystTag?, note: String) {
+        let author = currentCase?.examiner ?? ""
+        if let index = annotations.firstIndex(where: { $0.targetKey == draft.targetKey }) {
+            annotations[index].tag = tag
+            annotations[index].note = note
+            annotations[index].modifiedAt = Date()
+            if !author.isEmpty { annotations[index].author = author }
+        } else {
+            annotations.append(Annotation(author: author,
+                                          targetKind: draft.targetKind,
+                                          targetKey: draft.targetKey,
+                                          evidenceID: draft.evidenceID,
+                                          tag: tag, note: note,
+                                          title: draft.title,
+                                          timestamp: draft.timestamp,
+                                          sourceLabel: draft.sourceLabel))
+        }
+        saveAnnotations()
+    }
+
+    func removeAnnotation(_ id: UUID) {
+        annotations.removeAll { $0.id == id }
+        saveAnnotations()
+    }
+
+    private func saveAnnotations() {
+        guard let bundleURL = currentCaseBundleURL else { return }
+        do {
+            try CaseStore.writeAnnotations(annotations, in: bundleURL)
+        } catch {
+            errorMessage = "Failed to save annotations: \(error.localizedDescription)"
+        }
+    }
+
+    /// Replace the case narrative and persist. No-op when unchanged so the
+    /// editor's debounced auto-save doesn't churn `notes.json`.
+    func updateCaseNotes(_ text: String) {
+        guard caseNotes.text != text else { return }
+        caseNotes = CaseNotes(text: text, modifiedAt: Date(),
+                              author: currentCase?.examiner ?? "")
+        guard let bundleURL = currentCaseBundleURL else { return }
+        do {
+            try CaseStore.writeNotes(caseNotes, in: bundleURL)
+        } catch {
+            errorMessage = "Failed to save case notes: \(error.localizedDescription)"
+        }
+    }
+
+    /// Ask the Timeline tab to reveal `date` with ±30 min of context.
+    func pivotToTimeline(around date: Date) {
+        let pad: TimeInterval = 30 * 60
+        timelinePivot = TimelinePivot(token: UUID(),
+                                      range: date.addingTimeInterval(-pad)...date.addingTimeInterval(pad))
+    }
+
+    /// Owning host for a finding. Findings are few, so the scan is cheap -
+    /// unlike timeline events, whose host attribution comes from the active
+    /// scope instead.
+    func evidenceID(forFinding id: UUID) -> UUID? {
+        states.first { $0.value.findings.contains { $0.id == id } }?.key
     }
 
     // MARK: - IOC management
@@ -606,13 +773,16 @@ final class AppModel: ObservableObject {
                 sourceHashes: evidence.sourceHashes)
         }
         let now = Date()
-        // Custody log is case-wide; include the entries for the selected hosts
-        // plus case-level (nil-evidence) events.
+        // Custody log and annotations are case-wide; include the entries for
+        // the selected hosts plus unscoped (nil-evidence) ones.
         let selectedIDs = Set(selectedHosts.map(\.id))
         let custodyForExport = custodyLog.filter { $0.evidenceID == nil || selectedIDs.contains($0.evidenceID!) }
+        let annotationsForExport = annotations.filter { $0.evidenceID == nil || selectedIDs.contains($0.evidenceID!) }
         let inputs = ReportInputs(caseName: theCase.name, examiner: theCase.examiner,
                                   createdAt: theCase.createdAt, generatedAt: now,
-                                  hosts: hosts, custodyLog: custodyForExport)
+                                  hosts: hosts, custodyLog: custodyForExport,
+                                  caseNotes: caseNotes.text,
+                                  annotations: annotationsForExport)
 
         let outcome = await Task.detached(priority: .userInitiated) { () -> ExportOutcome in
             let files = ExportGenerator.generate(inputs: inputs, selection: selection)
@@ -1389,6 +1559,10 @@ final class AppModel: ObservableObject {
                 }
                 collected.sort { ($0.targetModified ?? .distantPast) > ($1.targetModified ?? .distantPast) }
                 state.lnk = collected
+                // Splice target MAC times onto the timeline (mirrors evtx).
+                state.timeline.removeAll { $0.source == .lnk }
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: collected))
+                state.timeline.sort { $0.date < $1.date }
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
                     try? CaseStore.writeLnk(collected, forHostID: evidence.id, in: bundleURL)
@@ -1515,6 +1689,10 @@ final class AppModel: ObservableObject {
                 }
                 collected.sort { ($0.lastAccessed ?? .distantPast) > ($1.lastAccessed ?? .distantPast) }
                 state.jumpList = collected
+                // Splice DestList access times onto the timeline (mirrors evtx).
+                state.timeline.removeAll { $0.source == .jumplist }
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: collected))
+                state.timeline.sort { $0.date < $1.date }
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
                     try? CaseStore.writeJumpList(collected, forHostID: evidence.id, in: bundleURL)
@@ -2341,6 +2519,16 @@ final class AppModel: ObservableObject {
                 }
                 let shimcache = ShimcacheParser.fromRegistry(collected)
                 state.shimcache = shimcache
+                // Drop any prior registry-derived slices (paranoia for
+                // re-parses) and splice key-write / amcache / shimcache times
+                // back onto the timeline (mirrors the evtx splice).
+                state.timeline.removeAll {
+                    $0.source == .registry || $0.source == .amcache || $0.source == .shimcache
+                }
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: collected))
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: amcache))
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: shimcache))
+                state.timeline.sort { $0.date < $1.date }
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
                     try? CaseStore.writeRegistry(collected, forHostID: evidence.id, in: bundleURL)
@@ -2527,6 +2715,10 @@ final class AppModel: ObservableObject {
                 // Most-recent execution first.
                 collected.sort { ($0.lastRun ?? .distantPast) > ($1.lastRun ?? .distantPast) }
                 state.prefetch = collected
+                // Splice recorded run times onto the timeline (mirrors evtx).
+                state.timeline.removeAll { $0.source == .prefetch }
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: collected))
+                state.timeline.sort { $0.date < $1.date }
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
                     try? CaseStore.writePrefetch(collected, forHostID: evidence.id, in: bundleURL)

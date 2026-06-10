@@ -60,6 +60,11 @@ public nonisolated enum ReportModelBuilder {
             examiner: inputs.examiner,
             createdAt: inputs.createdAt,
             generatedAt: inputs.generatedAt,
+            narrative: inputs.caseNotes.trimmingCharacters(in: .whitespacesAndNewlines),
+            bookmarks: inputs.annotations.sorted {
+                ($0.timestamp ?? .distantFuture, $0.createdAt)
+                    < ($1.timestamp ?? .distantFuture, $1.createdAt)
+            },
             hostSections: sections,
             totalFindings: totalFindings,
             totalIOCMatches: totalIOC,

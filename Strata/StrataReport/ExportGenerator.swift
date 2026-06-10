@@ -92,6 +92,18 @@ public nonisolated enum ExportGenerator {
             }
         }
 
+        // Analyst-annotations data export.
+        if selection.annotationsCSV || selection.annotationsJSON {
+            let rows = ExportRowBuilder.annotationRows(from: inputs.annotations, hosts: inputs.hosts)
+            if selection.annotationsCSV {
+                files.append(ExportedFile(filename: "\(prefix)-annotations.csv",
+                                          data: Data(CSVExporter.annotations(rows).utf8)))
+            }
+            if selection.annotationsJSON, let data = try? JSONExporter.encode(rows) {
+                files.append(ExportedFile(filename: "\(prefix)-annotations.json", data: data))
+            }
+        }
+
         // Document the set (and the print-to-PDF path) once we know what it holds.
         if !files.isEmpty {
             let readme = ExportReadme.render(inputs: inputs, filenames: files.map(\.filename))

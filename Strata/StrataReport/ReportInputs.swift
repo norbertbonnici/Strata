@@ -57,14 +57,23 @@ public nonisolated struct ReportInputs: Sendable {
     /// Case-wide custody ledger, for the chain-of-custody report. Defaulted
     /// empty for callers that only export the examiner report / data.
     public let custodyLog: [CustodyEvent]
+    /// The analyst's case narrative (free-form notes), surfaced in the
+    /// examiner report. Defaulted empty for non-narrative callers.
+    public let caseNotes: String
+    /// Analyst bookmarks (tagged findings / timeline events), for the report's
+    /// bookmarked-items section and the annotations data export.
+    public let annotations: [Annotation]
 
     public init(caseName: String, examiner: String, createdAt: Date,
-                generatedAt: Date, hosts: [Host], custodyLog: [CustodyEvent] = []) {
+                generatedAt: Date, hosts: [Host], custodyLog: [CustodyEvent] = [],
+                caseNotes: String = "", annotations: [Annotation] = []) {
         self.caseName = caseName
         self.examiner = examiner
         self.createdAt = createdAt
         self.generatedAt = generatedAt
         self.hosts = hosts
         self.custodyLog = custodyLog
+        self.caseNotes = caseNotes
+        self.annotations = annotations
     }
 }

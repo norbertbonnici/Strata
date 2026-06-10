@@ -54,6 +54,21 @@ public nonisolated struct CustodyExportRow: Codable, Sendable {
     public let evidence: String   // host display name, or "" for case-level events
 }
 
+/// Annotation columns:
+/// `target_timestamp,tag,target_kind,source,title,note,author,created,modified,evidence`.
+public nonisolated struct AnnotationExportRow: Codable, Sendable {
+    public let targetTimestamp: Date?   // the bookmarked item's own time
+    public let tag: String
+    public let targetKind: String       // finding / timelineEvent
+    public let source: String           // "Event Log", "Finding", ...
+    public let title: String
+    public let note: String
+    public let author: String
+    public let created: Date
+    public let modified: Date
+    public let evidence: String         // host display name, "" when unscoped
+}
+
 /// Flattens the per-host `ReportInputs` into tagged export rows. Every row
 /// carries its `host` so attribution survives the case-wide roll-up (the
 /// in-memory `TimelineEvent`/`Finding`/`IOCMatch` types have no host field).
@@ -74,6 +89,31 @@ public nonisolated enum ExportRowBuilder {
                 detail: event.detail,
                 evidence: event.evidenceID.flatMap { nameByID[$0] } ?? "")
         }
+    }
+
+    /// Flatten the analyst annotations, chronological by the *target's* own
+    /// timestamp (undated last) so the export reads as the case story.
+    public static func annotationRows(from annotations: [Annotation],
+                                      hosts: [ReportInputs.Host]) -> [AnnotationExportRow] {
+        let nameByID: [UUID: String] = Dictionary(
+            hosts.compactMap { host in host.evidenceID.map { ($0, host.displayName) } },
+            uniquingKeysWith: { first, _ in first })
+        return annotations
+            .sorted { ($0.timestamp ?? .distantFuture, $0.createdAt)
+                        < ($1.timestamp ?? .distantFuture, $1.createdAt) }
+            .map { annotation in
+                AnnotationExportRow(
+                    targetTimestamp: annotation.timestamp,
+                    tag: annotation.tag?.label ?? "",
+                    targetKind: annotation.targetKind.rawValue,
+                    source: annotation.sourceLabel,
+                    title: annotation.title,
+                    note: annotation.note,
+                    author: annotation.author,
+                    created: annotation.createdAt,
+                    modified: annotation.modifiedAt,
+                    evidence: annotation.evidenceID.flatMap { nameByID[$0] } ?? "")
+            }
     }
 
     public static func timelineRows(from hosts: [ReportInputs.Host]) -> [TimelineExportRow] {

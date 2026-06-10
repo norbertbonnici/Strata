@@ -20,6 +20,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case lateral = "Lateral"
     case killChain = "Kill Chain"
     case iocs = "IOCs"
+    case annotations = "Annotations"
     case custody = "Custody"
 
     var id: String { rawValue }
@@ -43,6 +44,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .lateral:   return "point.3.connected.trianglepath.dotted"
         case .killChain: return "link"
         case .iocs:      return "scope"
+        case .annotations: return "bookmark"
         case .custody:   return "checkmark.seal"
         }
     }
@@ -96,6 +98,12 @@ struct ContentView: View {
                 #else
                 EmptyView()
                 #endif
+            case .annotationEditor(let draft):
+                #if os(macOS)
+                AnnotationEditorSheet(draft: draft).environmentObject(model)
+                #else
+                EmptyView()
+                #endif
             }
         }
     }
@@ -134,10 +142,17 @@ struct ContentView: View {
                 case .lateral:   LateralMovementView()
                 case .killChain: KillChainView()
                 case .iocs:      IOCView()
+                case .annotations: AnnotationsView()
                 case .custody:   ChainOfCustodyView()
                 }
             }
             .background(Theme.bg)
+            // A pivot request (from the Annotations list or a finding) must
+            // also switch the detail pane to the Timeline tab; TimelineView
+            // itself consumes the range once it appears.
+            .onChange(of: model.timelinePivot) { _, pivot in
+                if pivot != nil { item = .timeline }
+            }
             .toolbar {
                 ToolbarItem(placement: .navigation) {
                     EvidenceScopePicker()

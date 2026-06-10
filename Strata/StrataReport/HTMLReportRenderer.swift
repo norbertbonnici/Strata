@@ -46,6 +46,29 @@ public nonisolated enum HTMLReportRenderer {
         }
         out += "</header>\n"
 
+        // Analyst narrative + bookmarked items - the case story as the analyst
+        // pinned it, ahead of the per-host detail.
+        if !model.narrative.isEmpty {
+            out += "<h2>Analyst narrative</h2>\n"
+            out += "<p class=\"narrative\">\(escapeMultiline(model.narrative))</p>\n"
+        }
+        if !model.bookmarks.isEmpty {
+            out += "<h2>Bookmarked items</h2>\n"
+            out += "<table class=\"data\">\n<thead><tr>"
+            out += "<th>Time</th><th>Tag</th><th>Source</th><th>Item</th><th>Note</th>"
+            out += "</tr></thead>\n<tbody>\n"
+            for bookmark in model.bookmarks {
+                out += "<tr>"
+                out += "<td>\(escape(ReportFormat.display(bookmark.timestamp)))</td>"
+                out += "<td>\(escape(bookmark.tag?.label ?? "—"))</td>"
+                out += "<td>\(escape(bookmark.sourceLabel))</td>"
+                out += "<td><code>\(escape(bookmark.title))</code></td>"
+                out += "<td>\(escapeMultiline(bookmark.note))</td>"
+                out += "</tr>\n"
+            }
+            out += "</tbody>\n</table>\n"
+        }
+
         for host in model.hostSections {
             out += renderHost(host)
         }
