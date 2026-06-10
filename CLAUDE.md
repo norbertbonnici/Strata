@@ -85,6 +85,23 @@ treat it as one item. The macOS-only ingest code is gated `#if os(macOS)`.
 
 ## Conventions & gotchas (hard-won — don't relearn these)
 
+- **Per-OS tab hiding.** Artifact tabs that can't apply to the evidence's OS are
+  hidden: each `SidebarItem` has an `osFamily` (`.windows` for EVTX/registry/
+  prefetch/amcache/shimcache/LNK/JumpList/USN/SRUM/MFT/WMI, `.linux` for the
+  auth/shell/persistence tabs, `nil` = cross-platform incl. **Browser History**,
+  always shown). `OSFamily.detect` reads each host's volume **fs-type** (NTFS ⇒
+  Windows, ext ⇒ Linux; FAT is ignored — both OSes carry a FAT ESP), falling
+  back to a file-tree sniff for loose folders; stored on `EvidenceState
+  .osFamilies` at load/ingest. `AppModel.shows(osFamily:)` gates on the **active
+  scope's** union (so "All" with mixed hosts shows everything; an undetermined
+  scope shows everything — never hide on a guess). A "Show all tabs" override
+  (`showAllArtifactTabs`) appears only when something is hidden. macOS filters
+  `SidebarItem.allCases` + clamps the selection to Overview when the current tab
+  hides; iOS gates the More-tab rows. **Disk-image *container* formats** (E01/
+  VHD/**VMDK**/raw) are a separate layer from the filesystem: ext2/3/4 support is
+  unconditional in TSK, but a malformed VMDK descriptor (e.g. out-of-order
+  section markers) fails in `libvmdk` *before* the ext4 is ever read — patch the
+  descriptor, don't suspect ext support.
 - **Swift 6.2 MainActor-by-default isolation is ON.** Value types that run off
   the main actor (in `Task.detached`) must be declared `nonisolated` + `Sendable`
   (e.g. `FileEntry`, `FileNode`, `KapeFolderIngestor`, `AnalysisEngine`).
