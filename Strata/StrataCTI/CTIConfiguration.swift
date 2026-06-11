@@ -14,15 +14,20 @@ import Foundation
 public nonisolated struct CTIConfiguration: Codable, Hashable, Sendable {
     public var nsrlEnabled: Bool
     public var nsrlFilePath: String?
+    public var knownBadEnabled: Bool
+    public var knownBadFilePath: String?
     public var virusTotalEnabled: Bool
     public var mispEnabled: Bool
     public var openCTIEnabled: Bool
 
     public init(nsrlEnabled: Bool = false, nsrlFilePath: String? = nil,
+                knownBadEnabled: Bool = false, knownBadFilePath: String? = nil,
                 virusTotalEnabled: Bool = false, mispEnabled: Bool = false,
                 openCTIEnabled: Bool = false) {
         self.nsrlEnabled = nsrlEnabled
         self.nsrlFilePath = nsrlFilePath
+        self.knownBadEnabled = knownBadEnabled
+        self.knownBadFilePath = knownBadFilePath
         self.virusTotalEnabled = virusTotalEnabled
         self.mispEnabled = mispEnabled
         self.openCTIEnabled = openCTIEnabled
@@ -34,13 +39,14 @@ public nonisolated struct CTIConfiguration: Codable, Hashable, Sendable {
     public static let openCTIService = "opencti"
 
     public var anyEnabled: Bool {
-        nsrlEnabled || virusTotalEnabled || mispEnabled || openCTIEnabled
+        nsrlEnabled || knownBadEnabled || virusTotalEnabled || mispEnabled || openCTIEnabled
     }
 
     /// Comma-joined list of enabled tier names (for the custody-ledger note).
     public var enabledSummary: String {
         var on: [String] = []
         if nsrlEnabled { on.append("NSRL") }
+        if knownBadEnabled { on.append("Known-bad") }
         if mispEnabled { on.append("MISP") }
         if openCTIEnabled { on.append("OpenCTI") }
         if virusTotalEnabled { on.append("VirusTotal") }
@@ -56,6 +62,9 @@ public nonisolated struct CTIConfiguration: Codable, Hashable, Sendable {
 
         if nsrlEnabled, let path = nsrlFilePath, !path.isEmpty {
             providers.append(NSRLProvider(loading: URL(fileURLWithPath: path)))
+        }
+        if knownBadEnabled, let path = knownBadFilePath, !path.isEmpty {
+            providers.append(KnownBadHashProvider(loading: URL(fileURLWithPath: path)))
         }
         if virusTotalEnabled, let token = store.load(for: Self.vtService)?.token,
            !token.isEmpty {

@@ -8,11 +8,13 @@ import Foundation
 public nonisolated enum OSFamily: String, CaseIterable, Sendable, Hashable, Codable {
     case windows
     case linux
+    case macos
 
     public var label: String {
         switch self {
         case .windows: return "Windows"
         case .linux:   return "Linux"
+        case .macos:   return "macOS"
         }
     }
 
@@ -43,7 +45,10 @@ public nonisolated enum OSFamily: String, CaseIterable, Sendable, Hashable, Coda
         // for a typically single-OS collection.
         for file in files {
             let path = file.fullPath.lowercased()
-            if path.contains("/windows/") || path.contains("/users/") {
+            if path.contains("/library/launchdaemons/") || path.contains("/library/launchagents/")
+                || path.contains("/system/library/coreservices/") || path.contains("/private/var/") {
+                found.insert(.macos)
+            } else if path.contains("/windows/") || path.contains("/users/") {
                 found.insert(.windows)
             } else if path.contains("/etc/") || path.contains("/var/log/")
                         || path.contains("/home/") || path.hasSuffix("/etc/passwd") {
@@ -60,6 +65,7 @@ public nonisolated enum OSFamily: String, CaseIterable, Sendable, Hashable, Coda
         let upper = fsType.uppercased()
         if upper == "NTFS" { return .windows }
         if upper.hasPrefix("EXT") { return .linux }   // Ext2 / Ext3 / Ext4 / ExtX
+        if upper == "APFS" || upper.hasPrefix("HFS") { return .macos }
         return nil
     }
 }

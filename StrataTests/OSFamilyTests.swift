@@ -43,6 +43,11 @@ struct OSFamilyDetectTests {
         #expect(fams == [.windows, .linux])
     }
 
+    @Test func apfsAndHFSAreMacOS() {
+        #expect(OSFamily.detect(volumes: [volume("APFS")], files: []) == [.macos])
+        #expect(OSFamily.detect(volumes: [volume("HFS+")], files: []) == [.macos])
+    }
+
     @Test func fatOnlyVolumeIsUndetermined() {
         // FAT alone (an EFI System Partition) doesn't identify an OS, and with
         // no files to sniff the result is empty = "show everything".
@@ -99,9 +104,11 @@ struct SidebarItemOSTests {
     @Test func everySidebarItemPartitionsCleanly() {
         let windows = SidebarItem.allCases.filter { $0.osFamily == .windows }
         let linux = SidebarItem.allCases.filter { $0.osFamily == .linux }
+        let macos = SidebarItem.allCases.filter { $0.osFamily == .macos }
         let cross = SidebarItem.allCases.filter { $0.osFamily == nil }
-        #expect(windows.count + linux.count + cross.count == SidebarItem.allCases.count)
+        #expect(windows.count + linux.count + macos.count + cross.count == SidebarItem.allCases.count)
         #expect(windows.count == 12)   // +recycleBin
         #expect(linux.count == 10)
+        #expect(macos.count == 2)      // Launch Items + Quarantine
     }
 }

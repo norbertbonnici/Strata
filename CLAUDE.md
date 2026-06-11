@@ -77,7 +77,7 @@ Per-release notes live in `docs/releases/`; keep `CHANGELOG.md` updated.
 | `StrataCore` (journald) | Pure-Swift decoder of the systemd **journald** binary journal (`JournaldParser`, `JournaldEntry`) — no vendored tool; parses the `LPKSHHRH` header, entry-array chain, entry + data objects (legacy **and** COMPACT le32-offset layouts), recovering `MESSAGE`/`_COMM`/`PRIORITY`/`_SYSTEMD_UNIT`/etc. **LZ4** values inflated via the Compression framework; **XZ/ZSTD** skipped (not in the framework — loses only large compressed MESSAGE bodies). `.journal` extracted via icat (images) / read in place (loose) |
 | `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **44 analyzers**, IOC matcher, lateral graph, `CorrelationEngine` (case-wide multi-host: shared IOC / pivoting source IP / reused account across ≥2 hosts) |
 | `StrataSearch` | `SearchEngine` — pure cross-artifact global search (files/events/registry/timeline/findings → ranked `SearchHit`); drives the **Search** tab |
-| `StrataMac` | macOS triage: `LaunchItemParser` (launchd plists → `LaunchItemEntry`) + `MacPersistenceAnalyzer` (T1543); `QuarantineParser` (LaunchServices quarantine SQLite → `QuarantineEvent`) + `MacQuarantineAnalyzer` (T1204/T1105). Discovered + parsed by `AppModel.parseMac()`; **no `.macos` OSFamily yet** — findings surface in the cross-platform Kill-Chain/Findings views |
+| `StrataMac` | macOS triage: `LaunchItemParser` (launchd plists → `LaunchItemEntry`) + `MacPersistenceAnalyzer` (T1543); `QuarantineParser` (LaunchServices quarantine SQLite → `QuarantineEvent`) + `MacQuarantineAnalyzer` (T1204/T1105). Discovered + parsed by `AppModel.parseMac()`; surfaced in the `.macos`-gated **Launch Items** + **Quarantine** tabs (and findings in the cross-platform Kill-Chain/Findings views) |
 | `StrataCTI` | Tiered CTI enrichment (NSRL → MISP/OpenCTI → VirusTotal). `EnrichmentEngine` cascade (short-circuits on first definitive verdict), `EnrichmentVerdict` (provenance: tier/source/score/ref), actor `EnrichmentCache`, `CTIProvider` protocol; providers `NSRLProvider` (local hash set), `VirusTotalProvider` (v3), `MISPProvider` (restSearch), `OpenCTIProvider` (GraphQL) — each a pure decoder + injectable transport, all opt-in; `KeychainCredentialStore` (SecItem) holds base URL + token; `CTIConfiguration` (UserDefaults) holds the on/off flags + NSRL path. Driven by `AppModel.enrichIndicators()` → `enrichment.json` + custody `.enrichmentPerformed` |
 | `StrataApp` | SwiftUI app. `AppModel` (the store), `CaseStore` (.strata bundle layout), `CaseLibrary`, `RecentCases`, `Views/` (macOS) + `Views/iOS/` |
 
@@ -95,7 +95,7 @@ treat it as one item. The macOS-only ingest code is gated `#if os(macOS)`.
   prefetch/amcache/shimcache/LNK/JumpList/USN/SRUM/MFT/WMI, `.linux` for the
   auth/shell/persistence tabs, `nil` = cross-platform incl. **Browser History**,
   always shown). `OSFamily.detect` reads each host's volume **fs-type** (NTFS ⇒
-  Windows, ext ⇒ Linux; FAT is ignored — both OSes carry a FAT ESP), falling
+  Windows, ext ⇒ Linux, APFS/HFS+ ⇒ macOS; FAT is ignored — both OSes carry a FAT ESP), falling
   back to a file-tree sniff for loose folders; stored on `EvidenceState
   .osFamilies` at load/ingest. `AppModel.shows(osFamily:)` gates on the **active
   scope's** union (so "All" with mixed hosts shows everything; an undetermined

@@ -19,6 +19,8 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case mft = "MFT"
     case wmi = "WMI"
     case recycleBin = "Recycle Bin"
+    case macPersistence = "Launch Items"
+    case macQuarantine = "Quarantine"
     case linuxLogs = "Auth & Logins"
     case shellHistory = "Shell History"
     case linuxPersistence = "Linux Persistence"
@@ -55,6 +57,8 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .mft:       return "tablecells"
         case .wmi:       return "gearshape.2"
         case .recycleBin: return "trash"
+        case .macPersistence: return "powerplug"
+        case .macQuarantine:  return "shield.lefthalf.filled"
         case .linuxLogs: return "person.badge.key"
         case .shellHistory: return "terminal"
         case .linuxPersistence: return "calendar.badge.clock"
@@ -85,6 +89,8 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .linuxLogs, .shellHistory, .linuxPersistence, .linuxAccess, .webLogs,
              .packages, .journald, .audit, .syslog, .lastlog:
             return .linux
+        case .macPersistence, .macQuarantine:
+            return .macos
         case .overview, .search, .evidence, .timeline, .browser, .lateral,
              .killChain, .iocs, .annotations, .custody:
             return nil
@@ -193,6 +199,8 @@ struct ContentView: View {
                 case .mft:       MftView()
                 case .wmi:       WmiView()
                 case .recycleBin: RecycleBinView()
+                case .macPersistence: MacLaunchItemsView()
+                case .macQuarantine:  MacQuarantineView()
                 case .linuxLogs: LinuxLogsView()
                 case .shellHistory: ShellHistoryView()
                 case .linuxPersistence: LinuxPersistenceView()

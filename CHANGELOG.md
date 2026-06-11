@@ -5,6 +5,20 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Added — known-bad-hash CTI tier + first-class macOS tabs (quick wins)
+
+- **Known-bad hash matching** wired into the CTI cascade: `CTIConfiguration`
+  gained a known-bad tier (local newline-delimited bad-hash list →
+  `KnownBadHashProvider`, emitting a `.malicious` verdict), configurable from the
+  Enrichment sheet alongside NSRL. Hash IOCs now get flagged malicious by a local
+  org-controlled list before any third-party call.
+- **First-class macOS tabs.** `OSFamily` gained a `.macos` case (detected from
+  APFS / HFS+ volumes, plus a launchd/`/System/Library`/`/private/var` path
+  sniff for loose collections). New **Launch Items** and **Quarantine** sidebar
+  tabs (gated `.macos`) render the `parseMac()`-populated artifacts with
+  sortable/filterable tables; the macOS persistence + quarantine analyzers'
+  findings continue to flow into the cross-platform Kill-Chain/Findings views.
+
 ### Added — Recycle Bin, Global Search, macOS triage, multi-host correlation (Waves 4-7)
 
 - **Recycle Bin recovery** (Wave 4) — pure-Swift `$I` index byte-parser

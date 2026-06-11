@@ -92,6 +92,15 @@ struct EnrichmentSheet: View {
                             .textFieldStyle(.roundedBorder).font(.caption.monospaced())
                     }
                     Divider()
+                    // Known-bad hashes — local, no token; emits a malicious verdict.
+                    Toggle("Known-bad hashes (local hash list)", isOn: $model.ctiConfig.knownBadEnabled)
+                    if model.ctiConfig.knownBadEnabled {
+                        TextField("Path to newline-delimited bad-hash list", text: Binding(
+                            get: { model.ctiConfig.knownBadFilePath ?? "" },
+                            set: { model.ctiConfig.knownBadFilePath = $0.isEmpty ? nil : $0 }))
+                            .textFieldStyle(.roundedBorder).font(.caption.monospaced())
+                    }
+                    Divider()
                     // VirusTotal — token only.
                     Toggle("VirusTotal", isOn: $model.ctiConfig.virusTotalEnabled)
                     if model.ctiConfig.virusTotalEnabled {

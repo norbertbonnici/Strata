@@ -1016,6 +1016,8 @@ final class AppModel: ObservableObject {
         var audit: [AuditEvent] = []
         var syslog: [SyslogEntry] = []
         var lastlog: [LastlogEntry] = []
+        var launchItems: [LaunchItemEntry] = []
+        var quarantine: [QuarantineEvent] = []
         var iocMatches: [IOCMatch] = []
     }
     private var derivedCache: Derived?
@@ -1083,6 +1085,8 @@ final class AppModel: ObservableObject {
             d.audit = s.audit
             d.syslog = s.syslog
             d.lastlog = s.lastlog
+            d.launchItems = s.launchItems
+            d.quarantine = s.quarantine
             d.iocMatches = s.iocMatches
             return d
         }
@@ -1115,6 +1119,8 @@ final class AppModel: ObservableObject {
             d.audit.append(contentsOf: s.audit)
             d.syslog.append(contentsOf: s.syslog)
             d.lastlog.append(contentsOf: s.lastlog)
+            d.launchItems.append(contentsOf: s.launchItems)
+            d.quarantine.append(contentsOf: s.quarantine)
             d.iocMatches.append(contentsOf: s.iocMatches)
         }
         d.events.sort { $0.writtenAt < $1.writtenAt }
@@ -1179,6 +1185,8 @@ final class AppModel: ObservableObject {
     var audit: [AuditEvent] { derived().audit }
     var syslog: [SyslogEntry] { derived().syslog }
     var lastlog: [LastlogEntry] { derived().lastlog }
+    var launchItems: [LaunchItemEntry] { derived().launchItems }
+    var quarantine: [QuarantineEvent] { derived().quarantine }
     /// Linux host info for the active scope (tiny; not worth caching). In the
     /// combined scope the first host that has one wins.
     var linuxInfo: LinuxHostInfo? {
@@ -1225,6 +1233,8 @@ final class AppModel: ObservableObject {
     var auditCount: Int { scopedCount(\.audit.count) }
     var syslogCount: Int { scopedCount(\.syslog.count) }
     var lastlogCount: Int { scopedCount(\.lastlog.count) }
+    var launchItemCount: Int { scopedCount(\.launchItems.count) }
+    var quarantineCount: Int { scopedCount(\.quarantine.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
     private func scopedCount(_ kp: KeyPath<EvidenceState, Int>) -> Int {

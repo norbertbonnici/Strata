@@ -40,4 +40,14 @@ struct CTIConfigurationTests {
         #expect(cfg.enabledSummary == "NSRL + VirusTotal")
         #expect(CTIConfiguration().enabledSummary == "no sources")
     }
+
+    @Test func knownBadProviderBuiltWhenEnabledWithPath() {
+        // No path → omitted; with a path → a threat-intel KnownBadHashProvider.
+        let off = CTIConfiguration(knownBadEnabled: true)
+        #expect(off.makeProviders(credentials: InMemoryCredentialStore()).isEmpty)
+        let on = CTIConfiguration(knownBadEnabled: true, knownBadFilePath: "/tmp/bad-hashes.txt")
+        let providers = on.makeProviders(credentials: InMemoryCredentialStore())
+        #expect(providers.contains { $0.tier == .threatIntel })
+        #expect(on.enabledSummary == "Known-bad")
+    }
 }
