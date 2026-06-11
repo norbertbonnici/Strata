@@ -5,6 +5,8 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+## [0.1.0-beta.3] — 2026-06-11
+
 ### Added — Recycle Bin, Global Search, macOS triage, multi-host correlation (Waves 4-7)
 
 - **Recycle Bin recovery** (Wave 4) — pure-Swift `$I` index byte-parser
