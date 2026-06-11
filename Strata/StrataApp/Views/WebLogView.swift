@@ -34,14 +34,20 @@ struct WebLogView: View {
         return Group {
             if rows.isEmpty {
                 ContentUnavailableView {
-                    Label("No web logs parsed yet", systemImage: "network")
+                    Label(model.hasParsedLinuxLogs ? "No web access logs on this host"
+                                                   : "No web logs parsed yet",
+                          systemImage: "network")
                 } description: {
-                    Text(model.files.isEmpty
-                         ? "Ingest evidence first, then come back here."
-                         : "Click Parse to read nginx/apache access logs from /var/log.")
+                    if model.files.isEmpty {
+                        Text("Ingest evidence first, then come back here.")
+                    } else if model.hasParsedLinuxLogs {
+                        Text("Strata reads nginx/apache (and Rails/puma) access logs from disk. A reverse-proxy-less app server (Node/Express) often logs HTTP to the console or journal rather than a file — so there may be nothing on disk to recover, even though a web server ran.")
+                    } else {
+                        Text("Click Parse to read nginx/apache access logs from /var/log.")
+                    }
                 } actions: {
                     #if os(macOS)
-                    if !model.files.isEmpty {
+                    if !model.files.isEmpty, !model.hasParsedLinuxLogs {
                         Button { Task { await model.parseArtifacts() } } label: {
                             Label("Parse artifacts", systemImage: "play.fill")
                         }
