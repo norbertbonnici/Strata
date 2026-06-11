@@ -272,6 +272,16 @@ public nonisolated enum CaseStore {
                                 forHostID id: UUID, in bundle: URL) throws {
         try writeArray(records, at: usnFileURL(forHostID: id, in: bundle))
     }
+    public static func recycleBinFileURL(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle).appendingPathComponent("recyclebin.json")
+    }
+    public static func readRecycleBin(forHostID id: UUID, in bundle: URL) throws -> [RecycleBinEntry]? {
+        try readArrayIfPresent(at: recycleBinFileURL(forHostID: id, in: bundle))
+    }
+    public static func writeRecycleBin(_ entries: [RecycleBinEntry],
+                                       forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(entries, at: recycleBinFileURL(forHostID: id, in: bundle))
+    }
     public static func srumFileURL(forHostID id: UUID, in bundle: URL) -> URL {
         hostDirectory(forHostID: id, in: bundle).appendingPathComponent(srumFilename)
     }

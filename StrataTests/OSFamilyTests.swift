@@ -101,7 +101,7 @@ struct SidebarItemOSTests {
         let linux = SidebarItem.allCases.filter { $0.osFamily == .linux }
         let cross = SidebarItem.allCases.filter { $0.osFamily == nil }
         #expect(windows.count + linux.count + cross.count == SidebarItem.allCases.count)
-        #expect(windows.count == 11)
+        #expect(windows.count == 12)   // +recycleBin
         #expect(linux.count == 10)
     }
 }

@@ -39,8 +39,7 @@ public nonisolated struct RecycleBinAnalyzer: Analyzer {
     private static let burstHighThreshold = 100  // escalate to .high
 
     public func analyze(context: AnalysisContext) -> [Finding] {
-        // AnalysisContext has no recycleBin field yet — integrator wires it.
-        analyze([])
+        analyze(context.recycleBin)
     }
 
     /// Real detection logic — test this directly.

@@ -49,9 +49,7 @@ public nonisolated struct MacPersistenceAnalyzer: Analyzer {
     private static let beaconIntervalSeconds = 300
 
     public func analyze(context: AnalysisContext) -> [Finding] {
-        // No macOS launchd field on AnalysisContext yet — the integrator wires
-        // it later. The real logic lives in `analyze(_:)`, exercised by tests.
-        []
+        analyze(context.launchItems)
     }
 
     /// Core detection over a set of parsed launch items. Pure; unit-tested.

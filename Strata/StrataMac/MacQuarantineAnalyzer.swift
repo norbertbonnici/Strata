@@ -77,9 +77,7 @@ public nonisolated struct MacQuarantineAnalyzer: Analyzer {
     ]
 
     public func analyze(context: AnalysisContext) -> [Finding] {
-        // AnalysisContext carries no quarantine events yet — the integrator
-        // wires the field in later. Detection logic lives in `analyze(_:)`.
-        []
+        analyze(context.quarantine)
     }
 
     /// The real detection entry point: pure function over parsed quarantine
@@ -212,15 +210,17 @@ public nonisolated struct MacQuarantineAnalyzer: Analyzer {
     /// "node" inside "Anode-Browser") by requiring a word boundary.
     static func agentMatches(_ agentLower: String, _ token: String) -> Bool {
         if agentLower == token { return true }
-        // "curl 8.1.2", "/usr/bin/wget", "python3.11" → leading word is the tool.
-        let firstWord = agentLower.split(whereSeparator: { $0 == " " || $0 == "/" }).first.map(String.init) ?? agentLower
-        if firstWord == token { return true }
-        // version-suffixed leaf: "python3" already in the token list, but catch
-        // "wget1" / "curl7" style names too.
-        if firstWord.hasPrefix(token),
-           let after = firstWord.dropFirst(token.count).first,
-           after.isNumber || after == "." || after == "-" {
-            return true
+        // The tool is either the LEADING word ("curl 8.1.2") or the path LEAF
+        // ("/usr/bin/wget") — check both, since agent names appear in both shapes.
+        let parts = agentLower.split(whereSeparator: { $0 == " " || $0 == "/" })
+        for candidate in [parts.first, parts.last].compactMap({ $0.map(String.init) }) {
+            if candidate == token { return true }
+            // version-suffixed leaf: catch "wget1" / "curl7.1" style names too.
+            if candidate.hasPrefix(token),
+               let after = candidate.dropFirst(token.count).first,
+               after.isNumber || after == "." || after == "-" {
+                return true
+            }
         }
         return false
     }
