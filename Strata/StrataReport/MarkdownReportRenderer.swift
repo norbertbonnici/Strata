@@ -36,6 +36,14 @@ public nonisolated enum MarkdownReportRenderer {
             out += "\n"
         }
 
+        // AI executive summary - on-device generated, ahead of the analyst's
+        // own narrative.
+        if !model.executiveSummary.isEmpty {
+            out += "## Executive summary\n\n"
+            out += model.executiveSummary + "\n\n"
+            out += "_Generated on-device by Apple Intelligence. Examiner review recommended._\n\n"
+        }
+
         // Analyst narrative + bookmarked items - the case story as the analyst
         // pinned it, ahead of the per-host detail.
         if !model.narrative.isEmpty {

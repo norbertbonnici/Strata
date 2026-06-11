@@ -5,6 +5,24 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Added — On-device AI findings summary (Apple Intelligence)
+
+- **AI executive summary** — a new `StrataAI/FindingsSummarizer` generates a
+  concise executive summary of the case detection findings **entirely on-device**
+  via Apple Intelligence (FoundationModels `SystemLanguageModel`), so no evidence
+  leaves the host. Uses `.permissiveContentTransformations` guardrails (forensic
+  content trips the defaults) and Apple's chunk-then-combine recipe for large
+  finding sets. Availability is surfaced (device ineligible / Apple Intelligence
+  off / model downloading) so the control disables with a reason.
+- The summary is **case-wide** (combined "All" scope + correlation findings),
+  persisted to `summary.json`, recorded in the custody ledger (new `.summarized`
+  action), and threaded into the examiner report as an **Executive Summary**
+  section (HTML + Markdown).
+- **macOS generates**, via a Generate/Regenerate control on the **Kill Chain** and
+  **Overview** tabs (`CaseSummaryCard`); the **iOS** viewer displays the persisted
+  summary read-only. **Known limits:** one case-wide summary (per-host is future
+  work); plain-text, rendered verbatim; requires an Apple-Intelligence-capable Mac.
+
 ## [0.1.0-beta.3] — 2026-06-11
 
 ### Added — Recycle Bin, Global Search, macOS triage, multi-host correlation (Waves 4-7)

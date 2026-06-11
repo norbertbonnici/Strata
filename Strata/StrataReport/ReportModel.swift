@@ -40,6 +40,9 @@ public nonisolated struct ReportModel: Sendable {
     public let examiner: String
     public let createdAt: Date
     public let generatedAt: Date
+    /// On-device AI-generated executive summary of the findings; empty when
+    /// none was generated. Rendered above the analyst narrative.
+    public let executiveSummary: String
     /// The analyst's free-form case narrative; empty when none was written.
     public let narrative: String
     /// Analyst bookmarks, chronological by the target's own timestamp

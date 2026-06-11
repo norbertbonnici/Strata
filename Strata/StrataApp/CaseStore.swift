@@ -51,6 +51,7 @@ public nonisolated enum CaseStore {
     private static let annotationsFilename = "annotations.json"
     private static let notesFilename      = "notes.json"
     private static let enrichmentFilename = "enrichment.json"
+    private static let summaryFilename    = "summary.json"
 
     // MARK: - URLs
 
@@ -553,6 +554,24 @@ public nonisolated enum CaseStore {
     public static func writeNotes(_ notes: CaseNotes, in bundle: URL) throws {
         let data = try jsonEncoder.encode(notes)
         try data.write(to: notesFileURL(in: bundle), options: .atomic)
+    }
+
+    /// AI-generated executive summary of the case findings (case-wide, single
+    /// object). Separate file so per-host re-parses can't touch it, same as
+    /// notes/enrichment. Absent until the first summary is generated.
+    public static func summaryFileURL(in bundle: URL) -> URL {
+        bundle.appendingPathComponent(summaryFilename)
+    }
+
+    public static func readSummary(in bundle: URL) throws -> CaseSummary? {
+        let url = summaryFileURL(in: bundle)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return try jsonDecoder.decode(CaseSummary.self, from: Data(contentsOf: url))
+    }
+
+    public static func writeSummary(_ summary: CaseSummary, in bundle: URL) throws {
+        let data = try jsonEncoder.encode(summary)
+        try data.write(to: summaryFileURL(in: bundle), options: .atomic)
     }
 
     private static func readArrayIfPresent<T: Decodable>(at url: URL) throws -> [T]? {
