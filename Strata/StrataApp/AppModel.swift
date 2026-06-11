@@ -151,6 +151,12 @@ final class AppModel: ObservableObject {
     }
     private(set) var enrichmentByKey: [String: EnrichmentVerdict] = [:]
 
+    /// Case-wide multi-host correlation findings (roadmap #8) — shared IOCs,
+    /// pivoting source IPs, reused accounts across ≥2 hosts. Recomputed by
+    /// `runAnalyzers`; surfaced in the combined "All" scope only (each finding
+    /// spans multiple hosts).
+    @Published private(set) var correlationFindings: [Finding] = []
+
     /// Examiner-level CTI config (which tiers are on + the NSRL file path).
     /// Tokens live in the Keychain; this persists to UserDefaults (it's
     /// examiner config, not case data), so it survives across cases.
@@ -503,6 +509,8 @@ final class AppModel: ObservableObject {
             state.timeline.sort { $0.date < $1.date }
             state.usn = (try? CaseStore.readUsn(forHostID: evidence.id, in: bundleURL)) ?? []
             state.recycleBin = (try? CaseStore.readRecycleBin(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.launchItems = (try? CaseStore.readLaunchItems(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.quarantine = (try? CaseStore.readQuarantine(forHostID: evidence.id, in: bundleURL)) ?? []
             // Fold USN journal rows back into the timeline so the Source filter
             // works without re-parsing on every case open (mirrors the evtx splice).
             if !state.usn.isEmpty {
@@ -582,6 +590,7 @@ final class AppModel: ObservableObject {
         annotations = []
         caseNotes = CaseNotes()
         enrichmentVerdicts = []
+        correlationFindings = []
         timelinePivot = nil
         activeEvidenceID = nil
         progress = nil
@@ -1143,7 +1152,11 @@ final class AppModel: ObservableObject {
     }
     var events: [EventLogRecord] { derived().events }
     var timeline: [TimelineEvent] { derived().timeline }
-    var findings: [Finding] { derived().findings }
+    var findings: [Finding] {
+        // Case-wide correlation findings join the per-host findings only in the
+        // combined "All" scope (they describe relationships across hosts).
+        activeEvidenceID == nil ? derived().findings + correlationFindings : derived().findings
+    }
     var registryValues: [RegistryValue] { derived().registryValues }
     var prefetch: [PrefetchEntry] { derived().prefetch }
     var amcache: [AmcacheEntry] { derived().amcache }
@@ -1634,6 +1647,7 @@ final class AppModel: ObservableObject {
         await parseMft()
         await parseWmi()
         await parseLinux()
+        await parseMac()
         await runAnalyzers()
     }
 
@@ -2997,6 +3011,98 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Parse macOS triage artifacts — launchd persistence plists
+    /// (`/Library/Launch{Agents,Daemons}`, `~/Library/LaunchAgents`) and the
+    /// LaunchServices quarantine store — for every host without results. Both
+    /// are plain files (icat-extract for images, read-in-place for loose).
+    func parseMac() async {
+        guard !evidenceList.isEmpty else { errorMessage = "No evidence loaded."; return }
+        errorMessage = nil
+        isWorking = true
+        defer { isWorking = false; progress = nil }
+
+        func plists(_ s: EvidenceState) -> [FileEntry] {
+            s.files.filter {
+                !$0.isDirectory && $0.size > 0 && $0.name.lowercased().hasSuffix(".plist")
+                    && ($0.fullPath.contains("/LaunchAgents/") || $0.fullPath.contains("/LaunchDaemons/"))
+            }
+        }
+        func quarantines(_ s: EvidenceState) -> [FileEntry] {
+            s.files.filter {
+                !$0.isDirectory && $0.size > 0
+                    && $0.name == "com.apple.LaunchServices.QuarantineEventsV2"
+            }
+        }
+        let total = evidenceList.reduce(0) { acc, e in
+            guard let s = states[e.id], s.launchItems.isEmpty, s.quarantine.isEmpty else { return acc }
+            return acc + plists(s).count + quarantines(s).count
+        }
+        guard total > 0 else { statusMessage = "No new macOS artifacts to parse."; return }
+        progress = ProgressInfo(current: 0, total: total, label: "Parsing macOS artifacts")
+        var completed = 0
+        do {
+            let tskEnv = try TSKEnvironment.discover()
+            for evidence in evidenceList {
+                guard var state = states[evidence.id],
+                      state.launchItems.isEmpty, state.quarantine.isEmpty else { continue }
+                let foundPlists = plists(state)
+                let foundQuar = quarantines(state)
+                guard !foundPlists.isEmpty || !foundQuar.isEmpty else { continue }
+                let isLoose = evidence.kind == .kapeLooseFolder
+                var database: TSKDatabase?
+                var extractor: TSKFileExtractor?
+                var scratch: URL?
+                if !isLoose {
+                    guard let dbURL = state.dbURL, let bundleURL = currentCaseBundleURL else { continue }
+                    database = try TSKDatabase(path: dbURL)
+                    extractor = TSKFileExtractor(environment: tskEnv, imageURL: evidence.sourceURL,
+                                                 imageType: TSKImageIngestor.imageType(for: evidence.sourceURL))
+                    let dir = CaseStore.prefetchScratchDirectory(forHostID: evidence.id, in: bundleURL)
+                        .deletingLastPathComponent().appendingPathComponent("mac")
+                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    scratch = dir
+                }
+                func extract(_ entry: FileEntry) async -> URL? {
+                    if isLoose {
+                        guard let disk = entry.diskURL,
+                              FileManager.default.fileExists(atPath: disk.path) else { return nil }
+                        return disk
+                    }
+                    guard let info = try? database!.fetchExtractInfo(forFileID: entry.id) else { return nil }
+                    let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name)")
+                    try? await extractor!.extract(metaAddr: info.metaAddr,
+                                                  imageOffsetSectors: info.imageOffsetSectors, to: outURL)
+                    return outURL
+                }
+                var launch: [LaunchItemEntry] = []
+                var quar: [QuarantineEvent] = []
+                for entry in foundPlists {
+                    progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    guard let url = await extract(entry), let data = try? Data(contentsOf: url) else { continue }
+                    if let item = LaunchItemParser.parse(data: data, plistPath: entry.fullPath) { launch.append(item) }
+                }
+                for entry in foundQuar {
+                    progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    guard let url = await extract(entry) else { continue }
+                    quar.append(contentsOf: (try? QuarantineParser.parse(fileAt: url, sourceFile: entry.fullPath)) ?? [])
+                }
+                quar.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+                state.launchItems = launch
+                state.quarantine = quar
+                states[evidence.id] = state
+                if let bundleURL = currentCaseBundleURL {
+                    try? CaseStore.writeLaunchItems(launch, forHostID: evidence.id, in: bundleURL)
+                    try? CaseStore.writeQuarantine(quar, forHostID: evidence.id, in: bundleURL)
+                }
+            }
+            progress = ProgressInfo(current: completed, total: total, label: "macOS artifact parse complete")
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func parsePrefetch() async {
         guard !evidenceList.isEmpty else {
             errorMessage = "No evidence loaded."
@@ -3683,6 +3789,25 @@ final class AppModel: ObservableObject {
             }
             total += results.count
         }
+        // Case-wide multi-host correlation (roadmap #8): line every host's IOC
+        // hits, accounts, and inbound-logon source IPs up and flag what spans ≥2
+        // hosts (shared indicator, pivoting source, reused credential).
+        let summaries: [HostSummary] = evidenceList.compactMap { evidence in
+            guard let s = states[evidence.id] else { return nil }
+            let users = Set((s.linuxInfo?.users.map(\.name) ?? [])
+                + s.logins.map(\.user)
+                + s.authLog.compactMap(\.user)).filter { !$0.isEmpty }
+            let ips = Set(s.authLog.filter { $0.kind == .sshAccepted }.compactMap(\.sourceIP)
+                + s.events.filter { $0.eventID == 4624 || $0.eventID == 4625 }.compactMap { $0.data("IpAddress") })
+                .filter { !$0.isEmpty && $0 != "-" && $0 != "::1" && $0 != "127.0.0.1" }
+            let hostname = HostProfile.derive(from: s.registryValues).hostname
+                ?? s.linuxInfo?.hostname ?? evidence.displayName
+            return HostSummary(hostID: evidence.id, hostname: hostname,
+                               iocMatches: s.iocMatches, users: Array(users),
+                               remoteLogonSourceIPs: Array(ips))
+        }
+        correlationFindings = CorrelationEngine.correlate(summaries)
+        total += correlationFindings.count
         // `total` is case-wide, but the findings / kill-chain views render
         // `model.findings`, which is scoped to `activeEvidenceID`. If the active
         // host produced nothing while another did, the views would sit empty
