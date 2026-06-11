@@ -32,8 +32,12 @@ public nonisolated struct ProcessCreationAnalyzer: Analyzer {
     public func analyze(context: AnalysisContext) -> [Finding] {
         context.events.compactMap { event -> Finding? in
             guard let row = extract(from: event) else { return nil }
-            let parent = (row.parent as NSString).lastPathComponent.lowercased()
-            let child  = (row.image  as NSString).lastPathComponent.lowercased()
+            // Windows-aware basename: evidence paths are backslash-separated, and
+            // NSString.lastPathComponent only splits on '/', so it would pass the
+            // whole path through and the basename equality checks below would
+            // never match on real Windows evidence.
+            let parent = WindowsPath.basenameLower(row.parent)
+            let child  = WindowsPath.basenameLower(row.image)
 
             let isOfficeChild  = Self.officeParents.contains(parent)
                 && Self.suspiciousChildren.contains(child)

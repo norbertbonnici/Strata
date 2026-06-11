@@ -137,6 +137,42 @@ final class AppModel: ObservableObject {
     /// Free-form case narrative (`notes.json`). Mutate via `updateCaseNotes`.
     @Published private(set) var caseNotes = CaseNotes()
 
+    /// CTI enrichment verdicts (case-wide, provenance-stamped, `enrichment.json`).
+    /// Indexed by `EnrichmentVerdict.key(kind:value:)` for O(1) UI joins against
+    /// IOCs / matches. Produced by `enrichIndicators()`.
+    @Published private(set) var enrichmentVerdicts: [EnrichmentVerdict] = [] {
+        didSet {
+            enrichmentByKey = Dictionary(enrichmentVerdicts.map { ($0.id, $0) },
+                                         uniquingKeysWith: { _, new in new })
+        }
+    }
+    private(set) var enrichmentByKey: [String: EnrichmentVerdict] = [:]
+
+    /// Examiner-level CTI config (which tiers are on + the NSRL file path).
+    /// Tokens live in the Keychain; this persists to UserDefaults (it's
+    /// examiner config, not case data), so it survives across cases.
+    @Published var ctiConfig: CTIConfiguration = AppModel.loadCTIConfig() {
+        didSet { AppModel.saveCTIConfig(ctiConfig) }
+    }
+
+    /// Verdict for a given indicator, if one has been fetched.
+    func enrichment(for value: String, kind: IOCKind) -> EnrichmentVerdict? {
+        enrichmentByKey[EnrichmentVerdict.key(kind: kind, value: value)]
+    }
+
+    private static let ctiConfigDefaultsKey = "strata.cti.configuration"
+    private static func loadCTIConfig() -> CTIConfiguration {
+        guard let data = UserDefaults.standard.data(forKey: ctiConfigDefaultsKey),
+              let cfg = try? JSONDecoder().decode(CTIConfiguration.self, from: data)
+        else { return CTIConfiguration() }
+        return cfg
+    }
+    private static func saveCTIConfig(_ cfg: CTIConfiguration) {
+        if let data = try? JSONEncoder().encode(cfg) {
+            UserDefaults.standard.set(data, forKey: ctiConfigDefaultsKey)
+        }
+    }
+
     /// One-shot "reveal this range on the Timeline tab" request - set by the
     /// Annotations list / findings, consumed by `TimelineView` (which clears
     /// it after applying). The token forces `.onChange` to fire for repeat
@@ -337,12 +373,14 @@ final class AppModel: ObservableObject {
                 (iocs: (try? CaseStore.readIOCs(in: bundleURL)) ?? [],
                  custody: (try? CaseStore.readCustody(in: bundleURL)) ?? [],
                  annotations: (try? CaseStore.readAnnotations(in: bundleURL)) ?? [],
-                 notes: (try? CaseStore.readNotes(in: bundleURL)) ?? CaseNotes())
+                 notes: (try? CaseStore.readNotes(in: bundleURL)) ?? CaseNotes(),
+                 enrichment: (try? CaseStore.readEnrichment(in: bundleURL)) ?? [])
             }.value
             iocs = caseWide.iocs
             custodyLog = caseWide.custody
             annotations = caseWide.annotations
             caseNotes = caseWide.notes
+            enrichmentVerdicts = caseWide.enrichment
 
             RecentCases.record(bundleURL)
             recentCases = RecentCases.load()
@@ -539,6 +577,7 @@ final class AppModel: ObservableObject {
         custodyLog = []
         annotations = []
         caseNotes = CaseNotes()
+        enrichmentVerdicts = []
         timelinePivot = nil
         activeEvidenceID = nil
         progress = nil
@@ -758,6 +797,54 @@ final class AppModel: ObservableObject {
             : "Found \(total) IOC match\(total == 1 ? "" : "es")."
         appendCustody(.enrichmentPerformed,
                       detail: "IOC match: \(iocSnapshot.count) indicator\(iocSnapshot.count == 1 ? "" : "s") across \(evidenceList.count) host\(evidenceList.count == 1 ? "" : "s") → \(total) match\(total == 1 ? "" : "es").")
+    }
+
+    /// Tiered CTI enrichment (NSRL → MISP/OpenCTI → VirusTotal) of the loaded
+    /// IOCs. Opt-in: only the tiers enabled + credentialed in `ctiConfig` are
+    /// contacted; with nothing configured this is a no-op. Verdicts are merged
+    /// case-wide (`enrichment.json`), and the lookup is recorded in the custody
+    /// ledger (the CTI audit trail the chain-of-custody feature consumes).
+    func enrichIndicators() async {
+        guard !isWorking else { return }
+        guard let bundleURL = currentCaseBundleURL else { return }
+        guard !iocs.isEmpty else { statusMessage = "No IOCs loaded to enrich."; return }
+        guard ctiConfig.anyEnabled else {
+            statusMessage = "No CTI sources enabled — configure them in Enrichment settings."
+            return
+        }
+        errorMessage = nil
+        isWorking = true
+        defer { isWorking = false }
+        statusMessage = "Enriching \(iocs.count) indicator(s) via configured CTI sources..."
+
+        // Snapshot Sendable inputs so the detached lookup doesn't touch
+        // main-actor state. Providers are built off-main (Keychain read + the
+        // potentially large NSRL file load); the network happens via URLSession.
+        let config = ctiConfig
+        let indicators = iocs.map { (value: $0.value, kind: $0.kind) }
+        let fresh = await Task.detached(priority: .userInitiated) { () -> [EnrichmentVerdict]? in
+            let providers = config.makeProviders(credentials: KeychainCredentialStore())
+            guard !providers.isEmpty else { return nil }
+            let engine = EnrichmentEngine(providers: providers)
+            return await engine.enrichAll(indicators)
+        }.value
+
+        guard let fresh else {
+            statusMessage = "No CTI sources are configured (missing token / NSRL file)."
+            return
+        }
+        // Merge by identity: new verdicts overwrite prior ones for the same
+        // indicator, others are retained.
+        var merged = Dictionary(enrichmentVerdicts.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
+        for v in fresh { merged[v.id] = v }
+        enrichmentVerdicts = Array(merged.values)
+        try? CaseStore.writeEnrichment(enrichmentVerdicts, in: bundleURL)
+
+        let bad = fresh.filter { $0.verdict == .malicious || $0.verdict == .suspicious }.count
+        let good = fresh.filter { $0.verdict == .knownGood }.count
+        statusMessage = "Enriched \(fresh.count) indicator(s): \(bad) flagged, \(good) known-good."
+        appendCustody(.enrichmentPerformed,
+                      detail: "CTI lookup: \(fresh.count) indicator\(fresh.count == 1 ? "" : "s") via \(config.enabledSummary) → \(bad) malicious/suspicious, \(good) known-good.")
     }
 
     // MARK: - Menu command entry points

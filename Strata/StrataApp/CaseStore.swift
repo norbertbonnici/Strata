@@ -50,6 +50,7 @@ public nonisolated enum CaseStore {
     private static let custodyFilename    = "custody.json"
     private static let annotationsFilename = "annotations.json"
     private static let notesFilename      = "notes.json"
+    private static let enrichmentFilename = "enrichment.json"
 
     // MARK: - URLs
 
@@ -501,6 +502,20 @@ public nonisolated enum CaseStore {
 
     public static func writeAnnotations(_ annotations: [Annotation], in bundle: URL) throws {
         try writeArray(annotations, at: annotationsFileURL(in: bundle))
+    }
+
+    /// CTI enrichment verdicts (case-wide, provenance-stamped). Separate file so
+    /// per-host re-parses can't touch it, same as annotations/custody.
+    public static func enrichmentFileURL(in bundle: URL) -> URL {
+        bundle.appendingPathComponent(enrichmentFilename)
+    }
+
+    public static func readEnrichment(in bundle: URL) throws -> [EnrichmentVerdict] {
+        try readArrayIfPresent(at: enrichmentFileURL(in: bundle)) ?? []
+    }
+
+    public static func writeEnrichment(_ verdicts: [EnrichmentVerdict], in bundle: URL) throws {
+        try writeArray(verdicts, at: enrichmentFileURL(in: bundle))
     }
 
     public static func notesFileURL(in bundle: URL) -> URL {
