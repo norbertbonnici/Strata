@@ -903,10 +903,10 @@ final class AppModel: ObservableObject {
 
         do {
             let text = try await FindingsSummarizer().summarize(findings: allFindings) { done, total in
-                Task { @MainActor [weak self] in
+                Task { @MainActor in
                     // Only show step counts for genuinely multi-call runs.
                     if total > 1 {
-                        self?.statusMessage = "Generating on-device summary… (step \(done + 1) of \(total))"
+                        self.statusMessage = "Generating on-device summary… (step \(done + 1) of \(total))"
                     }
                 }
             }
