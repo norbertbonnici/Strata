@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Export options for an App Store Connect (TestFlight) build of the iOS
+     viewer. Automatic signing lets Xcode register the App ID + mint the
+     distribution profile at archive time (needs an Apple-ID session in Xcode
+     with App Manager/Admin role). The upload itself is done separately by
+     scripts/ios-testflight.sh via an App Store Connect API key. -->
+<plist version="1.0">
+<dict>
+    <key>method</key>
+    <string>app-store-connect</string>
+    <key>destination</key>
+    <string>export</string>
+    <key>teamID</key>
+    <string>96ZD8RMB92</string>
+    <key>signingStyle</key>
+    <string>automatic</string>
+    <!-- Keep dSYMs for crash symbolication in TestFlight/App Store Connect. -->
+    <key>uploadSymbols</key>
+    <true/>
+    <!-- We set the version + build number explicitly in the archive step, so
+         don't let Xcode rewrite them. -->
+    <key>manageAppVersionAndBuildNumberOfTheApp</key>
+    <false/>
+</dict>
+</plist>
