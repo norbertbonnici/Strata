@@ -75,13 +75,16 @@ Per-release notes live in `docs/releases/`; keep `CHANGELOG.md` updated.
 | `StrataCore` (WMI) | Pure-Swift carve of the WMI CIM repository `OBJECTS.DATA` (`WmiRepositoryParser`, `WmiPersistenceEntry`) — no full CIM parse; keyword-carves event-subscription persistence (bindings + WQL filter + command + script payloads), à la PyWMIPersistenceFinder. `OBJECTS.DATA` extracted via icat (images) / read in place (loose) |
 | `StrataLinux` | Pure-Swift Linux artifact parsers (no vendored tool): `AuthLogParser` (syslog classic + RFC3339, year inference), `UtmpParser` (384-byte wtmp/btmp records), `ShellHistoryParser` (bash + zsh extended), `LinuxPersistenceParser` (crontabs + systemd units), `LinuxHostInfoParser` (os-release/hostname/passwd/timezone), `LinuxAccessParser` (authorized_keys/known_hosts/sshd_config/sudoers/group/shadow), `WebLogParser` (nginx/apache access logs, CLF + Combined), `PackageParser` (dpkg/apt/yum/dnf logs), `AuditParser` (auditd `audit.log` - groups records by `audit(epoch:serial)`, hex-decodes fields, rebuilds EXECVE cmdlines, resolves syscalls per-arch), `SyslogParser` (general syslog/messages, classified via the shared `SyslogLineScanner` that `AuthLogParser` also uses), `LastlogParser` (292-byte UID-indexed records), `LinuxNetworkParser` (host IPv4 from netplan/ifupdown static config + journal NetworkManager/dhclient/avahi DHCP-lease lines → Overview); `LinuxPersistenceParser` also covers systemd timers, ld.so.preload, XDG autostart, rc.local/init.d, shell-init. Rotated `.gz` logs read via `StrataCore/GzipDecoder` (Compression framework) |
 | `StrataCore` (journald) | Pure-Swift decoder of the systemd **journald** binary journal (`JournaldParser`, `JournaldEntry`) — no vendored tool; parses the `LPKSHHRH` header, entry-array chain, entry + data objects (legacy **and** COMPACT le32-offset layouts), recovering `MESSAGE`/`_COMM`/`PRIORITY`/`_SYSTEMD_UNIT`/etc. **LZ4** values inflated via the Compression framework; **XZ/ZSTD** skipped (not in the framework — loses only large compressed MESSAGE bodies). `.journal` extracted via icat (images) / read in place (loose) |
-| `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **35 analyzers**, IOC matcher, lateral graph |
+| `StrataAnalysis` | `Analyzer` protocol, `AnalysisEngine`, **44 analyzers**, IOC matcher, lateral graph, `CorrelationEngine` (case-wide multi-host: shared IOC / pivoting source IP / reused account across ≥2 hosts) |
+| `StrataSearch` | `SearchEngine` — pure cross-artifact global search (files/events/registry/timeline/findings → ranked `SearchHit`); drives the **Search** tab |
+| `StrataMac` | macOS triage: `LaunchItemParser` (launchd plists → `LaunchItemEntry`) + `MacPersistenceAnalyzer` (T1543); `QuarantineParser` (LaunchServices quarantine SQLite → `QuarantineEvent`) + `MacQuarantineAnalyzer` (T1204/T1105). Discovered + parsed by `AppModel.parseMac()`; **no `.macos` OSFamily yet** — findings surface in the cross-platform Kill-Chain/Findings views |
 | `StrataCTI` | Tiered CTI enrichment (NSRL → MISP/OpenCTI → VirusTotal). `EnrichmentEngine` cascade (short-circuits on first definitive verdict), `EnrichmentVerdict` (provenance: tier/source/score/ref), actor `EnrichmentCache`, `CTIProvider` protocol; providers `NSRLProvider` (local hash set), `VirusTotalProvider` (v3), `MISPProvider` (restSearch), `OpenCTIProvider` (GraphQL) — each a pure decoder + injectable transport, all opt-in; `KeychainCredentialStore` (SecItem) holds base URL + token; `CTIConfiguration` (UserDefaults) holds the on/off flags + NSRL path. Driven by `AppModel.enrichIndicators()` → `enrichment.json` + custody `.enrichmentPerformed` |
 | `StrataApp` | SwiftUI app. `AppModel` (the store), `CaseStore` (.strata bundle layout), `CaseLibrary`, `RecentCases`, `Views/` (macOS) + `Views/iOS/` |
 
 `.strata` case bundle = a directory: `case.json`, `hosts.json`, `iocs.json`,
 `custody.json`, `annotations.json`, `notes.json`, `enrichment.json`,
-`hosts/<uuid>/{tsk.db, events.json, registry.json, findings.json, iocmatches.json}`.
+`hosts/<uuid>/{tsk.db, events.json, registry.json, findings.json, iocmatches.json,
+recyclebin.json, launchitems.json, quarantine.json, …}`.
 Registered as a **package UTI** (`com.bonnicilabs.strata-case`) so Finder/Files
 treat it as one item. The macOS-only ingest code is gated `#if os(macOS)`.
 
@@ -198,7 +201,9 @@ Two betas shipped. A full 56-issue view review was completed and remediated.
   — **shipped** via `MftParser` (see roadmap #7 below). Remaining `$MFT` follow-up:
   the loose-folder *file tree* still uses collection-host times (only the
   *timeline* uses the `$MFT` $SI MACB); a large `$MFT` makes a large `mft.json`.
-- **YARA scanning + known-bad hash matching.**
+- **YARA scanning** (still pending — needs a vendored libyara). **Known-bad
+  hash matching** has cores landed (`KnownBadHashProvider` CTI tier +
+  `KnownBadHashAnalyzer`); config UI + pipeline wiring pending.
 - **Universal/Intel support** (currently arm64-only; `build-tsk.sh universal`).
 - **iOS distribution** (TestFlight/App Store) — currently build-from-source.
 - **Dynamic Type** on the iOS layer (deferred to preserve mockup fidelity).
@@ -388,7 +393,9 @@ Two betas shipped. A full 56-issue view review was completed and remediated.
    attribution is the active scope at bookmark time (nil under "All");
    annotation editing is macOS-only; the narrative is plain text (rendered
    verbatim into the report).
-6. **Global search** across files/events/registry/timeline.
+6. ~~**Global search** across files/events/registry/timeline.~~ — **shipped.**
+   `StrataSearch/SearchEngine` ranks a query across files/events/registry/
+   timeline/findings; cross-platform **Search** tab, off-main, kind-filterable.
 7. ~~**`$MFT` / `$FN` parsing → timestomping detection**~~ — **shipped.**
    `StrataCore` `MftParser` is a pure-Swift `$MFT` byte-parser (no vendored tool,
    like the USN one): applies the update-sequence-array **fixup**, decodes the
@@ -411,7 +418,10 @@ Two betas shipped. A full 56-issue view review was completed and remediated.
    `mft.json` (same bracket as `events.json`); the `MftEntry` Codable schema is
    raw-FILETIME (an `mft.json` from the very first MFT build won't decode — just
    re-parse); detection is a heuristic — verify findings against a known-good copy.
-8. **Multi-host correlation** — case-wide lateral movement across hosts.
+8. ~~**Multi-host correlation** — case-wide lateral movement across hosts.~~ —
+   **shipped (v1).** `CorrelationEngine` flags shared IOCs / pivoting source IPs
+   / reused accounts across ≥2 hosts (run in `runAnalyzers`, surfaced in the
+   "All" findings scope). Deeper attack-path stitching can extend it.
 
 ### CTI enrichment (tiered hash/IOC lookup)
 Goal: enrich case IOCs while **minimising VirusTotal API calls** and keeping data

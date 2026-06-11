@@ -5,6 +5,36 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Added — Recycle Bin, Global Search, macOS triage, multi-host correlation (Waves 4-7)
+
+- **Recycle Bin recovery** (Wave 4) — pure-Swift `$I` index byte-parser
+  (`RecycleBinParser` → `RecycleBinEntry`: original path, size, deletion time,
+  SID), discovered + extracted by `parseRecycleBin()`, persisted as
+  `recyclebin.json`, with a sortable/filterable **Recycle Bin** tab (Windows) and
+  `RecycleBinAnalyzer` (T1070.004: deleted exe/script from staging paths +
+  mass-deletion bursts).
+- **Global search** (Wave 5, roadmap #6) — `SearchEngine` ranks a case-insensitive
+  query across files / events / registry / timeline / findings; a cross-platform
+  **Search** tab runs it off-main with kind filters.
+- **macOS triage core** (Wave 6) — `StrataMac`: `LaunchItemParser` (launchd
+  plists, XML + binary) → `MacPersistenceAnalyzer` (T1543.001/.004) and
+  `QuarantineParser` (LaunchServices quarantine SQLite) → `MacQuarantineAnalyzer`
+  (T1204/T1105: risky downloads from suspicious origins / non-browser agents).
+  `parseMac()` discovers + parses both from an image or loose collection,
+  persists `launchitems.json` / `quarantine.json`, and feeds the analyzers.
+- **Multi-host correlation** (Wave 7, roadmap #8) — `CorrelationEngine` lines up
+  per-host IOC hits, accounts, and inbound-logon source IPs and flags what spans
+  ≥2 hosts (shared indicator, pivoting source IP, reused account); surfaced in the
+  combined "All" findings scope.
+- **Known-bad hash matching** (Wave 7, partial) — `KnownBadHashProvider` (a CTI
+  tier emitting `.malicious` for a local bad-hash set) + `KnownBadHashAnalyzer`
+  cores landed and tested; **config UI + pipeline wiring still pending**.
+
+Analyzer count: **44**. Two latent bugs were caught during integration: the
+suite-wide `NSString.lastPathComponent`-on-Windows-paths basename bug (Wave 1),
+and `MacQuarantineAnalyzer.agentMatches` only checking the first path component
+(so `/usr/bin/wget` never matched `wget`).
+
 ### Added — Linux parser gaps (Wave 3)
 
 Three parsers that fold into existing tabs (no new UI), each unit-tested:
