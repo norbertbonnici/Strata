@@ -239,7 +239,7 @@ public nonisolated struct FindingsSummarizer: Sendable {
 }
 
 private extension SummarizerAvailability {
-    var unavailableReason: String? {
+    nonisolated var unavailableReason: String? {
         if case .unavailable(let r) = self { return r }
         return nil
     }
