@@ -210,6 +210,39 @@ struct StrataReportTests {
         #expect(md.contains("`T1547.001`"))            // ATT&CK tag
     }
 
+    @Test func executiveSummaryRendersInMarkdownAndHTMLWhenPresent() {
+        let inputs = ReportInputs(
+            caseName: "Operation Test", examiner: "J. Doe",
+            createdAt: Self.epoch, generatedAt: Self.epoch.addingTimeInterval(3600),
+            hosts: [Self.sampleHost()],
+            executiveSummary: "The host was compromised via a malicious macro.")
+        let model = ReportModelBuilder.build(from: inputs)
+        let md = MarkdownReportRenderer.render(model)
+        #expect(md.contains("## Executive summary"))
+        #expect(md.contains("compromised via a malicious macro"))
+
+        let html = HTMLReportRenderer.render(model)
+        #expect(html.contains("<h2>Executive summary</h2>"))
+        #expect(html.contains("compromised via a malicious macro"))
+    }
+
+    @Test func executiveSummarySectionOmittedWhenEmpty() {
+        // Default inputs carry no summary - the section must not appear.
+        let model = ReportModelBuilder.build(from: Self.sampleInputs())
+        #expect(!MarkdownReportRenderer.render(model).contains("Executive summary"))
+        #expect(!HTMLReportRenderer.render(model).contains("Executive summary"))
+    }
+
+    @Test func caseSummaryCodableRoundTrips() throws {
+        let summary = CaseSummary(text: "Two critical findings.",
+                                  generatedAt: Self.epoch,
+                                  findingCount: 3,
+                                  modelLabel: "Apple Intelligence (on-device)")
+        let data = try JSONEncoder().encode(summary)
+        let decoded = try JSONDecoder().decode(CaseSummary.self, from: data)
+        #expect(decoded == summary)
+    }
+
     // MARK: - HTML safety
 
     @Test func htmlEscapesInjectedMarkup() {

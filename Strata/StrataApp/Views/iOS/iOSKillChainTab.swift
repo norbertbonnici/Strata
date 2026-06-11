@@ -22,6 +22,10 @@ struct KillChainTab: View {
 
                 summaryLine(findings, maxSeverity: maxSev)
 
+                if let summary = model.caseSummary {
+                    aiSummary(summary)
+                }
+
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(KillChainPhase.allCases.enumerated()), id: \.element) { (idx, phase) in
                         phaseRow(phase: phase,
@@ -36,6 +40,37 @@ struct KillChainTab: View {
         }
         .background(Theme.bg.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
+    }
+
+    /// Read-only on-device AI summary, generated on macOS and carried in the
+    /// case bundle. iOS is a viewer, so there's no generate control here.
+    private func aiSummary(_ summary: CaseSummary) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles")
+                Text("AI SUMMARY")
+                    .font(.system(size: 13, weight: .heavy)).tracking(0.6)
+            }
+            .foregroundStyle(Theme.text2)
+
+            Text(summary.text)
+                .font(.system(size: 13.5))
+                .foregroundStyle(Theme.text)
+                .lineSpacing(2)
+                .textSelection(.enabled)
+
+            Text("\(summary.modelLabel) · \(summary.generatedAt.formatted(date: .abbreviated, time: .shortened))")
+                .font(.system(size: 11))
+                .foregroundStyle(Theme.text3)
+        }
+        .padding(.horizontal, 13)
+        .padding(.vertical, 11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.card)
+        .overlay(RoundedRectangle(cornerRadius: 13).stroke(Theme.hair, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 13))
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
     }
 
     @ViewBuilder private func summaryLine(_ findings: [Finding], maxSeverity: Severity?) -> some View {

@@ -22,6 +22,10 @@ struct OverviewView: View {
                 }
 
                 if !model.evidenceList.isEmpty {
+                    CaseSummaryCard()
+                }
+
+                if !model.evidenceList.isEmpty {
                     hostProfiles
                 }
 

@@ -151,6 +151,11 @@ final class AppModel: ObservableObject {
     }
     private(set) var enrichmentByKey: [String: EnrichmentVerdict] = [:]
 
+    /// On-device (Apple Intelligence) executive summary of the case findings,
+    /// case-wide (`summary.json`). Generated on macOS via `generateSummary()`;
+    /// the iOS viewer only displays it. `nil` until first generated.
+    @Published private(set) var caseSummary: CaseSummary?
+
     /// Case-wide multi-host correlation findings (roadmap #8) — shared IOCs,
     /// pivoting source IPs, reused accounts across ≥2 hosts. Recomputed by
     /// `runAnalyzers`; surfaced in the combined "All" scope only (each finding
@@ -383,13 +388,15 @@ final class AppModel: ObservableObject {
                  custody: (try? CaseStore.readCustody(in: bundleURL)) ?? [],
                  annotations: (try? CaseStore.readAnnotations(in: bundleURL)) ?? [],
                  notes: (try? CaseStore.readNotes(in: bundleURL)) ?? CaseNotes(),
-                 enrichment: (try? CaseStore.readEnrichment(in: bundleURL)) ?? [])
+                 enrichment: (try? CaseStore.readEnrichment(in: bundleURL)) ?? [],
+                 summary: (try? CaseStore.readSummary(in: bundleURL)) ?? nil)
             }.value
             iocs = caseWide.iocs
             custodyLog = caseWide.custody
             annotations = caseWide.annotations
             caseNotes = caseWide.notes
             enrichmentVerdicts = caseWide.enrichment
+            caseSummary = caseWide.summary
 
             RecentCases.record(bundleURL)
             recentCases = RecentCases.load()
@@ -590,6 +597,7 @@ final class AppModel: ObservableObject {
         annotations = []
         caseNotes = CaseNotes()
         enrichmentVerdicts = []
+        caseSummary = nil
         correlationFindings = []
         timelinePivot = nil
         activeEvidenceID = nil
@@ -860,6 +868,67 @@ final class AppModel: ObservableObject {
                       detail: "CTI lookup: \(fresh.count) indicator\(fresh.count == 1 ? "" : "s") via \(config.enabledSummary) → \(bad) malicious/suspicious, \(good) known-good.")
     }
 
+#if os(macOS)
+    /// Whether the on-device summarizer can run right now (so the UI can disable
+    /// the action and explain why). macOS-only - iOS is a read-only viewer.
+    var summaryAvailability: SummarizerAvailability { FindingsSummarizer.availability }
+
+    /// Generate an on-device (Apple Intelligence) executive summary of the
+    /// current case findings. Mirrors `enrichIndicators()`: opt-in, case-wide,
+    /// persisted to its own JSON (`summary.json`), and custody-logged. Runs
+    /// entirely on-device - no evidence leaves the host.
+    ///
+    /// Summarizes the combined "All" scope (per-host findings + correlation),
+    /// independent of the active tab scope, so the persisted summary is the
+    /// whole-case executive narrative.
+    func generateSummary() async {
+        guard !isWorking else { return }
+        guard let bundleURL = currentCaseBundleURL else { return }
+
+        // Whole-case findings regardless of the active scope.
+        let allFindings = evidenceList.flatMap { states[$0.id]?.findings ?? [] } + correlationFindings
+        guard !allFindings.isEmpty else {
+            statusMessage = "No findings to summarize — run the analyzers first."
+            return
+        }
+        if case .unavailable(let reason) = FindingsSummarizer.availability {
+            errorMessage = reason
+            return
+        }
+
+        errorMessage = nil
+        isWorking = true
+        defer { isWorking = false }
+        statusMessage = "Generating on-device summary of \(allFindings.count) finding(s)…"
+
+        do {
+            let text = try await FindingsSummarizer().summarize(findings: allFindings) { done, total in
+                Task { @MainActor [weak self] in
+                    // Only show step counts for genuinely multi-call runs.
+                    if total > 1 {
+                        self?.statusMessage = "Generating on-device summary… (step \(done + 1) of \(total))"
+                    }
+                }
+            }
+            guard !text.isEmpty else {
+                statusMessage = "The model returned an empty summary. Try regenerating."
+                return
+            }
+            let summary = CaseSummary(text: text, generatedAt: Date(),
+                                      findingCount: allFindings.count,
+                                      modelLabel: FindingsSummarizer.modelLabel)
+            caseSummary = summary
+            try? CaseStore.writeSummary(summary, in: bundleURL)
+            statusMessage = "Generated on-device summary of \(allFindings.count) finding(s)."
+            appendCustody(.summarized,
+                          detail: "AI executive summary generated on-device (\(FindingsSummarizer.modelLabel)) from \(allFindings.count) finding\(allFindings.count == 1 ? "" : "s").")
+        } catch {
+            errorMessage = "Summary generation failed: \(error.localizedDescription)"
+            statusMessage = ""
+        }
+    }
+#endif
+
     // MARK: - Menu command entry points
 
     /// Triggered by File > New Case (Cmd-N). Closes any open case so the
@@ -931,7 +1000,8 @@ final class AppModel: ObservableObject {
                                   createdAt: theCase.createdAt, generatedAt: now,
                                   hosts: hosts, custodyLog: custodyForExport,
                                   caseNotes: caseNotes.text,
-                                  annotations: annotationsForExport)
+                                  annotations: annotationsForExport,
+                                  executiveSummary: caseSummary?.text ?? "")
 
         let outcome = await Task.detached(priority: .userInitiated) { () -> ExportOutcome in
             let files = ExportGenerator.generate(inputs: inputs, selection: selection)

@@ -145,6 +145,7 @@ public nonisolated enum CustodyAction: String, CaseIterable, Codable, Sendable, 
     case enrichmentPerformed  // IOC match / future CTI lookup
     case exported             // a report or data export was produced
     case noteAdded            // free-form examiner annotation
+    case summarized           // an on-device AI findings summary was generated
 
     public var label: String {
         switch self {
@@ -156,6 +157,7 @@ public nonisolated enum CustodyAction: String, CaseIterable, Codable, Sendable, 
         case .enrichmentPerformed: return "Enrichment"
         case .exported:            return "Exported"
         case .noteAdded:           return "Note"
+        case .summarized:          return "AI summary"
         }
     }
 
@@ -170,6 +172,7 @@ public nonisolated enum CustodyAction: String, CaseIterable, Codable, Sendable, 
         case .enrichmentPerformed: return "scope"
         case .exported:            return "square.and.arrow.up"
         case .noteAdded:           return "text.bubble"
+        case .summarized:          return "sparkles"
         }
     }
 }

@@ -46,6 +46,14 @@ public nonisolated enum HTMLReportRenderer {
         }
         out += "</header>\n"
 
+        // AI executive summary - on-device generated, ahead of the analyst's
+        // own narrative.
+        if !model.executiveSummary.isEmpty {
+            out += "<h2>Executive summary</h2>\n"
+            out += "<p class=\"narrative\">\(escapeMultiline(model.executiveSummary))</p>\n"
+            out += "<p class=\"note\">Generated on-device by Apple Intelligence. Examiner review recommended.</p>\n"
+        }
+
         // Analyst narrative + bookmarked items - the case story as the analyst
         // pinned it, ahead of the per-host detail.
         if !model.narrative.isEmpty {

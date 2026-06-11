@@ -65,6 +65,7 @@ public nonisolated enum ReportModelBuilder {
             examiner: inputs.examiner,
             createdAt: inputs.createdAt,
             generatedAt: inputs.generatedAt,
+            executiveSummary: inputs.executiveSummary.trimmingCharacters(in: .whitespacesAndNewlines),
             narrative: inputs.caseNotes.trimmingCharacters(in: .whitespacesAndNewlines),
             bookmarks: inputs.annotations.sorted {
                 ($0.timestamp ?? .distantFuture, $0.createdAt)

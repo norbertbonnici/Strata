@@ -21,6 +21,11 @@ struct KillChainView: View {
             SummaryBar(findings: findings)
                 .padding(.horizontal).padding(.top)
 
+            // Bounded height + internal scroll: the Kill Chain body is a plain
+            // VStack, so an unbounded summary would starve the columns below.
+            CaseSummaryCard(textMaxHeight: 150)
+                .padding(.horizontal).padding(.top, 8)
+
             ScrollView(.horizontal, showsIndicators: true) {
                 HStack(alignment: .top, spacing: 0) {
                     ForEach(Array(KillChainPhase.allCases.enumerated()), id: \.element) { index, phase in

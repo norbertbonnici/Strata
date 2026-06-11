@@ -67,10 +67,14 @@ public nonisolated struct ReportInputs: Sendable {
     /// Analyst bookmarks (tagged findings / timeline events), for the report's
     /// bookmarked-items section and the annotations data export.
     public let annotations: [Annotation]
+    /// On-device AI-generated executive summary of the findings, surfaced at the
+    /// top of the examiner report. Defaulted empty when none was generated.
+    public let executiveSummary: String
 
     public init(caseName: String, examiner: String, createdAt: Date,
                 generatedAt: Date, hosts: [Host], custodyLog: [CustodyEvent] = [],
-                caseNotes: String = "", annotations: [Annotation] = []) {
+                caseNotes: String = "", annotations: [Annotation] = [],
+                executiveSummary: String = "") {
         self.caseName = caseName
         self.examiner = examiner
         self.createdAt = createdAt
@@ -79,5 +83,6 @@ public nonisolated struct ReportInputs: Sendable {
         self.custodyLog = custodyLog
         self.caseNotes = caseNotes
         self.annotations = annotations
+        self.executiveSummary = executiveSummary
     }
 }
