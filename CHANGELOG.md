@@ -5,6 +5,25 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Added — Linux parser gaps (Wave 3)
+
+Three parsers that fold into existing tabs (no new UI), each unit-tested:
+
+- **`lastlog2.db`** (`Lastlog2Parser`) — modern Ubuntu (glibc ≥ 2.40) replaced
+  the binary `/var/log/lastlog` with an empty file + a SQLite `lastlog2.db`. Read
+  via GRDB (SQLite-magic-guarded, copy-to-scratch like browser history), mapped
+  to the existing `LastlogEntry` and folded into the **Last Login** tab —
+  closing the "empty last login on a modern host" gap. UID is resolved by name
+  from `/etc/passwd` post-parse.
+- **sudo logfile** (`SudoLogParser`) — `/var/log/sudo` (when sudo's `logfile` is
+  set), sudo's own format (distinct from auth.log), mapped to `AuthLogEntry`
+  (kind `.sudo`) and folded into **Auth & Logins**.
+- **App-server request logs** (`AppServerLogParser`) — reverse-proxy-less Rails
+  (`Started … Completed` pairs) and puma/Node `[pid]`-prefixed combined logs,
+  mapped to `WebAccessLogEntry` and folded into **Web Logs** — closing the
+  confirmed gap where a Node app's HTTP traffic was invisible because it logs
+  outside nginx/apache.
+
 ### Added — CTI enrichment foundation (Wave 2, roadmap "CTI enrichment")
 
 The tiered hash/IOC enrichment waterfall — **NSRL → MISP/OpenCTI →

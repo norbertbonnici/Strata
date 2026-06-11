@@ -3045,6 +3045,7 @@ final class AppModel: ObservableObject {
             case packageDpkg, packageApt, packageYum, packageDnf
             case journald
             case audit, syslog, lastlog
+            case lastlog2, sudoLog, appServerLog
         }
 
         func classify(_ entry: FileEntry) -> LinuxKind? {
@@ -3064,6 +3065,18 @@ final class AppModel: ObservableObject {
             }
             // lastlog binary (no extension); not under a deeper dir.
             if path.hasSuffix("/var/log/lastlog") { return .lastlog }
+            // Modern Ubuntu (glibc ≥ 2.40) last-login SQLite store.
+            if name == "lastlog2.db" { return .lastlog2 }
+            // sudo's own logfile (when `logfile` is configured), distinct from auth.log.
+            if !isGz, path.hasSuffix("/var/log/sudo") || name == "sudo.log"
+                || name.hasPrefix("sudo.log.") { return .sudoLog }
+            // App-server request logs (reverse-proxy-less Rails/puma/Node) that the
+            // nginx/apache classifier misses. Gated to well-known names to avoid noise.
+            if !isGz, name == "production.log" || name == "development.log"
+                || name == "staging.log"
+                || (path.contains("/log/") && name.hasPrefix("puma")) {
+                return .appServerLog
+            }
             // General system log + rotations (syslog, messages, messages-YYYYMMDD).
             if path.hasSuffix("/var/log/syslog") || name.hasPrefix("syslog.")
                 || path.hasSuffix("/var/log/messages") || name.hasPrefix("messages")
@@ -3187,12 +3200,13 @@ final class AppModel: ObservableObject {
             case .sysinfo: return .sysinfo
             case .sshAuthorized, .sshKnown, .sshdConfig, .sudoers, .group, .shadow:
                 return .access
-            case .webAccess: return .web
+            case .webAccess, .appServerLog: return .web
             case .packageDpkg, .packageApt, .packageYum, .packageDnf: return .packages
             case .journald: return .journald
             case .audit: return .audit
             case .syslog: return .syslog
-            case .lastlog: return .lastlog
+            case .lastlog, .lastlog2: return .lastlog
+            case .sudoLog: return .auth
             }
         }
         func neededBuckets(_ state: EvidenceState) -> Set<LinuxBucket> {
@@ -3371,6 +3385,18 @@ final class AppModel: ObservableObject {
                     case .lastlog:
                         lastlog.append(contentsOf: LastlogParser.parse(
                             data: data, sourceFile: entry.fullPath))
+                    case .lastlog2:
+                        // SQLite store → parse from the file path (not the byte
+                        // buffer). UIDs are name-keyed; resolved post-loop against
+                        // /etc/passwd alongside the binary-lastlog resolution.
+                        lastlog.append(contentsOf: (try? Lastlog2Parser.parse(
+                            fileAt: fileURL, sourceFile: entry.fullPath)) ?? [])
+                    case .sudoLog:
+                        authLog.append(contentsOf: SudoLogParser.parse(
+                            text: text(), sourceFile: entry.fullPath, anchor: entry.modified))
+                    case .appServerLog:
+                        web.append(contentsOf: AppServerLogParser.parse(
+                            text: text(), sourceFile: entry.fullPath))
                     case .systemd:
                         if let unit = LinuxPersistenceParser.parseSystemdUnit(
                             text: String(decoding: data, as: UTF8.self),
@@ -3433,14 +3459,24 @@ final class AppModel: ObservableObject {
                 journald.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
                 audit.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
                 syslog.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
-                // Resolve lastlog UIDs to usernames now that /etc/passwd is parsed.
+                // Resolve lastlog identities now that /etc/passwd is parsed:
+                // binary lastlog is UID-keyed (fill the username); lastlog2.db is
+                // name-keyed with a -1 UID sentinel (fill the UID).
                 if !info.users.isEmpty {
                     let byUid = Dictionary(info.users.map { ($0.uid, $0.name) },
                                            uniquingKeysWith: { first, _ in first })
+                    let byName = Dictionary(info.users.map { ($0.name, $0.uid) },
+                                            uniquingKeysWith: { first, _ in first })
                     lastlog = lastlog.map { e in
-                        e.user != nil ? e : LastlogEntry(uid: e.uid, user: byUid[e.uid],
-                                                         timestamp: e.timestamp, line: e.line,
-                                                         host: e.host, sourceFile: e.sourceFile)
+                        if e.user == nil, let name = byUid[e.uid] {
+                            return LastlogEntry(uid: e.uid, user: name, timestamp: e.timestamp,
+                                                line: e.line, host: e.host, sourceFile: e.sourceFile)
+                        }
+                        if e.uid < 0, let user = e.user, let uid = byName[user] {
+                            return LastlogEntry(uid: uid, user: user, timestamp: e.timestamp,
+                                                line: e.line, host: e.host, sourceFile: e.sourceFile)
+                        }
+                        return e
                     }
                 }
                 lastlog.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
