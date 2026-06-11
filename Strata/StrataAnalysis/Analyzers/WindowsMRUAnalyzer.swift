@@ -322,7 +322,7 @@ public nonisolated struct WindowsMRUAnalyzer: Analyzer {
 }
 
 private extension String {
-    func equalsIgnoringCase(_ other: String) -> Bool {
+    nonisolated func equalsIgnoringCase(_ other: String) -> Bool {
         caseInsensitiveCompare(other) == .orderedSame
     }
 }

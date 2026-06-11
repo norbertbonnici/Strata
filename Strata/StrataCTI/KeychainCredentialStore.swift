@@ -35,12 +35,12 @@ public nonisolated struct CTICredentials: Codable, Hashable, Sendable {
 public protocol CredentialStoring: Sendable {
     /// Persist (insert-or-update) the credentials under a provider service key.
     @discardableResult
-    func save(_ credentials: CTICredentials, for service: String) -> Bool
+    nonisolated func save(_ credentials: CTICredentials, for service: String) -> Bool
     /// Load the credentials for a provider service key, or nil if none stored.
-    func load(for service: String) -> CTICredentials?
+    nonisolated func load(for service: String) -> CTICredentials?
     /// Remove any stored credentials for a provider service key.
     @discardableResult
-    func delete(for service: String) -> Bool
+    nonisolated func delete(for service: String) -> Bool
 }
 
 /// Real Keychain-backed credential store (`kSecClassGenericPassword`). One item

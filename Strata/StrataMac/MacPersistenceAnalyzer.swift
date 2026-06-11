@@ -63,7 +63,6 @@ public nonisolated struct MacPersistenceAnalyzer: Analyzer {
             let exec = item.executable
             let execLower = exec?.lowercased() ?? ""
             let basename = exec.map { ($0 as NSString).lastPathComponent.lowercased() } ?? ""
-            let command = item.commandLine.lowercased()
 
             // 1. staging-path executable
             if let exec, !exec.isEmpty, Self.isStagingPath(execLower) {

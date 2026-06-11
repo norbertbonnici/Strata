@@ -7,7 +7,7 @@ public enum MACBKind: String, CaseIterable, Sendable, Codable {
     case changed  = "C"   // MFT entry modified
     case born     = "B"   // created
 
-    public var label: String {
+    public nonisolated var label: String {
         switch self {
         case .modified: return "Modified"
         case .accessed: return "Accessed"
