@@ -1227,6 +1227,15 @@ final class AppModel: ObservableObject {
     var lastlogCount: Int { scopedCount(\.lastlog.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
+    /// True once the Linux log parse has produced *something* in the active
+    /// scope - the high-volume logs (auth/logins/journal/syslog) are present on
+    /// essentially every Linux host. The per-artifact tabs use this to tell
+    /// "not parsed yet" (offer the Parse button) from "parsed, but this
+    /// artifact isn't on the host" (explain why it's empty).
+    var hasParsedLinuxLogs: Bool {
+        authLogCount > 0 || loginsCount > 0 || journaldCount > 0 || syslogCount > 0
+    }
+
     private func scopedCount(_ kp: KeyPath<EvidenceState, Int>) -> Int {
         if let id = activeEvidenceID { return states[id]?[keyPath: kp] ?? 0 }
         return evidenceList.reduce(0) { $0 + (states[$1.id]?[keyPath: kp] ?? 0) }

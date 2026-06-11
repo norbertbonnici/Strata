@@ -33,13 +33,20 @@ struct AuditView: View {
         return Group {
             if rows.isEmpty {
                 ContentUnavailableView {
-                    Label("No audit log parsed yet", systemImage: "checklist")
+                    Label(model.hasParsedLinuxLogs ? "No auditd records on this host"
+                                                   : "No audit log parsed yet",
+                          systemImage: "checklist")
                 } description: {
-                    Text(model.files.isEmpty ? "Ingest evidence first, then come back here."
-                                             : "Click Parse to decode /var/log/audit/audit.log.")
+                    if model.files.isEmpty {
+                        Text("Ingest evidence first, then come back here.")
+                    } else if model.hasParsedLinuxLogs {
+                        Text("`/var/log/audit/` only exists when the **auditd** service is installed — many hosts don't run it, so an empty Audit tab is expected here, not a parsing gap.")
+                    } else {
+                        Text("Click Parse to decode /var/log/audit/audit.log.")
+                    }
                 } actions: {
                     #if os(macOS)
-                    if !model.files.isEmpty {
+                    if !model.files.isEmpty, !model.hasParsedLinuxLogs {
                         Button { Task { await model.parseArtifacts() } } label: {
                             Label("Parse artifacts", systemImage: "play.fill")
                         }.disabled(model.isWorking)

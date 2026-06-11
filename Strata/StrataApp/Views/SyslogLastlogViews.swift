@@ -125,13 +125,20 @@ struct LastlogView: View {
         return Group {
             if rows.isEmpty {
                 ContentUnavailableView {
-                    Label("No lastlog parsed yet", systemImage: "person.crop.square.badge.camera")
+                    Label(model.hasParsedLinuxLogs ? "No lastlog entries on this host"
+                                                   : "No lastlog parsed yet",
+                          systemImage: "person.crop.square.badge.camera")
                 } description: {
-                    Text(model.files.isEmpty ? "Ingest evidence first, then come back here."
-                                             : "Click Parse to decode /var/log/lastlog.")
+                    if model.files.isEmpty {
+                        Text("Ingest evidence first, then come back here.")
+                    } else if model.hasParsedLinuxLogs {
+                        Text("The binary `/var/log/lastlog` is empty on modern Linux (migrated to `lastlog2.db`, absent here). Per-session login history **is** recovered — see **Auth & Logins → Login records** (parsed from wtmp/btmp).")
+                    } else {
+                        Text("Click Parse to decode /var/log/lastlog.")
+                    }
                 } actions: {
                     #if os(macOS)
-                    if !model.files.isEmpty {
+                    if !model.files.isEmpty, !model.hasParsedLinuxLogs {
                         Button { Task { await model.parseArtifacts() } } label: {
                             Label("Parse artifacts", systemImage: "play.fill")
                         }.disabled(model.isWorking)
