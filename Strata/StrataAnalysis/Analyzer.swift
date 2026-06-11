@@ -14,6 +14,7 @@ public nonisolated struct AnalysisContext: Sendable {
     public let lnk: [LnkEntry]
     public let jumpList: [JumpListEntry]
     public let usn: [UsnRecord]
+    public let recycleBin: [RecycleBinEntry]
     public let srum: [SrumEntry]
     public let browserHistory: [BrowserHistoryEntry]
     public let mft: [MftEntry]
@@ -31,12 +32,16 @@ public nonisolated struct AnalysisContext: Sendable {
     public let audit: [AuditEvent]
     public let syslog: [SyslogEntry]
     public let lastlog: [LastlogEntry]
+    // macOS artifacts (empty on Windows/Linux evidence).
+    public let launchItems: [LaunchItemEntry]
+    public let quarantine: [QuarantineEvent]
 
     public init(files: [FileEntry], events: [EventLogRecord],
                 timeline: [TimelineEvent], registryValues: [RegistryValue],
                 prefetch: [PrefetchEntry] = [], amcache: [AmcacheEntry] = [],
                 shimcache: [ShimcacheEntry] = [], lnk: [LnkEntry] = [],
                 jumpList: [JumpListEntry] = [], usn: [UsnRecord] = [],
+                recycleBin: [RecycleBinEntry] = [],
                 srum: [SrumEntry] = [], browserHistory: [BrowserHistoryEntry] = [],
                 mft: [MftEntry] = [], wmi: [WmiPersistenceEntry] = [],
                 authLog: [AuthLogEntry] = [], logins: [UtmpRecord] = [],
@@ -45,7 +50,8 @@ public nonisolated struct AnalysisContext: Sendable {
                 linuxInfo: LinuxHostInfo? = nil, linuxAccess: LinuxAccessInfo? = nil,
                 webAccess: [WebAccessLogEntry] = [], packages: [PackageEvent] = [],
                 journald: [JournaldEntry] = [], audit: [AuditEvent] = [],
-                syslog: [SyslogEntry] = [], lastlog: [LastlogEntry] = []) {
+                syslog: [SyslogEntry] = [], lastlog: [LastlogEntry] = [],
+                launchItems: [LaunchItemEntry] = [], quarantine: [QuarantineEvent] = []) {
         self.files = files
         self.events = events
         self.timeline = timeline
@@ -56,6 +62,7 @@ public nonisolated struct AnalysisContext: Sendable {
         self.lnk = lnk
         self.jumpList = jumpList
         self.usn = usn
+        self.recycleBin = recycleBin
         self.srum = srum
         self.browserHistory = browserHistory
         self.mft = mft
@@ -72,6 +79,8 @@ public nonisolated struct AnalysisContext: Sendable {
         self.audit = audit
         self.syslog = syslog
         self.lastlog = lastlog
+        self.launchItems = launchItems
+        self.quarantine = quarantine
     }
 }
 

@@ -272,6 +272,28 @@ public nonisolated enum CaseStore {
                                 forHostID id: UUID, in bundle: URL) throws {
         try writeArray(records, at: usnFileURL(forHostID: id, in: bundle))
     }
+    public static func recycleBinFileURL(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle).appendingPathComponent("recyclebin.json")
+    }
+    public static func readRecycleBin(forHostID id: UUID, in bundle: URL) throws -> [RecycleBinEntry]? {
+        try readArrayIfPresent(at: recycleBinFileURL(forHostID: id, in: bundle))
+    }
+    public static func writeRecycleBin(_ entries: [RecycleBinEntry],
+                                       forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(entries, at: recycleBinFileURL(forHostID: id, in: bundle))
+    }
+    public static func readLaunchItems(forHostID id: UUID, in bundle: URL) throws -> [LaunchItemEntry]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle).appendingPathComponent("launchitems.json"))
+    }
+    public static func writeLaunchItems(_ items: [LaunchItemEntry], forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(items, at: hostDirectory(forHostID: id, in: bundle).appendingPathComponent("launchitems.json"))
+    }
+    public static func readQuarantine(forHostID id: UUID, in bundle: URL) throws -> [QuarantineEvent]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle).appendingPathComponent("quarantine.json"))
+    }
+    public static func writeQuarantine(_ events: [QuarantineEvent], forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(events, at: hostDirectory(forHostID: id, in: bundle).appendingPathComponent("quarantine.json"))
+    }
     public static func srumFileURL(forHostID id: UUID, in bundle: URL) -> URL {
         hostDirectory(forHostID: id, in: bundle).appendingPathComponent(srumFilename)
     }

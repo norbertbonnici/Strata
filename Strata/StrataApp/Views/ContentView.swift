@@ -3,6 +3,7 @@ import UniformTypeIdentifiers
 
 enum SidebarItem: String, CaseIterable, Identifiable {
     case overview = "Overview"
+    case search = "Search"
     case evidence = "Evidence"
     case timeline = "Timeline"
     case events = "Events"
@@ -17,6 +18,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case browser = "Browser History"
     case mft = "MFT"
     case wmi = "WMI"
+    case recycleBin = "Recycle Bin"
     case linuxLogs = "Auth & Logins"
     case shellHistory = "Shell History"
     case linuxPersistence = "Linux Persistence"
@@ -37,6 +39,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .overview:  return "square.grid.2x2"
+        case .search:    return "magnifyingglass"
         case .evidence:  return "folder"
         case .timeline:  return "clock"
         case .events:    return "doc.text.magnifyingglass"
@@ -51,6 +54,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .browser:   return "globe"
         case .mft:       return "tablecells"
         case .wmi:       return "gearshape.2"
+        case .recycleBin: return "trash"
         case .linuxLogs: return "person.badge.key"
         case .shellHistory: return "terminal"
         case .linuxPersistence: return "calendar.badge.clock"
@@ -76,12 +80,12 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     var osFamily: OSFamily? {
         switch self {
         case .events, .registry, .prefetch, .amcache, .shimcache,
-             .lnk, .jumpList, .usn, .srum, .mft, .wmi:
+             .lnk, .jumpList, .usn, .srum, .mft, .wmi, .recycleBin:
             return .windows
         case .linuxLogs, .shellHistory, .linuxPersistence, .linuxAccess, .webLogs,
              .packages, .journald, .audit, .syslog, .lastlog:
             return .linux
-        case .overview, .evidence, .timeline, .browser, .lateral,
+        case .overview, .search, .evidence, .timeline, .browser, .lateral,
              .killChain, .iocs, .annotations, .custody:
             return nil
         }
@@ -173,6 +177,7 @@ struct ContentView: View {
             Group {
                 switch item ?? .overview {
                 case .overview:  OverviewView()
+                case .search:    GlobalSearchView()
                 case .evidence:  EvidenceTreeView()
                 case .timeline:  TimelineView()
                 case .events:    EventsView()
@@ -187,6 +192,7 @@ struct ContentView: View {
                 case .browser:   BrowserHistoryView()
                 case .mft:       MftView()
                 case .wmi:       WmiView()
+                case .recycleBin: RecycleBinView()
                 case .linuxLogs: LinuxLogsView()
                 case .shellHistory: ShellHistoryView()
                 case .linuxPersistence: LinuxPersistenceView()
