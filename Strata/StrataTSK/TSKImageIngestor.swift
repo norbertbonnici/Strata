@@ -51,6 +51,14 @@ public actor TSKImageIngestor {
         }
         stderrPipe.fileHandleForReading.readabilityHandler = nil
 
+        // A signal (e.g. SIGABRT from TSK's APFS parser crashing on a macOS
+        // image) surfaces as `terminationReason == .uncaughtSignal`, where
+        // `terminationStatus` is the *signal number* — not an exit code. Report
+        // the two distinctly so a crash isn't mislabelled "exit 6".
+        if process.terminationReason == .uncaughtSignal {
+            throw TSKError.ingestionCrashed(signal: process.terminationStatus,
+                                            stderr: collector.text)
+        }
         guard process.terminationStatus == 0 else {
             throw TSKError.ingestionFailed(exitCode: process.terminationStatus,
                                            stderr: collector.text)

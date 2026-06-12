@@ -26,6 +26,17 @@ All notable changes to Strata are documented here. The format loosely follows
   chunk tally); macOS + iOS both build. **Not yet validated against a real
   `.tracev3`** (same standing caveat as the rest of the macOS arc).
 
+### Fixed — distinguish a tsk_loaddb crash from a clean error
+
+- `TSKImageIngestor` now checks `terminationReason`: when `tsk_loaddb` is killed
+  by a **signal** (e.g. `SIGABRT` from The Sleuth Kit's APFS parser crashing on a
+  macOS image), it throws the new `TSKError.ingestionCrashed(signal:…)` —
+  *"tsk_loaddb crashed (signal 6 / SIGABRT) … a known Sleuth Kit limitation
+  parsing some APFS (macOS) volumes"* — instead of the misleading
+  `ingestionFailed(exitCode: 6)` ("exit 6"), which conflated the signal number
+  with an exit code. (TSK's `terminationStatus` is the *signal number* on a
+  signal kill, not a status.)
+
 ### Added — macOS shell history
 
 - **macOS zsh/bash history** — `parseMac()` now collects each user's
