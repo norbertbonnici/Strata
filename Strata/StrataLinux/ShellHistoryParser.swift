@@ -58,10 +58,11 @@ public nonisolated enum ShellHistoryParser {
     }
 
     /// Derive the account name from the history file's path:
-    /// `/home/<user>/.bash_history` -> user, `/root/...` -> root.
+    /// `/home/<user>/.bash_history` -> user (Linux), `/Users/<user>/...` -> user
+    /// (macOS), `/root/...` -> root.
     public static func user(fromPath path: String) -> String {
         let parts = path.split(whereSeparator: { $0 == "/" || $0 == "\\" }).map(String.init)
-        if let homeIndex = parts.firstIndex(where: { $0.lowercased() == "home" }),
+        if let homeIndex = parts.firstIndex(where: { $0.lowercased() == "home" || $0.lowercased() == "users" }),
            homeIndex + 1 < parts.count {
             return parts[homeIndex + 1]
         }

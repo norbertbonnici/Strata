@@ -370,7 +370,7 @@ struct MoreTab: View {
                     Divider().background(Theme.hair2).padding(.leading, 50)
                     }
 
-                    if model.shows(osFamily: .linux) {
+                    if model.shows(anyOf: [.linux, .macos]) {
                     NavigationLink {
                         ShellHistoryDrillView()
                     } label: {

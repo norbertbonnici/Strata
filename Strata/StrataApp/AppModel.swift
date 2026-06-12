@@ -1408,6 +1408,17 @@ final class AppModel: ObservableObject {
         return families.isEmpty || families.contains(osFamily)
     }
 
+    /// Whether a tab that applies to **any** of `families` should be shown — for
+    /// the artifacts that span more than one OS (shell history exists on both
+    /// Linux and macOS). Empty `families` = cross-platform = always shown; an
+    /// undetermined scope shows everything.
+    func shows(anyOf families: Set<OSFamily>) -> Bool {
+        guard !showAllArtifactTabs else { return true }
+        guard !families.isEmpty else { return true }
+        let scope = scopeOSFamilies()
+        return scope.isEmpty || !scope.isDisjoint(with: families)
+    }
+
     // MARK: - Ingest
 
     #if os(macOS)
@@ -3204,11 +3215,22 @@ final class AppModel: ObservableObject {
                     && name != "fseventsd-uuid" && name != "no_log"
             }
         }
+        // Per-user zsh/bash history under /Users/ (macOS home dirs). The Linux
+        // parser already handles /home/ + /root/ history; this picks up the Mac
+        // side so the (now cross-OS) Shell History tab is populated.
+        func shellHistoryFiles(_ s: EvidenceState) -> [FileEntry] {
+            s.files.filter { entry in
+                guard !entry.isDirectory, entry.size > 0 else { return false }
+                let name = entry.name.lowercased()
+                return entry.fullPath.lowercased().contains("/users/")
+                    && (name == ".zsh_history" || name == ".bash_history" || name == ".sh_history")
+            }
+        }
         let total = evidenceList.reduce(0) { acc, e in
             guard let s = states[e.id], s.launchItems.isEmpty, s.quarantine.isEmpty,
                   s.macPersistence.isEmpty, s.fsEvents.isEmpty, s.macInfo == nil else { return acc }
             return acc + plists(s).count + quarantines(s).count + hostInfoFiles(s).count
-                + persistenceFiles(s).count + fseventsFiles(s).count
+                + persistenceFiles(s).count + fseventsFiles(s).count + shellHistoryFiles(s).count
         }
         guard total > 0 else { statusMessage = "No new macOS artifacts to parse."; return }
         progress = ProgressInfo(current: 0, total: total, label: "Parsing macOS artifacts")
@@ -3225,8 +3247,9 @@ final class AppModel: ObservableObject {
                 let foundInfo = hostInfoFiles(state)
                 let foundPersist = persistenceFiles(state)
                 let foundFSE = fseventsFiles(state)
+                let foundShell = shellHistoryFiles(state)
                 guard !foundPlists.isEmpty || !foundQuar.isEmpty || !foundInfo.isEmpty
-                    || !foundPersist.isEmpty || !foundFSE.isEmpty else { continue }
+                    || !foundPersist.isEmpty || !foundFSE.isEmpty || !foundShell.isEmpty else { continue }
                 let isLoose = evidence.kind == .kapeLooseFolder
                 var database: TSKDatabase?
                 var extractor: TSKFileExtractor?
@@ -3330,10 +3353,25 @@ final class AppModel: ObservableObject {
                     fseBlobs.flatMap { FSEventsParser.parse(gzipped: $0.data, sourceFile: $0.sourceFile) }
                 }.value
 
+                // macOS zsh/bash history → the shared shellHistory collection.
+                var macShell: [ShellHistoryEntry] = []
+                for entry in foundShell {
+                    progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    guard let url = await extract(entry), let data = try? Data(contentsOf: url) else { continue }
+                    let shell: ShellHistoryEntry.Shell =
+                        entry.name.lowercased().contains("zsh") ? .zsh : .bash
+                    macShell.append(contentsOf: ShellHistoryParser.parse(
+                        text: String(decoding: data, as: UTF8.self),
+                        user: ShellHistoryParser.user(fromPath: entry.fullPath),
+                        shell: shell, sourceFile: entry.fullPath))
+                }
+
                 state.launchItems = launch
                 state.quarantine = quar
                 state.macPersistence = persist
                 state.fsEvents = fsEvents
+                if !macShell.isEmpty { state.shellHistory.append(contentsOf: macShell) }
                 state.macInfo = info.isEmpty ? nil : info
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
@@ -3341,6 +3379,9 @@ final class AppModel: ObservableObject {
                     try? CaseStore.writeQuarantine(quar, forHostID: evidence.id, in: bundleURL)
                     try? CaseStore.writeMacPersistence(persist, forHostID: evidence.id, in: bundleURL)
                     try? CaseStore.writeFSEvents(fsEvents, forHostID: evidence.id, in: bundleURL)
+                    if !macShell.isEmpty {
+                        try? CaseStore.writeShellHistory(state.shellHistory, forHostID: evidence.id, in: bundleURL)
+                    }
                     if let info = state.macInfo {
                         try? CaseStore.writeMacInfo(info, forHostID: evidence.id, in: bundleURL)
                     }

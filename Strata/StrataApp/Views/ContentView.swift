@@ -164,7 +164,15 @@ struct ContentView: View {
     /// Tabs visible for the current scope: cross-platform tabs plus the OS
     /// tabs that apply to the loaded evidence (all of them under "Show all").
     private var visibleSidebarItems: [SidebarItem] {
-        SidebarItem.allCases.filter { model.shows(osFamily: $0.osFamily) }
+        SidebarItem.allCases.filter { isVisible($0) }
+    }
+
+    /// Single source of truth for tab visibility. Most tabs gate on their one
+    /// `osFamily`; Shell History is the exception — zsh/bash history exists on
+    /// **both** Linux and macOS, so it shows for either.
+    private func isVisible(_ item: SidebarItem) -> Bool {
+        if item == .shellHistory { return model.shows(anyOf: [.linux, .macos]) }
+        return model.shows(osFamily: item.osFamily)
     }
 
     private var caseBody: some View {
@@ -306,7 +314,7 @@ struct ContentView: View {
     /// Reset the selection to Overview when the current tab is no longer
     /// visible for the scope.
     private func clampSelection() {
-        if let current = item, !model.shows(osFamily: current.osFamily) {
+        if let current = item, !isVisible(current) {
             item = .overview
         }
     }

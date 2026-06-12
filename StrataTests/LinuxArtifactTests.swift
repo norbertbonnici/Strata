@@ -179,6 +179,8 @@ struct ShellHistoryParserTests {
     @Test func derivesUserFromPath() {
         #expect(ShellHistoryParser.user(fromPath: "/home/jane/.bash_history") == "jane")
         #expect(ShellHistoryParser.user(fromPath: "/root/.zsh_history") == "root")
+        // macOS home directories live under /Users/.
+        #expect(ShellHistoryParser.user(fromPath: "/Users/jane/.zsh_history") == "jane")
         #expect(ShellHistoryParser.user(fromPath: "/weird/place") == "?")
     }
 }

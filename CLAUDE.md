@@ -93,8 +93,15 @@ treat it as one item. The macOS-only ingest code is gated `#if os(macOS)`.
 - **Per-OS tab hiding.** Artifact tabs that can't apply to the evidence's OS are
   hidden: each `SidebarItem` has an `osFamily` (`.windows` for EVTX/registry/
   prefetch/amcache/shimcache/LNK/JumpList/USN/SRUM/MFT/WMI, `.linux` for the
-  auth/shell/persistence tabs, `.macos` for Launch Items + Quarantine, `nil` =
-  cross-platform incl. **Browser History**, always shown). `OSFamily.detect`
+  auth/persistence tabs, `.macos` for Launch Items + Quarantine + Persistence +
+  FSEvents, `nil` = cross-platform incl. **Browser History**, always shown).
+  **Shell History** is the one multi-OS tab — zsh/bash history exists on both
+  Linux *and* macOS, so `ContentView.isVisible` (and the iOS row) gate it via
+  `shows(anyOf: [.linux, .macos])` rather than its single `osFamily`; that one
+  helper is the single source of truth shared by `visibleSidebarItems` +
+  `clampSelection`. macOS `~/Users/*/.zsh_history|.bash_history` are collected in
+  `parseMac()` and folded into the shared `shellHistory` collection (the Linux
+  parser handles `/home/` + `/root/`). `OSFamily.detect`
   reads each host's volume **fs-type** (NTFS ⇒ Windows, ext ⇒ Linux, APFS/HFS+ ⇒
   macOS; FAT is ignored — every OS carries a FAT ESP), falling back to a
   file-tree sniff for loose folders (a decisive **macOS-only** marker — e.g.
