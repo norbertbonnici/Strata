@@ -5,6 +5,23 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Added — macOS shell history
+
+- **macOS zsh/bash history** — `parseMac()` now collects each user's
+  `~/Library`-adjacent `.zsh_history` / `.bash_history` (under `/Users/`) and
+  parses them with the existing `ShellHistoryParser` (extended-zsh timestamps,
+  bash `HISTTIMEFORMAT`), folding them into the shared `shellHistory` collection
+  alongside the Linux `/home/` + `/root/` history. `ShellHistoryParser.user(
+  fromPath:)` learned the macOS `/Users/<user>/` layout.
+- **Shell History is now a multi-OS tab.** zsh/bash history exists on both Linux
+  and macOS, so the tab is shown for *either* via a new
+  `AppModel.shows(anyOf:)`; `ContentView.isVisible` centralises that rule for the
+  sidebar filter + the selection clamp, and the iOS More-tab row gates the same
+  way. The macOS shell history also feeds the timeline + `ShellHistoryAnalyzer`
+  unchanged (both were already OS-agnostic).
+- Unit-tested (`ShellHistoryParser.user(fromPath:)` macOS case); macOS + iOS
+  both build.
+
 ### Added — Safari browser history
 
 - **Safari history** — `BrowserHistoryParser` now reads Safari's
