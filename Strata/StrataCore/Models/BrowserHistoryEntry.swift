@@ -28,7 +28,7 @@ public nonisolated struct BrowserHistoryEntry: Identifiable, Hashable, Sendable,
 
     /// Which browser the source database belonged to (derived from its path).
     public enum Browser: String, Sendable, Codable, CaseIterable {
-        case chrome, edge, brave, opera, vivaldi, firefox, unknown
+        case chrome, edge, brave, opera, vivaldi, firefox, safari, unknown
         public var label: String {
             switch self {
             case .chrome:  return "Chrome"
@@ -37,6 +37,7 @@ public nonisolated struct BrowserHistoryEntry: Identifiable, Hashable, Sendable,
             case .opera:   return "Opera"
             case .vivaldi: return "Vivaldi"
             case .firefox: return "Firefox"
+            case .safari:  return "Safari"
             case .unknown: return "Browser"
             }
         }
@@ -146,6 +147,18 @@ public nonisolated struct BrowserHistoryEntry: Identifiable, Hashable, Sendable,
         return Date(timeIntervalSince1970: Double(micros) / 1_000_000)
     }
 
+    /// Seconds between the Unix epoch (1970-01-01) and the Cocoa/CFAbsoluteTime
+    /// reference date (2001-01-01 UTC) - Safari's `history_visits.visit_time` is
+    /// a `CFAbsoluteTime` REAL.
+    private static let cfAbsoluteTimeOffset: Double = 978_307_200
+
+    /// Convert a Safari timestamp (seconds since 2001-01-01 UTC, a
+    /// `CFAbsoluteTime`) to a `Date`. Returns nil for 0/negative/absent.
+    public static func safariTime(_ seconds: Double?) -> Date? {
+        guard let seconds, seconds > 0 else { return nil }
+        return Date(timeIntervalSince1970: seconds + cfAbsoluteTimeOffset)
+    }
+
     /// Classify the browser from a source-database path (case-insensitive).
     public static func browser(forPath path: String) -> Browser {
         let p = path.lowercased()
@@ -156,6 +169,9 @@ public nonisolated struct BrowserHistoryEntry: Identifiable, Hashable, Sendable,
         if p.contains("vivaldi") { return .vivaldi }
         if p.contains("mozilla\\firefox") || p.contains("mozilla/firefox")
             || p.hasSuffix("places.sqlite") { return .firefox }
+        // Safari (macOS): ~/Library/Safari/History.db. Gate on the Safari
+        // directory so an unrelated History.db elsewhere isn't misattributed.
+        if p.contains("/safari/") && p.hasSuffix("history.db") { return .safari }
         return .unknown
     }
 

@@ -33,11 +33,20 @@ struct BrowserHistoryDecoderTests {
         #expect(abs(date.timeIntervalSince1970 - Self.unix2024) < 1)
     }
 
+    @Test func safariTimeConvertsCFAbsoluteEpoch() throws {
+        // Safari stores seconds since 2001-01-01 (CFAbsoluteTime).
+        let cf = Self.unix2024 - 978_307_200
+        let date = try #require(BrowserHistoryEntry.safariTime(cf))
+        #expect(abs(date.timeIntervalSince1970 - Self.unix2024) < 1)
+    }
+
     @Test func zeroAndNegativeTimestampsAreNil() {
         #expect(BrowserHistoryEntry.chromeTime(0) == nil)
         #expect(BrowserHistoryEntry.chromeTime(nil) == nil)
         #expect(BrowserHistoryEntry.firefoxTime(0) == nil)
         #expect(BrowserHistoryEntry.firefoxTime(-5) == nil)
+        #expect(BrowserHistoryEntry.safariTime(0) == nil)
+        #expect(BrowserHistoryEntry.safariTime(nil) == nil)
     }
 
     @Test func browserClassificationFromPath() {
@@ -45,6 +54,7 @@ struct BrowserHistoryDecoderTests {
         #expect(BrowserHistoryEntry.browser(forPath: #"\Users\v\AppData\Local\Microsoft\Edge\User Data\Default\History"#) == .edge)
         #expect(BrowserHistoryEntry.browser(forPath: #"\Users\v\AppData\Local\BraveSoftware\Brave-Browser\User Data\Default\History"#) == .brave)
         #expect(BrowserHistoryEntry.browser(forPath: #"\Users\v\AppData\Roaming\Mozilla\Firefox\Profiles\ab12.default-release\places.sqlite"#) == .firefox)
+        #expect(BrowserHistoryEntry.browser(forPath: "/Users/jane/Library/Safari/History.db") == .safari)
         #expect(BrowserHistoryEntry.browser(forPath: #"C:\where\History"#) == .unknown)
     }
 
@@ -270,6 +280,33 @@ struct BrowserHistoryParserTests {
         #expect(e.visitCount == 3)
         #expect(e.typedCount == 1)
         #expect(e.userProfile == "ab12.default-release")
+        #expect(abs((e.timestamp ?? .distantPast).timeIntervalSince1970 - Double(Self.unix2024)) < 1)
+    }
+
+    @Test func parsesSafariHistory() throws {
+        // Safari visit_time is CFAbsoluteTime (seconds since 2001-01-01).
+        let cf = Double(Self.unix2024) - 978_307_200
+        let dbURL = try writeDB("""
+            CREATE TABLE history_items (id INTEGER PRIMARY KEY, url TEXT, visit_count INTEGER);
+            CREATE TABLE history_visits (id INTEGER PRIMARY KEY, history_item INTEGER,
+                visit_time REAL, title TEXT);
+            INSERT INTO history_items VALUES (1, 'https://evil.example.com/x', 4);
+            INSERT INTO history_items VALUES (2, 'https://never.example', 0);
+            INSERT INTO history_visits VALUES (1, 1, \(cf - 3600), 'Old Title');
+            INSERT INTO history_visits VALUES (2, 1, \(cf), 'Latest Title');
+            """)
+        defer { try? FileManager.default.removeItem(at: dbURL.deletingLastPathComponent()) }
+
+        let entries = try BrowserHistoryParser.parse(
+            fileAt: dbURL, sourceFile: "/Users/jane/Library/Safari/History.db")
+
+        #expect(entries.count == 1)   // history_item 2 has no visits → excluded by the JOIN
+        let e = try #require(entries.first)
+        #expect(e.browser == .safari)
+        #expect(e.kind == .visit)
+        #expect(e.url == "https://evil.example.com/x")
+        #expect(e.title == "Latest Title")   // MAX(visit_time) bare-column rule
+        #expect(e.visitCount == 4)
         #expect(abs((e.timestamp ?? .distantPast).timeIntervalSince1970 - Double(Self.unix2024)) < 1)
     }
 
