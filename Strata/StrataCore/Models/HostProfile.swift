@@ -53,6 +53,27 @@ public nonisolated struct HostProfile: Sendable {
         return profile
     }
 
+    /// Build a profile from the macOS host-info files (`SystemVersion.plist`,
+    /// the SystemConfiguration `preferences.plist`, dslocal user plists, the
+    /// timezone) - the macOS counterpart of the Linux derivation above.
+    /// `computerName` is the user-facing host label; `localHostName` is the
+    /// fallback. The primary user is the lowest-UID human account (macOS starts
+    /// human UIDs at 501) with a real login shell.
+    public static func derive(fromMac info: MacHostInfo) -> HostProfile {
+        var profile = HostProfile()
+        profile.hostname = info.computerName ?? info.localHostName
+        profile.osProductName = info.productName
+        profile.osDisplayVersion = info.productVersion
+        profile.osBuild = info.buildVersion
+        profile.timeZone = info.timeZone
+        profile.ipAddresses = info.ipAddresses
+        profile.primaryUser = info.users
+            .filter { $0.uid >= 501 && $0.uid < 65_000 && $0.hasLoginShell }
+            .min { $0.uid < $1.uid }?
+            .name
+        return profile
+    }
+
     /// Walk a registry-value list and pull the well-known identity / config
     /// values. Missing values stay nil - we never invent defaults.
     public static func derive(from values: [RegistryValue]) -> HostProfile {

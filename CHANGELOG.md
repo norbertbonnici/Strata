@@ -5,6 +5,32 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Added — macOS evidence support (`.macos` OSFamily + dedicated tabs)
+
+- **`.macos` OS detection** — `OSFamily` gains a `.macos` case, detected from the
+  volume fs-type (APFS / HFS+) or, for loose collections, a file-tree sniff where
+  a decisive macOS-only marker (`/System/Library/`, `/Library/Preferences/`,
+  `.app/Contents/`, `/private/var/db/`) vetoes the weaker `/Users/`⇒Windows and
+  `/etc/`,`/var/log/`⇒Linux guesses macOS would otherwise trip. A pure-Mac image
+  now hides every Windows and Linux tab instead of showing them all.
+- **macOS host profile** — `MacHostInfoParser` (`StrataMac`) folds
+  `SystemVersion.plist`, the SystemConfiguration `preferences.plist` /
+  `NetworkInterfaces.plist`, and the dslocal user plists into a `MacHostInfo`
+  (`StrataCore`); `HostProfile.derive(fromMac:)` drives the **Overview** host card
+  (OS/version/build, computer name, primary user, IPs). Parsed by
+  `AppModel.parseMac()`, persisted as `macinfo.json`.
+- **Launch Items + Quarantine tabs** — the already-parsed launchd jobs and the
+  LaunchServices download-provenance store now have dedicated, `.macos`-gated
+  tabs: macOS `LaunchItemsView` / `QuarantineView` (filter + table/detail split +
+  empty-state Parse) and iOS `LaunchItemsDrillView` / `QuarantineDrillView`
+  (paged lists). `launchItems` / `quarantine` joined the `AppModel` derived
+  rollup with scoped + count accessors.
+- Validated: macOS + iOS both build; OSFamily detection and the
+  `MacHostInfoParser` projection are unit-tested (`OSFamilyTests`,
+  `MacHostInfoParserTests`). **Known limit:** APFS readability depends on the
+  vendored TSK enumerating the volume (a FileVault-encrypted APFS won't), still to
+  be confirmed end-to-end on a real Mac image.
+
 ### Added — On-device AI findings summary (Apple Intelligence)
 
 - **AI executive summary** — a new `StrataAI/FindingsSummarizer` generates a
