@@ -5,6 +5,24 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Added — APFS bodyfile parser (macOS ingest path, step 1)
+
+- **`BodyfileParser` + `BodyfileEntry`** (`StrataCore`) — a pure parser for the
+  TSK `mactime` **bodyfile** format that `fsapfsinfo -B` emits, the bridge for
+  reading APFS evidence (which The Sleuth Kit crashes on). Decodes the 11
+  pipe-delimited fields (`MD5|name|inode|mode|UID|GID|size|atime|mtime|ctime|
+  crtime`) into a typed record with the MACB set, handling libfsapfs'
+  **nanosecond** timestamps (`<sec>.<9-digit ns>`), symlink `name -> target`
+  splitting, and paths that themselves contain `|` (it anchors on the 9 fixed
+  trailing fields). `0`/empty times decode to nil; the mode string yields
+  `isDirectory`/`isSymlink`.
+- **Validated against real `fsapfsinfo` output** — the canonical-line test is
+  pinned to an actual bodyfile line captured from the macOS-27 APFS image's root
+  inode (the same image TSK SIGABRTs on). macOS + iOS both build.
+- This is **step 1** of the macOS APFS ingest path; the orchestration
+  (`ewfexport` E01→raw → `fsapfsinfo -E all -B` per volume → `FileEntry` tree +
+  timeline, then content extraction) is the next step.
+
 ### Added — Vendor libfsapfs (APFS reader) for macOS images
 
 - **The Sleuth Kit crashes on real macOS APFS.** Validated against a real Mac
