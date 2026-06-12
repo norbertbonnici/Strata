@@ -1463,18 +1463,39 @@ final class AppModel: ObservableObject {
                 let ingestor = TSKImageIngestor(environment: environment)
 
                 statusMessage = "Ingesting \(evidence.displayName) with TSK..."
-                try await ingestor.ingest(imageAt: evidence.sourceURL, into: dbURL) { line in
-                    Task { @MainActor in self.statusMessage = line }
+                do {
+                    try await ingestor.ingest(imageAt: evidence.sourceURL, into: dbURL) { line in
+                        Task { @MainActor in self.statusMessage = line }
+                    }
+                    statusMessage = "Reading file system..."
+                    let database = try TSKDatabase(path: dbURL)
+                    let loaded = try database.fetchFiles()
+                    var s = EvidenceState(dbURL: dbURL)
+                    s.files = loaded
+                    s.volumes = (try? database.fetchVolumes()) ?? []
+                    s.timeline = TimelineBuilder.build(from: loaded)
+                    state = s
+                } catch let tskError as TSKError {
+                    // The Sleuth Kit's APFS parser crashes (SIGABRT) on real
+                    // macOS volumes - fall back to libfsapfs (fsapfsinfo) for an
+                    // APFS image instead of failing the ingest.
+                    guard case .ingestionCrashed = tskError else { throw tskError }
+                    try? FileManager.default.removeItem(at: dbURL)   // drop the partial DB
+                    statusMessage = "The Sleuth Kit can't read this volume (likely APFS) — switching to fsapfsinfo…"
+                    let scratch = hostDir.appendingPathComponent("apfs")
+                    let apfs = FsApfsIngestor(environment: environment)
+                    let result = try await apfs.ingest(
+                        imageAt: evidence.sourceURL,
+                        imageType: TSKImageIngestor.imageType(for: evidence.sourceURL),
+                        scratchDirectory: scratch) { line in
+                            Task { @MainActor in self.statusMessage = line }
+                        }
+                    var s = EvidenceState(dbURL: nil)   // no tsk.db on the APFS path
+                    s.files = result.files
+                    s.volumes = result.volumes
+                    s.timeline = TimelineBuilder.build(from: result.files)
+                    state = s
                 }
-
-                statusMessage = "Reading file system..."
-                let database = try TSKDatabase(path: dbURL)
-                let loaded = try database.fetchFiles()
-                var s = EvidenceState(dbURL: dbURL)
-                s.files = loaded
-                s.volumes = (try? database.fetchVolumes()) ?? []
-                s.timeline = TimelineBuilder.build(from: loaded)
-                state = s
 
                 // E01 carries acquisition metadata + acquisition hashes in its
                 // header - read them (cheap) instead of rehashing the image.

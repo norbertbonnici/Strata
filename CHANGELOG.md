@@ -5,23 +5,34 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
-### Added — APFS bodyfile parser (macOS ingest path, step 1)
+### Added — macOS APFS ingest path (via libfsapfs)
 
-- **`BodyfileParser` + `BodyfileEntry`** (`StrataCore`) — a pure parser for the
-  TSK `mactime` **bodyfile** format that `fsapfsinfo -B` emits, the bridge for
-  reading APFS evidence (which The Sleuth Kit crashes on). Decodes the 11
-  pipe-delimited fields (`MD5|name|inode|mode|UID|GID|size|atime|mtime|ctime|
-  crtime`) into a typed record with the MACB set, handling libfsapfs'
-  **nanosecond** timestamps (`<sec>.<9-digit ns>`), symlink `name -> target`
-  splitting, and paths that themselves contain `|` (it anchors on the 9 fixed
-  trailing fields). `0`/empty times decode to nil; the mode string yields
-  `isDirectory`/`isSymlink`.
-- **Validated against real `fsapfsinfo` output** — the canonical-line test is
-  pinned to an actual bodyfile line captured from the macOS-27 APFS image's root
-  inode (the same image TSK SIGABRTs on). macOS + iOS both build.
-- This is **step 1** of the macOS APFS ingest path; the orchestration
-  (`ewfexport` E01→raw → `fsapfsinfo -E all -B` per volume → `FileEntry` tree +
-  timeline, then content extraction) is the next step.
+Strata can now ingest the macOS APFS images The Sleuth Kit crashes on. When
+`tsk_loaddb` SIGABRTs (the APFS case), `AppModel.ingest` falls back to a new
+libfsapfs path instead of failing:
+
+- **`BodyfileParser` + `BodyfileEntry`** (`StrataCore`) — pure decoder for the
+  TSK `mactime` **bodyfile** (`fsapfsinfo -H -B`): the 11 pipe-delimited fields
+  (`MD5|name|inode|mode|UID|GID|size|atime|mtime|ctime|crtime`) → a typed record
+  with the MACB set, handling libfsapfs **nanosecond** times (`<sec>.<ns>`),
+  symlink `name -> target` splitting, and paths containing `|` (anchors on the
+  9 fixed trailing fields). Pinned against **real** `fsapfsinfo` lines from a
+  macOS-27 image.
+- **`FsApfsIngestor`** (`StrataTSK`, macOS) — orchestrates the path: convert an
+  E01 to raw with `ewfexport` (a raw/dd image is used directly), find the APFS
+  container offset via `mmls`, enumerate volumes, then run
+  `fsapfsinfo -f <i> -H -B` per volume and map the bodyfile → `FileEntry`s
+  grouped per volume (`fsID`) + a `VolumeInfo` each. No `tsk.db` is produced
+  (like the loose-folder path); it strips libfsapfs' `/{volume-uuid}/` path
+  prefix. Wired into `ingest()` as the `.ingestionCrashed` fallback.
+- **Gives the file tree + MACB timeline.** Per-file **content extraction** (so
+  the artifact parsers can run on the recovered files) is the next step —
+  `fsapfsinfo -H -B` lists + times but doesn't dump bytes. **Known limit:**
+  enumerating a large Data volume over a slow bus can take a while (it walks the
+  whole catalog); validated on the container + Recovery volume, the full-volume
+  run is the user's first real exercise.
+- macOS + iOS build; `BodyfileParserTests` + `FsApfsIngestorMappingTests` (pinned
+  to real `-H -B` lines) pass.
 
 ### Added — Vendor libfsapfs (APFS reader) for macOS images
 
