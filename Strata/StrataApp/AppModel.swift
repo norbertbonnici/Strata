@@ -46,6 +46,7 @@ nonisolated struct EvidenceState: Sendable {
     var launchItems: [LaunchItemEntry] = []
     var quarantine: [QuarantineEvent] = []
     var macPersistence: [MacPersistenceItem] = []
+    var fsEvents: [FSEventRecord] = []
     // macOS host identity (empty on non-macOS evidence).
     var macInfo: MacHostInfo?
     var findings: [Finding] = []
@@ -522,6 +523,7 @@ final class AppModel: ObservableObject {
             state.launchItems = (try? CaseStore.readLaunchItems(forHostID: evidence.id, in: bundleURL)) ?? []
             state.quarantine = (try? CaseStore.readQuarantine(forHostID: evidence.id, in: bundleURL)) ?? []
             state.macPersistence = (try? CaseStore.readMacPersistence(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.fsEvents = (try? CaseStore.readFSEvents(forHostID: evidence.id, in: bundleURL)) ?? []
             state.macInfo = try? CaseStore.readMacInfo(forHostID: evidence.id, in: bundleURL)
             // Fold USN journal rows back into the timeline so the Source filter
             // works without re-parsing on every case open (mirrors the evtx splice).
@@ -1094,6 +1096,7 @@ final class AppModel: ObservableObject {
         var launchItems: [LaunchItemEntry] = []
         var quarantine: [QuarantineEvent] = []
         var macPersistence: [MacPersistenceItem] = []
+        var fsEvents: [FSEventRecord] = []
         var iocMatches: [IOCMatch] = []
     }
     private var derivedCache: Derived?
@@ -1164,6 +1167,7 @@ final class AppModel: ObservableObject {
             d.launchItems = s.launchItems
             d.quarantine = s.quarantine
             d.macPersistence = s.macPersistence
+            d.fsEvents = s.fsEvents
             d.iocMatches = s.iocMatches
             return d
         }
@@ -1199,6 +1203,7 @@ final class AppModel: ObservableObject {
             d.launchItems.append(contentsOf: s.launchItems)
             d.quarantine.append(contentsOf: s.quarantine)
             d.macPersistence.append(contentsOf: s.macPersistence)
+            d.fsEvents.append(contentsOf: s.fsEvents)
             d.iocMatches.append(contentsOf: s.iocMatches)
         }
         d.events.sort { $0.writtenAt < $1.writtenAt }
@@ -1234,6 +1239,8 @@ final class AppModel: ObservableObject {
                 ? $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
                 : $0.kind.rawValue < $1.kind.rawValue
         }
+        // FSEvents has no timestamp; the event ID is the monotonic order.
+        d.fsEvents.sort { $0.eventID < $1.eventID }
         return d
     }
 
@@ -1276,6 +1283,7 @@ final class AppModel: ObservableObject {
     var launchItems: [LaunchItemEntry] { derived().launchItems }
     var quarantine: [QuarantineEvent] { derived().quarantine }
     var macPersistence: [MacPersistenceItem] { derived().macPersistence }
+    var fsEvents: [FSEventRecord] { derived().fsEvents }
     /// Linux host info for the active scope (tiny; not worth caching). In the
     /// combined scope the first host that has one wins.
     var linuxInfo: LinuxHostInfo? {
@@ -1325,6 +1333,7 @@ final class AppModel: ObservableObject {
     var launchItemCount: Int { scopedCount(\.launchItems.count) }
     var quarantineCount: Int { scopedCount(\.quarantine.count) }
     var macPersistenceCount: Int { scopedCount(\.macPersistence.count) }
+    var fsEventCount: Int { scopedCount(\.fsEvents.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
     /// True once the Linux log parse has produced *something* in the active
@@ -3120,6 +3129,10 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// A gzip `/.fseventsd/` blob plus its source path, carried across the
+    /// actor boundary into the off-main FSEvents parse.
+    private struct FSEventsBlob: Sendable { let data: Data; let sourceFile: String }
+
     /// Parse macOS triage artifacts — launchd persistence plists
     /// (`/Library/Launch{Agents,Daemons}`, `~/Library/LaunchAgents`) and the
     /// LaunchServices quarantine store — for every host without results. Both
@@ -3176,11 +3189,22 @@ final class AppModel: ObservableObject {
                 return false
             }
         }
+        // FSEvents change-history logs: gzip-compressed, hex-named files under
+        // /.fseventsd/ (excluding the uuid + no_log marker files).
+        func fseventsFiles(_ s: EvidenceState) -> [FileEntry] {
+            s.files.filter { entry in
+                guard !entry.isDirectory, entry.size > 0 else { return false }
+                let lower = entry.fullPath.lowercased()
+                let name = entry.name.lowercased()
+                return lower.contains("/.fseventsd/")
+                    && name != "fseventsd-uuid" && name != "no_log"
+            }
+        }
         let total = evidenceList.reduce(0) { acc, e in
             guard let s = states[e.id], s.launchItems.isEmpty, s.quarantine.isEmpty,
-                  s.macPersistence.isEmpty, s.macInfo == nil else { return acc }
+                  s.macPersistence.isEmpty, s.fsEvents.isEmpty, s.macInfo == nil else { return acc }
             return acc + plists(s).count + quarantines(s).count + hostInfoFiles(s).count
-                + persistenceFiles(s).count
+                + persistenceFiles(s).count + fseventsFiles(s).count
         }
         guard total > 0 else { statusMessage = "No new macOS artifacts to parse."; return }
         progress = ProgressInfo(current: 0, total: total, label: "Parsing macOS artifacts")
@@ -3190,13 +3214,15 @@ final class AppModel: ObservableObject {
             for evidence in evidenceList {
                 guard var state = states[evidence.id],
                       state.launchItems.isEmpty, state.quarantine.isEmpty,
-                      state.macPersistence.isEmpty, state.macInfo == nil else { continue }
+                      state.macPersistence.isEmpty, state.fsEvents.isEmpty,
+                      state.macInfo == nil else { continue }
                 let foundPlists = plists(state)
                 let foundQuar = quarantines(state)
                 let foundInfo = hostInfoFiles(state)
                 let foundPersist = persistenceFiles(state)
+                let foundFSE = fseventsFiles(state)
                 guard !foundPlists.isEmpty || !foundQuar.isEmpty || !foundInfo.isEmpty
-                    || !foundPersist.isEmpty else { continue }
+                    || !foundPersist.isEmpty || !foundFSE.isEmpty else { continue }
                 let isLoose = evidence.kind == .kapeLooseFolder
                 var database: TSKDatabase?
                 var extractor: TSKFileExtractor?
@@ -3286,15 +3312,31 @@ final class AppModel: ObservableObject {
                             isSystemCrontab: isSystem)
                     }
                 }
+                // FSEvents: collect the gzip blobs on-main, then gunzip + parse
+                // off-main (a busy store can be many MB / hundreds of thousands
+                // of records).
+                var fseBlobs: [FSEventsBlob] = []
+                for entry in foundFSE {
+                    progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    guard let url = await extract(entry), let data = try? Data(contentsOf: url) else { continue }
+                    fseBlobs.append(FSEventsBlob(data: data, sourceFile: entry.fullPath))
+                }
+                let fsEvents: [FSEventRecord] = fseBlobs.isEmpty ? [] : await Task.detached {
+                    fseBlobs.flatMap { FSEventsParser.parse(gzipped: $0.data, sourceFile: $0.sourceFile) }
+                }.value
+
                 state.launchItems = launch
                 state.quarantine = quar
                 state.macPersistence = persist
+                state.fsEvents = fsEvents
                 state.macInfo = info.isEmpty ? nil : info
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
                     try? CaseStore.writeLaunchItems(launch, forHostID: evidence.id, in: bundleURL)
                     try? CaseStore.writeQuarantine(quar, forHostID: evidence.id, in: bundleURL)
                     try? CaseStore.writeMacPersistence(persist, forHostID: evidence.id, in: bundleURL)
+                    try? CaseStore.writeFSEvents(fsEvents, forHostID: evidence.id, in: bundleURL)
                     if let info = state.macInfo {
                         try? CaseStore.writeMacInfo(info, forHostID: evidence.id, in: bundleURL)
                     }
@@ -3984,7 +4026,8 @@ final class AppModel: ObservableObject {
                                           lastlog: state.lastlog,
                                           launchItems: state.launchItems,
                                           quarantine: state.quarantine,
-                                          macPersistence: state.macPersistence)
+                                          macPersistence: state.macPersistence,
+                                          fsEvents: state.fsEvents)
             let results = await analysisEngine.run(on: context)
             state.findings = results
             states[evidence.id] = state

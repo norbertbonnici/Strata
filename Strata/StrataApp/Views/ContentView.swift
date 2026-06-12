@@ -32,6 +32,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case launchItems = "Launch Items"
     case quarantine = "Quarantine"
     case macPersistence = "Persistence"
+    case fsEvents = "FSEvents"
     case lateral = "Lateral"
     case killChain = "Kill Chain"
     case iocs = "IOCs"
@@ -71,6 +72,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .launchItems: return "powerplug"
         case .quarantine:  return "shield.lefthalf.filled"
         case .macPersistence: return "calendar.badge.clock"
+        case .fsEvents:  return "doc.on.doc"
         case .lateral:   return "point.3.connected.trianglepath.dotted"
         case .killChain: return "link"
         case .iocs:      return "scope"
@@ -91,7 +93,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .linuxLogs, .shellHistory, .linuxPersistence, .linuxAccess, .webLogs,
              .packages, .journald, .audit, .syslog, .lastlog:
             return .linux
-        case .launchItems, .quarantine, .macPersistence:
+        case .launchItems, .quarantine, .macPersistence, .fsEvents:
             return .macos
         case .overview, .search, .evidence, .timeline, .browser, .lateral,
              .killChain, .iocs, .annotations, .custody:
@@ -214,6 +216,7 @@ struct ContentView: View {
                 case .launchItems: LaunchItemsView()
                 case .quarantine:  QuarantineView()
                 case .macPersistence: MacPersistenceView()
+                case .fsEvents:  FSEventsView()
                 case .lateral:   LateralMovementView()
                 case .killChain: KillChainView()
                 case .iocs:      IOCView()

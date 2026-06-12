@@ -1955,4 +1955,84 @@ struct MacPersistenceDrillView: View {
     }
 }
 
+// MARK: - FSEvents drill view (macOS)
+
+/// Read-only macOS FSEvents change history for the active scope - the kernel's
+/// coalesced filesystem-change log (no per-record timestamp; ordered by event
+/// ID). One row per record with its path and coalesced change flags.
+struct FSEventsDrillView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var displayLimit = 200
+    private let pageSize = 200
+
+    var body: some View {
+        let records = model.fsEvents
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitle(title: "FSEvents",
+                           subtitle: "\(human(records.count)) record\(records.count == 1 ? "" : "s")")
+
+                if records.isEmpty {
+                    ContentUnavailableView(
+                        "No FSEvents",
+                        systemImage: "doc.on.doc",
+                        description: Text("Parse macOS artifacts on the macOS app to browse the FSEvents history here."))
+                        .padding(.top, 60)
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Card { rows(records) }.padding(.top, 10)
+                }
+
+                Spacer(minLength: 26)
+            }
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+    }
+
+    @ViewBuilder private func rows(_ records: [FSEventRecord]) -> some View {
+        ForEach(records.prefix(displayLimit)) { record in
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 11) {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 16))
+                        .frame(width: 22)
+                        .foregroundStyle(Theme.teal2)
+                    Text(record.name)
+                        .font(.system(size: 13.5, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Theme.text)
+                        .lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    Text(record.isFolder ? "Folder" : (record.isFile ? "File" : "—"))
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(Theme.text3)
+                }
+                Text(record.flagSummary)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.text3)
+                    .lineLimit(1).truncationMode(.tail)
+                    .padding(.leading, 33)
+            }
+            .padding(.horizontal, 15).padding(.vertical, 11)
+            .overlay(alignment: .bottom) { Divider().background(Theme.hair2) }
+        }
+        if records.count > displayLimit {
+            Button { displayLimit += pageSize } label: {
+                Text("Show \(min(pageSize, records.count - displayLimit)) more · \(human(records.count - displayLimit)) hidden")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Theme.teal)
+                    .frame(maxWidth: .infinity).padding(.vertical, 13)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func human(_ n: Int) -> String {
+        let f = NumberFormatter(); f.numberStyle = .decimal
+        return f.string(from: NSNumber(value: n)) ?? "\(n)"
+    }
+}
+
 #endif
