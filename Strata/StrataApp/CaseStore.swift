@@ -39,6 +39,7 @@ public nonisolated enum CaseStore {
     private static let linuxInfoFilename  = "linuxinfo.json"
     private static let macInfoFilename    = "macinfo.json"
     private static let macPersistenceFilename = "macpersistence.json"
+    private static let fsEventsFilename   = "fsevents.json"
     private static let linuxAccessFilename = "linuxaccess.json"
     private static let webAccessFilename  = "weblog.json"
     private static let packagesFilename   = "packages.json"
@@ -302,6 +303,12 @@ public nonisolated enum CaseStore {
     }
     public static func writeMacPersistence(_ items: [MacPersistenceItem], forHostID id: UUID, in bundle: URL) throws {
         try writeArray(items, at: hostDirectory(forHostID: id, in: bundle).appendingPathComponent(macPersistenceFilename))
+    }
+    public static func readFSEvents(forHostID id: UUID, in bundle: URL) throws -> [FSEventRecord]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle).appendingPathComponent(fsEventsFilename))
+    }
+    public static func writeFSEvents(_ records: [FSEventRecord], forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(records, at: hostDirectory(forHostID: id, in: bundle).appendingPathComponent(fsEventsFilename))
     }
     public static func srumFileURL(forHostID id: UUID, in bundle: URL) -> URL {
         hostDirectory(forHostID: id, in: bundle).appendingPathComponent(srumFilename)

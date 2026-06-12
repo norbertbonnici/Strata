@@ -36,6 +36,7 @@ public nonisolated struct AnalysisContext: Sendable {
     public let launchItems: [LaunchItemEntry]
     public let quarantine: [QuarantineEvent]
     public let macPersistence: [MacPersistenceItem]
+    public let fsEvents: [FSEventRecord]
 
     public init(files: [FileEntry], events: [EventLogRecord],
                 timeline: [TimelineEvent], registryValues: [RegistryValue],
@@ -53,7 +54,7 @@ public nonisolated struct AnalysisContext: Sendable {
                 journald: [JournaldEntry] = [], audit: [AuditEvent] = [],
                 syslog: [SyslogEntry] = [], lastlog: [LastlogEntry] = [],
                 launchItems: [LaunchItemEntry] = [], quarantine: [QuarantineEvent] = [],
-                macPersistence: [MacPersistenceItem] = []) {
+                macPersistence: [MacPersistenceItem] = [], fsEvents: [FSEventRecord] = []) {
         self.files = files
         self.events = events
         self.timeline = timeline
@@ -84,6 +85,7 @@ public nonisolated struct AnalysisContext: Sendable {
         self.launchItems = launchItems
         self.quarantine = quarantine
         self.macPersistence = macPersistence
+        self.fsEvents = fsEvents
     }
 }
 

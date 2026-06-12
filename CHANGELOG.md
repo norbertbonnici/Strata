@@ -5,6 +5,28 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Added — macOS FSEvents change history
+
+- **`FSEventsParser` + `FSEventRecord`** (`StrataCore`) — a pure-Swift decoder of
+  the macOS FSEvents store (`/.fseventsd/`), the kernel's coalesced filesystem-
+  change journal (the macOS analogue of the NTFS USN journal). Inflates each
+  gzip log (reusing `GzipDecoder`) and decodes the **DLS v1 / v2** pages → one
+  record per path with its coalesced change flags (Created/Removed/Renamed/…)
+  and monotonic event ID; DLS v2 also yields the node ID (inode). Parsed in
+  `AppModel.parseMac()` with the inflate + decode run **off-main** (a busy store
+  is many MB); persisted as `fsevents.json`.
+- **No timeline splice.** FSEvents records carry only an event ID, not a
+  timestamp, so — like the WMI carve — they are surfaced in their own tab and
+  scored, but not placed on the super-timeline (we don't fabricate times).
+- **`FSEventsAnalyzer`** — flags created-then-removed payloads in staging paths
+  (the drop-run-delete footprint, T1070.004) and launchd-directory plist
+  writes recoverable even after the plist is gone (T1543).
+- **FSEvents tab** — a fourth `.macos`-gated tab (macOS `FSEventsView` with a
+  "Changes only" filter + iOS `FSEventsDrillView`); `fsEvents` joined the
+  `AppModel` derived rollup + `AnalysisContext`.
+- Unit-tested with synthetic DLS v1/v2 pages (`FSEventsParserTests`,
+  `FSEventsAnalyzerTests`); macOS + iOS both build.
+
 ### Added — macOS persistence sweep (non-launchd)
 
 - **`MacPersistenceParser` + `MacPersistenceItem`** (`StrataMac` / `StrataCore`) —
