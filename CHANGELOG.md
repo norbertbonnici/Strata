@@ -5,6 +5,27 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Added — Unified Logs (`.tracev3`) Phase 1: container decoder
+
+- **`TraceV3Parser` + `AppleLZ4`** (`StrataCore`) — the foundation of the macOS
+  unified-log decoder. `.tracev3` is a flat sequence of chunks
+  (`tag|subtag|size` 16-byte preamble, 8-byte aligned); `TraceV3Parser` parses
+  that framing (size-driven, so unknown chunks are skipped, not fatal),
+  enumerates the top-level header / catalog / **chunkset** chunks, and
+  decompresses each chunkset's Apple-LZ4 block stream (`bv41` compressed /
+  `bv4-` stored / `bv4$` end, inflated through `COMPRESSION_LZ4_RAW`) to tally
+  the inner firehose / oversize / statedump / simpledump chunks into a
+  `Structure`. `UnifiedLogEntry` (`StrataCore`) is the target record shape.
+- **Scope:** this phase is the *container layer only* — it confirms the file
+  parses and counts its chunks. It does **not** yet emit `UnifiedLogEntry`s
+  (`parse()` returns `[]`) and adds no tab. Decoding firehose tracepoints into
+  entries needs the catalog + timesync (Phase 2); rendering messages needs the
+  out-of-file `.uuidtext` / `dsc` string resolution (Phase 3).
+- Synthetic-fixture tested (`AppleLZ4Tests`, `TraceV3FramingTests`: framing +
+  alignment, `bv4-`/`bv41` decompression incl. a real Compression round-trip,
+  chunk tally); macOS + iOS both build. **Not yet validated against a real
+  `.tracev3`** (same standing caveat as the rest of the macOS arc).
+
 ### Added — macOS shell history
 
 - **macOS zsh/bash history** — `parseMac()` now collects each user's
