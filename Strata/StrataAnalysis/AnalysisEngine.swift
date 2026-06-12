@@ -67,6 +67,7 @@ public nonisolated struct AnalysisEngine: Sendable {
         // Waves 4/6 — Recycle Bin + macOS triage.
         RecycleBinAnalyzer(),
         MacPersistenceAnalyzer(),
+        MacPersistenceSweepAnalyzer(),
         MacQuarantineAnalyzer(),
     ]
 }

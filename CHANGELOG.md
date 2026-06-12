@@ -5,6 +5,29 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Added — macOS persistence sweep (non-launchd)
+
+- **`MacPersistenceParser` + `MacPersistenceItem`** (`StrataMac` / `StrataCore`) —
+  a pure-Swift sweep of the macOS auto-run / event-triggered locations *outside*
+  launchd: **cron** (`/etc/crontab` 6-field + per-user spool 5-field, `@reboot`
+  nicknames), **site-local `periodic`** (`/usr/local/etc/periodic/*` — Apple-stock
+  `/etc/periodic` is deliberately not swept, it would be all-noise), **`emond`**
+  rule `RunCommand` actions, **login/logout hooks** (`com.apple.loginwindow`),
+  **`rc` scripts** (`rc.local`/`rc.common`), and **configuration profiles**
+  (`.mobileconfig` / Managed Preferences). Parsed in `AppModel.parseMac()`,
+  persisted as `macpersistence.json`.
+- **`MacPersistenceSweepAnalyzer`** — high-signal by construction: `emond` rules
+  and login/logout hooks are flagged on presence (deprecated, abuse-only
+  mechanisms; T1546.014 / T1037.002), `rc.local` on presence (macOS ships none;
+  T1037.004), and cron / periodic only when the command is suspicious (`@reboot`,
+  staging path, or interpreter/downloader; T1053.003 / T1053). Configuration
+  profiles surface in the tab but are never flagged (benign on managed fleets).
+- **Persistence tab** — a third `.macos`-gated tab (macOS `MacPersistenceView` +
+  iOS `MacPersistenceDrillView`), alongside Launch Items and Quarantine;
+  `macPersistence` joined the `AppModel` derived rollup + `AnalysisContext`.
+- Unit-tested end to end (`MacPersistenceParserTests`,
+  `MacPersistenceSweepAnalyzerTests`); macOS + iOS both build.
+
 ### Added — macOS evidence support (`.macos` OSFamily + dedicated tabs)
 
 - **`.macos` OS detection** — `OSFamily` gains a `.macos` case, detected from the

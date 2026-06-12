@@ -482,6 +482,16 @@ struct MoreTab: View {
                     .buttonStyle(.plain)
                     Divider().background(Theme.hair2).padding(.leading, 50)
                     }
+                    if model.shows(osFamily: .macos) {
+                    NavigationLink {
+                        MacPersistenceDrillView()
+                    } label: {
+                        moreRow(icon: "calendar.badge.clock", title: "Persistence",
+                                trailing: counter(model.macPersistenceCount))
+                    }
+                    .buttonStyle(.plain)
+                    Divider().background(Theme.hair2).padding(.leading, 50)
+                    }
 
                     NavigationLink {
                         LateralDrillView()

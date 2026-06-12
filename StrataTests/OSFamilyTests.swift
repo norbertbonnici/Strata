@@ -118,7 +118,7 @@ struct SidebarItemOSTests {
     }
 
     @Test func macArtifactsAreTaggedMac() {
-        for item in [SidebarItem.launchItems, .quarantine] {
+        for item in [SidebarItem.launchItems, .quarantine, .macPersistence] {
             #expect(item.osFamily == .macos, "\(item) should be macOS")
         }
     }
@@ -140,6 +140,6 @@ struct SidebarItemOSTests {
         #expect(windows.count + linux.count + mac.count + cross.count == SidebarItem.allCases.count)
         #expect(windows.count == 12)   // +recycleBin
         #expect(linux.count == 10)
-        #expect(mac.count == 2)        // launchItems + quarantine
+        #expect(mac.count == 3)        // launchItems + quarantine + persistence
     }
 }
