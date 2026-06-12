@@ -100,6 +100,8 @@ public nonisolated struct BrowserHistoryParser: Sendable {
                 return chromium(db, browser: browser, profile: profile, sourceFile: sourceFile)
             } else if try db.tableExists("moz_places") {
                 return firefox(db, profile: profile, sourceFile: sourceFile)
+            } else if try db.tableExists("history_items") {
+                return safari(db, profile: profile, sourceFile: sourceFile)
             }
             return []   // a "History"/"places.sqlite" that isn't a browser DB
         }
@@ -166,6 +168,35 @@ public nonisolated struct BrowserHistoryParser: Sendable {
                 timestamp: BrowserHistoryEntry.firefoxTime(r["last_visit_date"]),
                 visitCount: intValue(r["visit_count"]),
                 typedCount: intValue(r["typed"]),
+                userProfile: profile, sourceFile: sourceFile)
+        }
+    }
+
+    // MARK: - Safari (history_items + history_visits)
+
+    /// Safari keeps URLs in `history_items` and per-visit rows (with the title
+    /// and a `CFAbsoluteTime` `visit_time`) in `history_visits`. We collapse to
+    /// one row per URL using its latest visit; SQLite's `MAX()` "bare column"
+    /// rule makes the selected `title` come from that same latest-visit row.
+    /// Safari downloads live in a separate `Downloads.plist` (not this DB) and
+    /// aren't parsed here.
+    private static func safari(_ db: Database, profile: String?,
+                               sourceFile: String) -> [BrowserHistoryEntry] {
+        let rows = (try? Row.fetchAll(db, sql: """
+            SELECT hi.url AS url, hv.title AS title,
+                   hi.visit_count AS visit_count, MAX(hv.visit_time) AS visit_time
+            FROM history_items hi
+            JOIN history_visits hv ON hv.history_item = hi.id
+            WHERE hv.visit_time > 0
+            GROUP BY hi.id
+            """)) ?? []
+        return rows.compactMap { r in
+            guard let url: String = r["url"], !url.isEmpty else { return nil }
+            return BrowserHistoryEntry(
+                browser: .safari, kind: .visit, url: url,
+                title: nonEmpty(r["title"]),
+                timestamp: BrowserHistoryEntry.safariTime(r["visit_time"]),
+                visitCount: intValue(r["visit_count"]),
                 userProfile: profile, sourceFile: sourceFile)
         }
     }

@@ -5,6 +5,23 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Added — Safari browser history
+
+- **Safari history** — `BrowserHistoryParser` now reads Safari's
+  `~/Library/Safari/History.db` (SQLite) alongside the existing Chromium
+  `History` and Firefox `places.sqlite`. Safari splits URLs (`history_items`)
+  from per-visit rows (`history_visits`); we collapse to one row per URL using
+  its latest visit (SQLite's `MAX()` bare-column rule carries the matching
+  title), decoding the `CFAbsoluteTime` `visit_time` via the new
+  `BrowserHistoryEntry.safariTime`. Surfaces in the existing cross-platform
+  **Browser History** tab + timeline source + `BrowserHistoryAnalyzer`; no new
+  tab. Discovery gates the `History.db` name on a `/Safari/` path so unrelated
+  databases of that name aren't probed. **Known limit:** Safari downloads
+  (`Downloads.plist`, a separate file) aren't parsed.
+- Unit-tested end to end against a synthetic Safari SQLite fixture
+  (`BrowserHistoryParserTests.parsesSafariHistory`) plus the `safariTime`
+  decoder + path-classification helpers; macOS + iOS both build.
+
 ### Added — macOS FSEvents change history
 
 - **`FSEventsParser` + `FSEventRecord`** (`StrataCore`) — a pure-Swift decoder of

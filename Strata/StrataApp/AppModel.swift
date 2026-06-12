@@ -2394,7 +2394,11 @@ final class AppModel: ObservableObject {
             state.files.filter {
                 guard !$0.isDirectory, $0.size > 0 else { return false }
                 let n = $0.name.lowercased()
+                // Safari's DB is History.db under ~/Library/Safari/; gate the
+                // .db variant on the Safari directory so unrelated History.db
+                // files elsewhere aren't copied + probed.
                 return n == "history" || n == "places.sqlite"
+                    || (n == "history.db" && $0.fullPath.lowercased().contains("/safari/"))
             }
         }
 
