@@ -5,6 +5,27 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Added — Vendor libfsapfs (APFS reader) for macOS images
+
+- **The Sleuth Kit crashes on real macOS APFS.** Validated against a real Mac
+  E01 (macOS 27, 6-volume APFS container): `tsk_loaddb` **aborts (SIGABRT, in
+  `APFSJObject`)** partway through parsing — a TSK APFS-parser defect, not
+  encryption (it reaches file objects first) and not a Strata bug. So Mac
+  evidence can't go through `tsk_loaddb`.
+- **`build-tsk.sh` now also builds libyal's `libfsapfs` (`fsapfsinfo`)** — an
+  actively-maintained, dedicated APFS reader — plus libewf's **`ewfexport`**.
+  `fsapfsinfo` reads a *raw* image at a volume offset (`-o`), lists the
+  container's volumes + full file hierarchy, can emit a TSK-style **bodyfile**
+  (`-B`, with MACB times), and supports **FileVault** (`-p`/`-r` password). It
+  has no EWF glue, so the macOS path converts an E01 to raw with `ewfexport`
+  first. **Validated end-to-end** on the real image: `fsapfsinfo` cleanly
+  enumerated all 6 volumes (Macintosh HD / Preboot / Recovery / Data / …) and
+  walked the file tree where `tsk_loaddb` crashed.
+- **Pending (follow-up phases):** the macOS ingest path itself
+  (`ewfexport` → raw → `fsapfsinfo -B` bodyfile → `FileEntry`/timeline; file
+  *content* extraction for artifact parsing is a further step, since
+  `fsapfsinfo` lists + times but doesn't dump file bytes).
+
 ### Added — Unified Logs (`.tracev3`) Phase 1: container decoder
 
 - **`TraceV3Parser` + `AppleLZ4`** (`StrataCore`) — the foundation of the macOS

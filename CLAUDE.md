@@ -61,7 +61,7 @@ Per-release notes live in `docs/releases/`; keep `CHANGELOG.md` updated.
 | Module | Responsibility |
 |--------|----------------|
 | `StrataCore` | Value types: `FileEntry`, `TimelineEvent`, `EventLogRecord`, `RegistryValue`, `IOC`, `HostProfile`, `VolumeInfo`, case + kill-chain models |
-| `StrataTSK` | Vendored TSK binaries, `tsk_loaddb` → SQLite (read via GRDB), `icat` extraction, KAPE source classification, loose-folder walk (`KapeFolderIngestor`) |
+| `StrataTSK` | Vendored TSK binaries, `tsk_loaddb` → SQLite (read via GRDB), `icat` extraction, KAPE source classification, loose-folder walk (`KapeFolderIngestor`). **APFS (macOS) does NOT go through `tsk_loaddb`** — TSK 4.15's APFS parser **aborts (SIGABRT in `APFSJObject`)** on real macOS volumes (confirmed on a macOS-27 E01); instead `build-tsk.sh` vendors libyal's **`fsapfsinfo`** (`libfsapfs`) + **`ewfexport`**, and the macOS ingest path is `ewfexport` (E01→raw) → `fsapfsinfo -o <off> -B` (bodyfile, MACB; `-p`/`-r` for FileVault) → `FileEntry`/timeline. *Tools build-recipe + validated; bundling (Xcode Copy-Files) + ingest wiring pending.* |
 | `StrataEVTX` | Parse `.evtx` via `evtxexport` |
 | `StrataRegistry` | Parse hives via `regfexport` |
 | `StrataSCCA` | Parse Windows Prefetch (`.pf`) via `sccainfo` (libscca) |

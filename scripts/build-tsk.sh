@@ -28,6 +28,7 @@ LIBLNK_VERSION="${LIBLNK_VERSION:-20240423}"
 LIBSCCA_VERSION="${LIBSCCA_VERSION:-20250915}"
 LIBOLECF_VERSION="${LIBOLECF_VERSION:-20240427}"
 LIBESEDB_VERSION="${LIBESEDB_VERSION:-20240420}"
+LIBFSAPFS_VERSION="${LIBFSAPFS_VERSION:-20240429}"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="$ROOT/.build-tsk"
@@ -35,7 +36,7 @@ OUT="$ROOT/Vendor/tsk"
 SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
 DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
 
-TOOLS=(tsk_loaddb fls icat mmls fsstat blkstat istat evtxexport evtxinfo regfexport regfinfo lnkinfo olecfexport sccainfo esedbexport ewfinfo ewfverify)
+TOOLS=(tsk_loaddb fls icat mmls fsstat blkstat istat evtxexport evtxinfo regfexport regfinfo lnkinfo olecfexport sccainfo esedbexport ewfinfo ewfverify ewfexport fsapfsinfo)
 
 download() {
     local url="$1" dest="$2"
@@ -224,6 +225,26 @@ SHIM
     extract "$BUILD/libesedb.tar.gz" "$BUILD/libesedb-$arch"
     if [ ! -f "$prefix/bin/esedbexport" ]; then
         (cd "$BUILD/libesedb-$arch" && \
+            ./configure --host="$host" --prefix="$prefix" \
+                --enable-static --disable-shared \
+                --disable-python --without-libfuse && \
+            make -j"$(sysctl -n hw.ncpu)" && \
+            make install)
+    fi
+
+    # libfsapfs (Apple APFS filesystem parsing). The Sleuth Kit's own APFS
+    # support (apfs.cpp) aborts (SIGABRT) on some real macOS volumes - it crashed
+    # in APFSJObject on a macOS 27 image - so for Mac evidence we parse APFS with
+    # libyal's dedicated, actively-maintained libfsapfs instead. fsapfsinfo reads
+    # a *raw* image at a volume offset (`-o`) and supports FileVault (`-p`); it has
+    # no EWF glue, so the macOS ingest path converts an E01 to raw via ewfexport
+    # first. 2024-era -experimental- tarball (vendors libfvalue/libfdata/etc.,
+    # configure uses the soft AC_PATH_PROG, so no pkg-config shim, like libesedb).
+    download "https://github.com/libyal/libfsapfs/releases/download/$LIBFSAPFS_VERSION/libfsapfs-experimental-$LIBFSAPFS_VERSION.tar.gz" \
+             "$BUILD/libfsapfs.tar.gz"
+    extract "$BUILD/libfsapfs.tar.gz" "$BUILD/libfsapfs-$arch"
+    if [ ! -f "$prefix/bin/fsapfsinfo" ]; then
+        (cd "$BUILD/libfsapfs-$arch" && \
             ./configure --host="$host" --prefix="$prefix" \
                 --enable-static --disable-shared \
                 --disable-python --without-libfuse && \
