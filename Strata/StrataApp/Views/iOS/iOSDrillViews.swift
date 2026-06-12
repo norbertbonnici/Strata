@@ -1701,4 +1701,258 @@ private struct WmiRecordDetail: View {
     }
 }
 
+// MARK: - Launch Items drill view (macOS)
+
+/// Read-only launchd-job list for the active scope - the macOS auto-start /
+/// persistence foothold. One row per job with its domain and executable.
+struct LaunchItemsDrillView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var displayLimit = 200
+    private let pageSize = 200
+
+    var body: some View {
+        let entries = model.launchItems
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitle(title: "Launch Items",
+                           subtitle: "\(human(entries.count)) job\(entries.count == 1 ? "" : "s")")
+
+                if entries.isEmpty {
+                    ContentUnavailableView(
+                        "No launch items",
+                        systemImage: "powerplug",
+                        description: Text("Parse macOS artifacts on the macOS app to browse launchd jobs here."))
+                        .padding(.top, 60)
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Card { rows(entries) }.padding(.top, 10)
+                }
+
+                Spacer(minLength: 26)
+            }
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+    }
+
+    @ViewBuilder private func rows(_ entries: [LaunchItemEntry]) -> some View {
+        ForEach(entries.prefix(displayLimit)) { entry in
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 11) {
+                    Image(systemName: "powerplug")
+                        .font(.system(size: 16))
+                        .frame(width: 22)
+                        .foregroundStyle(Theme.teal2)
+                    Text(entry.label)
+                        .font(.system(size: 13.5, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Theme.text)
+                        .lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    if entry.runAtLoad {
+                        Text("RunAtLoad")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(Theme.text3)
+                    }
+                }
+                Text("\(entry.scope.label) · \(entry.executable ?? "(no program)")")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.text3)
+                    .lineLimit(1).truncationMode(.middle)
+                    .padding(.leading, 33)
+            }
+            .padding(.horizontal, 15).padding(.vertical, 11)
+            .overlay(alignment: .bottom) { Divider().background(Theme.hair2) }
+        }
+        if entries.count > displayLimit {
+            Button { displayLimit += pageSize } label: {
+                Text("Show \(min(pageSize, entries.count - displayLimit)) more · \(human(entries.count - displayLimit)) hidden")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Theme.teal)
+                    .frame(maxWidth: .infinity).padding(.vertical, 13)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func human(_ n: Int) -> String {
+        let f = NumberFormatter(); f.numberStyle = .decimal
+        return f.string(from: NSNumber(value: n)) ?? "\(n)"
+    }
+}
+
+// MARK: - Quarantine drill view (macOS)
+
+/// Read-only macOS download-provenance list for the active scope, newest first.
+/// Each row is a file pulled from the network: what downloaded it and from where.
+struct QuarantineDrillView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var displayLimit = 200
+    private let pageSize = 200
+
+    var body: some View {
+        let events = model.quarantine
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitle(title: "Quarantine",
+                           subtitle: "\(human(events.count)) download\(events.count == 1 ? "" : "s")")
+
+                if events.isEmpty {
+                    ContentUnavailableView(
+                        "No quarantine events",
+                        systemImage: "shield.lefthalf.filled",
+                        description: Text("Parse macOS artifacts on the macOS app to browse download provenance here."))
+                        .padding(.top, 60)
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Card { rows(events) }.padding(.top, 10)
+                }
+
+                Spacer(minLength: 26)
+            }
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+    }
+
+    @ViewBuilder private func rows(_ events: [QuarantineEvent]) -> some View {
+        ForEach(events.prefix(displayLimit)) { event in
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 11) {
+                    Image(systemName: "shield.lefthalf.filled")
+                        .font(.system(size: 16))
+                        .frame(width: 22)
+                        .foregroundStyle(Theme.teal2)
+                    Text(event.displayTitle)
+                        .font(.system(size: 13.5, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Theme.text)
+                        .lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    Text(event.agentName ?? "—")
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(Theme.text3)
+                }
+                Text(subtitle(event))
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.text3)
+                    .lineLimit(1).truncationMode(.middle)
+                    .padding(.leading, 33)
+            }
+            .padding(.horizontal, 15).padding(.vertical, 11)
+            .overlay(alignment: .bottom) { Divider().background(Theme.hair2) }
+        }
+        if events.count > displayLimit {
+            Button { displayLimit += pageSize } label: {
+                Text("Show \(min(pageSize, events.count - displayLimit)) more · \(human(events.count - displayLimit)) hidden")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Theme.teal)
+                    .frame(maxWidth: .infinity).padding(.vertical, 13)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func subtitle(_ event: QuarantineEvent) -> String {
+        let when = event.timestamp.map { Self.dateFmt.string(from: $0) } ?? "no time"
+        if let host = event.dataHost ?? event.originHost { return "\(when) · \(host)" }
+        return when
+    }
+
+    private func human(_ n: Int) -> String {
+        let f = NumberFormatter(); f.numberStyle = .decimal
+        return f.string(from: NSNumber(value: n)) ?? "\(n)"
+    }
+
+    private static let dateFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")   // forensic timestamps are UTC
+        return f
+    }()
+}
+
+// MARK: - Persistence drill view (macOS)
+
+/// Read-only macOS persistence sweep for the active scope - cron, periodic,
+/// emond, login/logout hooks, rc scripts, and configuration profiles (launchd
+/// jobs are the separate Launch Items drill). One row per mechanism.
+struct MacPersistenceDrillView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var displayLimit = 200
+    private let pageSize = 200
+
+    var body: some View {
+        let items = model.macPersistence
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitle(title: "Persistence",
+                           subtitle: "\(human(items.count)) item\(items.count == 1 ? "" : "s")")
+
+                if items.isEmpty {
+                    ContentUnavailableView(
+                        "No persistence",
+                        systemImage: "calendar.badge.clock",
+                        description: Text("Parse macOS artifacts on the macOS app to browse the persistence sweep here."))
+                        .padding(.top, 60)
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Card { rows(items) }.padding(.top, 10)
+                }
+
+                Spacer(minLength: 26)
+            }
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+    }
+
+    @ViewBuilder private func rows(_ items: [MacPersistenceItem]) -> some View {
+        ForEach(items.prefix(displayLimit)) { item in
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 11) {
+                    Image(systemName: "calendar.badge.clock")
+                        .font(.system(size: 16))
+                        .frame(width: 22)
+                        .foregroundStyle(Theme.teal2)
+                    Text(item.title)
+                        .font(.system(size: 13.5, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Theme.text)
+                        .lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    Text(item.kind.label)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(Theme.text3)
+                }
+                Text(item.command.isEmpty ? item.sourceFile : item.command)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.text3)
+                    .lineLimit(1).truncationMode(.middle)
+                    .padding(.leading, 33)
+            }
+            .padding(.horizontal, 15).padding(.vertical, 11)
+            .overlay(alignment: .bottom) { Divider().background(Theme.hair2) }
+        }
+        if items.count > displayLimit {
+            Button { displayLimit += pageSize } label: {
+                Text("Show \(min(pageSize, items.count - displayLimit)) more · \(human(items.count - displayLimit)) hidden")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Theme.teal)
+                    .frame(maxWidth: .infinity).padding(.vertical, 13)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func human(_ n: Int) -> String {
+        let f = NumberFormatter(); f.numberStyle = .decimal
+        return f.string(from: NSNumber(value: n)) ?? "\(n)"
+    }
+}
+
 #endif

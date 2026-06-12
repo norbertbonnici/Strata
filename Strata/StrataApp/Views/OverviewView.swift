@@ -96,6 +96,9 @@ struct OverviewView: View {
         if let info = model.states[evidence.id]?.linuxInfo {
             return HostProfile.derive(fromLinux: info)
         }
+        if let mac = model.states[evidence.id]?.macInfo {
+            return HostProfile.derive(fromMac: mac)
+        }
         return registryProfile
     }
 

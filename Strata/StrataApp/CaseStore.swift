@@ -37,6 +37,8 @@ public nonisolated enum CaseStore {
     private static let shellHistoryFilename = "shellhistory.json"
     private static let linuxPersistenceFilename = "linuxpersistence.json"
     private static let linuxInfoFilename  = "linuxinfo.json"
+    private static let macInfoFilename    = "macinfo.json"
+    private static let macPersistenceFilename = "macpersistence.json"
     private static let linuxAccessFilename = "linuxaccess.json"
     private static let webAccessFilename  = "weblog.json"
     private static let packagesFilename   = "packages.json"
@@ -295,6 +297,12 @@ public nonisolated enum CaseStore {
     public static func writeQuarantine(_ events: [QuarantineEvent], forHostID id: UUID, in bundle: URL) throws {
         try writeArray(events, at: hostDirectory(forHostID: id, in: bundle).appendingPathComponent("quarantine.json"))
     }
+    public static func readMacPersistence(forHostID id: UUID, in bundle: URL) throws -> [MacPersistenceItem]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle).appendingPathComponent(macPersistenceFilename))
+    }
+    public static func writeMacPersistence(_ items: [MacPersistenceItem], forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(items, at: hostDirectory(forHostID: id, in: bundle).appendingPathComponent(macPersistenceFilename))
+    }
     public static func srumFileURL(forHostID id: UUID, in bundle: URL) -> URL {
         hostDirectory(forHostID: id, in: bundle).appendingPathComponent(srumFilename)
     }
@@ -442,6 +450,19 @@ public nonisolated enum CaseStore {
     public static func writeLinuxInfo(_ info: LinuxHostInfo,
                                       forHostID id: UUID, in bundle: URL) throws {
         let url = hostDirectory(forHostID: id, in: bundle).appendingPathComponent(linuxInfoFilename)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try jsonEncoder.encode(info).write(to: url, options: .atomic)
+    }
+
+    public static func readMacInfo(forHostID id: UUID, in bundle: URL) throws -> MacHostInfo? {
+        let url = hostDirectory(forHostID: id, in: bundle).appendingPathComponent(macInfoFilename)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return try jsonDecoder.decode(MacHostInfo.self, from: Data(contentsOf: url))
+    }
+    public static func writeMacInfo(_ info: MacHostInfo,
+                                    forHostID id: UUID, in bundle: URL) throws {
+        let url = hostDirectory(forHostID: id, in: bundle).appendingPathComponent(macInfoFilename)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
         try jsonEncoder.encode(info).write(to: url, options: .atomic)

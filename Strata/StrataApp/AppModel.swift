@@ -45,6 +45,9 @@ nonisolated struct EvidenceState: Sendable {
     var lastlog: [LastlogEntry] = []
     var launchItems: [LaunchItemEntry] = []
     var quarantine: [QuarantineEvent] = []
+    var macPersistence: [MacPersistenceItem] = []
+    // macOS host identity (empty on non-macOS evidence).
+    var macInfo: MacHostInfo?
     var findings: [Finding] = []
     var iocMatches: [IOCMatch] = []
     /// OS families detected for this host (from volume fs-types, or a file-tree
@@ -518,6 +521,8 @@ final class AppModel: ObservableObject {
             state.recycleBin = (try? CaseStore.readRecycleBin(forHostID: evidence.id, in: bundleURL)) ?? []
             state.launchItems = (try? CaseStore.readLaunchItems(forHostID: evidence.id, in: bundleURL)) ?? []
             state.quarantine = (try? CaseStore.readQuarantine(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.macPersistence = (try? CaseStore.readMacPersistence(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.macInfo = try? CaseStore.readMacInfo(forHostID: evidence.id, in: bundleURL)
             // Fold USN journal rows back into the timeline so the Source filter
             // works without re-parsing on every case open (mirrors the evtx splice).
             if !state.usn.isEmpty {
@@ -1086,6 +1091,9 @@ final class AppModel: ObservableObject {
         var audit: [AuditEvent] = []
         var syslog: [SyslogEntry] = []
         var lastlog: [LastlogEntry] = []
+        var launchItems: [LaunchItemEntry] = []
+        var quarantine: [QuarantineEvent] = []
+        var macPersistence: [MacPersistenceItem] = []
         var iocMatches: [IOCMatch] = []
     }
     private var derivedCache: Derived?
@@ -1153,6 +1161,9 @@ final class AppModel: ObservableObject {
             d.audit = s.audit
             d.syslog = s.syslog
             d.lastlog = s.lastlog
+            d.launchItems = s.launchItems
+            d.quarantine = s.quarantine
+            d.macPersistence = s.macPersistence
             d.iocMatches = s.iocMatches
             return d
         }
@@ -1185,6 +1196,9 @@ final class AppModel: ObservableObject {
             d.audit.append(contentsOf: s.audit)
             d.syslog.append(contentsOf: s.syslog)
             d.lastlog.append(contentsOf: s.lastlog)
+            d.launchItems.append(contentsOf: s.launchItems)
+            d.quarantine.append(contentsOf: s.quarantine)
+            d.macPersistence.append(contentsOf: s.macPersistence)
             d.iocMatches.append(contentsOf: s.iocMatches)
         }
         d.events.sort { $0.writtenAt < $1.writtenAt }
@@ -1210,6 +1224,16 @@ final class AppModel: ObservableObject {
         d.audit.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
         d.syslog.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
         d.lastlog.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+        // Launch items carry no timestamp - order by label. Quarantine by
+        // download time, newest first (matches the per-host parse-time sort).
+        d.launchItems.sort { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
+        d.quarantine.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+        // No timestamps; group by kind, then by display title for stable order.
+        d.macPersistence.sort {
+            $0.kind.rawValue == $1.kind.rawValue
+                ? $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+                : $0.kind.rawValue < $1.kind.rawValue
+        }
         return d
     }
 
@@ -1249,6 +1273,9 @@ final class AppModel: ObservableObject {
     var audit: [AuditEvent] { derived().audit }
     var syslog: [SyslogEntry] { derived().syslog }
     var lastlog: [LastlogEntry] { derived().lastlog }
+    var launchItems: [LaunchItemEntry] { derived().launchItems }
+    var quarantine: [QuarantineEvent] { derived().quarantine }
+    var macPersistence: [MacPersistenceItem] { derived().macPersistence }
     /// Linux host info for the active scope (tiny; not worth caching). In the
     /// combined scope the first host that has one wins.
     var linuxInfo: LinuxHostInfo? {
@@ -1295,6 +1322,9 @@ final class AppModel: ObservableObject {
     var auditCount: Int { scopedCount(\.audit.count) }
     var syslogCount: Int { scopedCount(\.syslog.count) }
     var lastlogCount: Int { scopedCount(\.lastlog.count) }
+    var launchItemCount: Int { scopedCount(\.launchItems.count) }
+    var quarantineCount: Int { scopedCount(\.quarantine.count) }
+    var macPersistenceCount: Int { scopedCount(\.macPersistence.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
     /// True once the Linux log parse has produced *something* in the active
@@ -3112,9 +3142,45 @@ final class AppModel: ObservableObject {
                     && $0.name == "com.apple.LaunchServices.QuarantineEventsV2"
             }
         }
+        // The small files that identify the macOS host (SystemVersion.plist, the
+        // SystemConfiguration preferences, and the dslocal user plists) - parsed
+        // into one MacHostInfo for the Overview host card.
+        func hostInfoFiles(_ s: EvidenceState) -> [FileEntry] {
+            s.files.filter { entry in
+                guard !entry.isDirectory, entry.size > 0 else { return false }
+                let lower = entry.fullPath.lowercased()
+                return lower.hasSuffix("/system/library/coreservices/systemversion.plist")
+                    || lower.hasSuffix("/library/preferences/systemconfiguration/preferences.plist")
+                    || lower.hasSuffix("/library/preferences/systemconfiguration/networkinterfaces.plist")
+                    || (lower.contains("/dslocal/nodes/default/users/") && lower.hasSuffix(".plist"))
+            }
+        }
+        // The non-launchd persistence sweep: cron, site-local periodic scripts,
+        // emond rules, login/logout hooks, rc scripts, configuration profiles.
+        // (Apple-stock /etc/periodic is intentionally NOT swept - it would be
+        // all-noise; only /usr/local/etc/periodic, the documented site-local
+        // location, is collected.)
+        func persistenceFiles(_ s: EvidenceState) -> [FileEntry] {
+            s.files.filter { entry in
+                guard !entry.isDirectory, entry.size > 0 else { return false }
+                let lower = entry.fullPath.lowercased()
+                let name = entry.name.lowercased()
+                if lower.hasSuffix("/etc/crontab") || lower.contains("/cron.d/")
+                    || lower.contains("/cron/tabs/") || lower.contains("/var/at/tabs/") { return true }
+                if lower.contains("/usr/local/etc/periodic/") { return true }
+                if lower.contains("/emond.d/rules/") && name.hasSuffix(".plist") { return true }
+                if name == "com.apple.loginwindow.plist" { return true }
+                if lower.hasSuffix("/etc/rc.local") || lower.hasSuffix("/etc/rc.common") { return true }
+                if name.hasSuffix(".mobileconfig") { return true }
+                if lower.contains("/managed preferences/") && name.hasSuffix(".plist") { return true }
+                return false
+            }
+        }
         let total = evidenceList.reduce(0) { acc, e in
-            guard let s = states[e.id], s.launchItems.isEmpty, s.quarantine.isEmpty else { return acc }
-            return acc + plists(s).count + quarantines(s).count
+            guard let s = states[e.id], s.launchItems.isEmpty, s.quarantine.isEmpty,
+                  s.macPersistence.isEmpty, s.macInfo == nil else { return acc }
+            return acc + plists(s).count + quarantines(s).count + hostInfoFiles(s).count
+                + persistenceFiles(s).count
         }
         guard total > 0 else { statusMessage = "No new macOS artifacts to parse."; return }
         progress = ProgressInfo(current: 0, total: total, label: "Parsing macOS artifacts")
@@ -3123,10 +3189,14 @@ final class AppModel: ObservableObject {
             let tskEnv = try TSKEnvironment.discover()
             for evidence in evidenceList {
                 guard var state = states[evidence.id],
-                      state.launchItems.isEmpty, state.quarantine.isEmpty else { continue }
+                      state.launchItems.isEmpty, state.quarantine.isEmpty,
+                      state.macPersistence.isEmpty, state.macInfo == nil else { continue }
                 let foundPlists = plists(state)
                 let foundQuar = quarantines(state)
-                guard !foundPlists.isEmpty || !foundQuar.isEmpty else { continue }
+                let foundInfo = hostInfoFiles(state)
+                let foundPersist = persistenceFiles(state)
+                guard !foundPlists.isEmpty || !foundQuar.isEmpty || !foundInfo.isEmpty
+                    || !foundPersist.isEmpty else { continue }
                 let isLoose = evidence.kind == .kapeLooseFolder
                 var database: TSKDatabase?
                 var extractor: TSKFileExtractor?
@@ -3168,12 +3238,66 @@ final class AppModel: ObservableObject {
                     quar.append(contentsOf: (try? QuarantineParser.parse(fileAt: url, sourceFile: entry.fullPath)) ?? [])
                 }
                 quar.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+                var info = MacHostInfo()
+                for entry in foundInfo {
+                    progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    guard let url = await extract(entry), let data = try? Data(contentsOf: url) else { continue }
+                    let lower = entry.fullPath.lowercased()
+                    if lower.hasSuffix("/systemversion.plist") {
+                        MacHostInfoParser.applySystemVersion(data, to: &info)
+                    } else if lower.hasSuffix("/preferences.plist") {
+                        MacHostInfoParser.applyPreferences(data, to: &info)
+                    } else if lower.hasSuffix("/networkinterfaces.plist") {
+                        MacHostInfoParser.applyNetworkInterfaces(data, to: &info)
+                    } else {
+                        MacHostInfoParser.applyUserPlist(data, to: &info)
+                    }
+                }
+                var persist: [MacPersistenceItem] = []
+                for entry in foundPersist {
+                    progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    guard let url = await extract(entry), let data = try? Data(contentsOf: url) else { continue }
+                    let lower = entry.fullPath.lowercased()
+                    let name = entry.name.lowercased()
+                    if name == "com.apple.loginwindow.plist" {
+                        persist += MacPersistenceParser.parseLoginWindow(data, sourceFile: entry.fullPath)
+                    } else if lower.contains("/emond.d/rules/") {
+                        persist += MacPersistenceParser.parseEmondRules(data, sourceFile: entry.fullPath)
+                    } else if name.hasSuffix(".mobileconfig") || lower.contains("/managed preferences/") {
+                        if let item = MacPersistenceParser.configProfile(data, sourceFile: entry.fullPath) {
+                            persist.append(item)
+                        }
+                    } else if lower.contains("/periodic/") {
+                        persist.append(MacPersistenceParser.periodicScript(path: entry.fullPath))
+                    } else if lower.hasSuffix("/rc.local") || lower.hasSuffix("/rc.common") {
+                        persist.append(MacPersistenceParser.rcScript(path: entry.fullPath,
+                                                                     contents: String(decoding: data, as: UTF8.self)))
+                    } else {
+                        // Cron. /etc/crontab and /etc/cron.d/* are the 6-field
+                        // system form (with a user column); per-user spool files
+                        // are 5-field and run as the file's owner (its name).
+                        let isSystem = lower.hasSuffix("/etc/crontab") || lower.contains("/cron.d/")
+                        persist += MacPersistenceParser.parseCrontab(
+                            String(decoding: data, as: UTF8.self),
+                            sourceFile: entry.fullPath,
+                            defaultUser: isSystem ? nil : entry.name,
+                            isSystemCrontab: isSystem)
+                    }
+                }
                 state.launchItems = launch
                 state.quarantine = quar
+                state.macPersistence = persist
+                state.macInfo = info.isEmpty ? nil : info
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
                     try? CaseStore.writeLaunchItems(launch, forHostID: evidence.id, in: bundleURL)
                     try? CaseStore.writeQuarantine(quar, forHostID: evidence.id, in: bundleURL)
+                    try? CaseStore.writeMacPersistence(persist, forHostID: evidence.id, in: bundleURL)
+                    if let info = state.macInfo {
+                        try? CaseStore.writeMacInfo(info, forHostID: evidence.id, in: bundleURL)
+                    }
                 }
             }
             progress = ProgressInfo(current: completed, total: total, label: "macOS artifact parse complete")
@@ -3859,7 +3983,8 @@ final class AppModel: ObservableObject {
                                           syslog: state.syslog,
                                           lastlog: state.lastlog,
                                           launchItems: state.launchItems,
-                                          quarantine: state.quarantine)
+                                          quarantine: state.quarantine,
+                                          macPersistence: state.macPersistence)
             let results = await analysisEngine.run(on: context)
             state.findings = results
             states[evidence.id] = state

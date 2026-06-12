@@ -70,6 +70,36 @@ struct OSFamilyDetectTests {
                                    files: [file("/data/collection/notes.txt")])
         #expect(fams.isEmpty)
     }
+
+    @Test func apfsVolumeIsMac() {
+        #expect(VolumeInfo.fsTypeName(0x8000) == "APFS")
+        let fams = OSFamily.detect(volumes: [volume("FAT32"), volume("APFS", id: 2)], files: [])
+        #expect(fams == [.macos])
+    }
+
+    @Test func hfsVolumeIsMac() {
+        #expect(VolumeInfo.fsTypeName(0x1000) == "HFS+")
+        let fams = OSFamily.detect(volumes: [volume("HFS+", id: 2)], files: [])
+        #expect(fams == [.macos])
+    }
+
+    @Test func looseMacFolderSniffsFileTree() {
+        // macOS markers win even though the collection also carries /Users/,
+        // /etc/, and /var/log/ - all of which exist on macOS too.
+        let fams = OSFamily.detect(volumes: [],
+                                   files: [file("/System/Library/CoreServices/SystemVersion.plist"),
+                                           file("/Users/jane/Library/Preferences/com.apple.dock.plist"),
+                                           file("/private/etc/passwd"),
+                                           file("/var/log/system.log")])
+        #expect(fams == [.macos])
+    }
+
+    @Test func usersOnlyWithoutMacMarkerIsWindows() {
+        // Bare /Users/ (no decisive macOS path) stays Windows - the KAPE signal.
+        let fams = OSFamily.detect(volumes: [],
+                                   files: [file("/C/Users/jane/NTUSER.DAT")])
+        #expect(fams == [.windows])
+    }
 }
 
 struct SidebarItemOSTests {
@@ -87,6 +117,12 @@ struct SidebarItemOSTests {
         }
     }
 
+    @Test func macArtifactsAreTaggedMac() {
+        for item in [SidebarItem.launchItems, .quarantine, .macPersistence] {
+            #expect(item.osFamily == .macos, "\(item) should be macOS")
+        }
+    }
+
     @Test func crossPlatformTabsHaveNoOS() {
         // These must never be hidden - including Browser History (Chrome/Firefox
         // exist on both) and every case-level view.
@@ -99,9 +135,11 @@ struct SidebarItemOSTests {
     @Test func everySidebarItemPartitionsCleanly() {
         let windows = SidebarItem.allCases.filter { $0.osFamily == .windows }
         let linux = SidebarItem.allCases.filter { $0.osFamily == .linux }
+        let mac = SidebarItem.allCases.filter { $0.osFamily == .macos }
         let cross = SidebarItem.allCases.filter { $0.osFamily == nil }
-        #expect(windows.count + linux.count + cross.count == SidebarItem.allCases.count)
+        #expect(windows.count + linux.count + mac.count + cross.count == SidebarItem.allCases.count)
         #expect(windows.count == 12)   // +recycleBin
         #expect(linux.count == 10)
+        #expect(mac.count == 3)        // launchItems + quarantine + persistence
     }
 }

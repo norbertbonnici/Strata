@@ -35,6 +35,7 @@ public nonisolated struct AnalysisContext: Sendable {
     // macOS artifacts (empty on Windows/Linux evidence).
     public let launchItems: [LaunchItemEntry]
     public let quarantine: [QuarantineEvent]
+    public let macPersistence: [MacPersistenceItem]
 
     public init(files: [FileEntry], events: [EventLogRecord],
                 timeline: [TimelineEvent], registryValues: [RegistryValue],
@@ -51,7 +52,8 @@ public nonisolated struct AnalysisContext: Sendable {
                 webAccess: [WebAccessLogEntry] = [], packages: [PackageEvent] = [],
                 journald: [JournaldEntry] = [], audit: [AuditEvent] = [],
                 syslog: [SyslogEntry] = [], lastlog: [LastlogEntry] = [],
-                launchItems: [LaunchItemEntry] = [], quarantine: [QuarantineEvent] = []) {
+                launchItems: [LaunchItemEntry] = [], quarantine: [QuarantineEvent] = [],
+                macPersistence: [MacPersistenceItem] = []) {
         self.files = files
         self.events = events
         self.timeline = timeline
@@ -81,6 +83,7 @@ public nonisolated struct AnalysisContext: Sendable {
         self.lastlog = lastlog
         self.launchItems = launchItems
         self.quarantine = quarantine
+        self.macPersistence = macPersistence
     }
 }
 

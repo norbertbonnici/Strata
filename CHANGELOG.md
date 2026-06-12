@@ -5,6 +5,55 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Added — macOS persistence sweep (non-launchd)
+
+- **`MacPersistenceParser` + `MacPersistenceItem`** (`StrataMac` / `StrataCore`) —
+  a pure-Swift sweep of the macOS auto-run / event-triggered locations *outside*
+  launchd: **cron** (`/etc/crontab` 6-field + per-user spool 5-field, `@reboot`
+  nicknames), **site-local `periodic`** (`/usr/local/etc/periodic/*` — Apple-stock
+  `/etc/periodic` is deliberately not swept, it would be all-noise), **`emond`**
+  rule `RunCommand` actions, **login/logout hooks** (`com.apple.loginwindow`),
+  **`rc` scripts** (`rc.local`/`rc.common`), and **configuration profiles**
+  (`.mobileconfig` / Managed Preferences). Parsed in `AppModel.parseMac()`,
+  persisted as `macpersistence.json`.
+- **`MacPersistenceSweepAnalyzer`** — high-signal by construction: `emond` rules
+  and login/logout hooks are flagged on presence (deprecated, abuse-only
+  mechanisms; T1546.014 / T1037.002), `rc.local` on presence (macOS ships none;
+  T1037.004), and cron / periodic only when the command is suspicious (`@reboot`,
+  staging path, or interpreter/downloader; T1053.003 / T1053). Configuration
+  profiles surface in the tab but are never flagged (benign on managed fleets).
+- **Persistence tab** — a third `.macos`-gated tab (macOS `MacPersistenceView` +
+  iOS `MacPersistenceDrillView`), alongside Launch Items and Quarantine;
+  `macPersistence` joined the `AppModel` derived rollup + `AnalysisContext`.
+- Unit-tested end to end (`MacPersistenceParserTests`,
+  `MacPersistenceSweepAnalyzerTests`); macOS + iOS both build.
+
+### Added — macOS evidence support (`.macos` OSFamily + dedicated tabs)
+
+- **`.macos` OS detection** — `OSFamily` gains a `.macos` case, detected from the
+  volume fs-type (APFS / HFS+) or, for loose collections, a file-tree sniff where
+  a decisive macOS-only marker (`/System/Library/`, `/Library/Preferences/`,
+  `.app/Contents/`, `/private/var/db/`) vetoes the weaker `/Users/`⇒Windows and
+  `/etc/`,`/var/log/`⇒Linux guesses macOS would otherwise trip. A pure-Mac image
+  now hides every Windows and Linux tab instead of showing them all.
+- **macOS host profile** — `MacHostInfoParser` (`StrataMac`) folds
+  `SystemVersion.plist`, the SystemConfiguration `preferences.plist` /
+  `NetworkInterfaces.plist`, and the dslocal user plists into a `MacHostInfo`
+  (`StrataCore`); `HostProfile.derive(fromMac:)` drives the **Overview** host card
+  (OS/version/build, computer name, primary user, IPs). Parsed by
+  `AppModel.parseMac()`, persisted as `macinfo.json`.
+- **Launch Items + Quarantine tabs** — the already-parsed launchd jobs and the
+  LaunchServices download-provenance store now have dedicated, `.macos`-gated
+  tabs: macOS `LaunchItemsView` / `QuarantineView` (filter + table/detail split +
+  empty-state Parse) and iOS `LaunchItemsDrillView` / `QuarantineDrillView`
+  (paged lists). `launchItems` / `quarantine` joined the `AppModel` derived
+  rollup with scoped + count accessors.
+- Validated: macOS + iOS both build; OSFamily detection and the
+  `MacHostInfoParser` projection are unit-tested (`OSFamilyTests`,
+  `MacHostInfoParserTests`). **Known limit:** APFS readability depends on the
+  vendored TSK enumerating the volume (a FileVault-encrypted APFS won't), still to
+  be confirmed end-to-end on a real Mac image.
+
 ### Added — On-device AI findings summary (Apple Intelligence)
 
 - **AI executive summary** — a new `StrataAI/FindingsSummarizer` generates a
