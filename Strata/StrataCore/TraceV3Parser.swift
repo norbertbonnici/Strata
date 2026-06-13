@@ -111,11 +111,45 @@ public nonisolated enum TraceV3Parser {
         return s
     }
 
-    /// Phase-1 stub: decoding firehose tracepoints into `UnifiedLogEntry`s needs
-    /// the catalog + timesync + `.uuidtext`/`dsc` layers (Phases 2-3). Returns
-    /// `[]` for now so the ingest pipeline can wire to a stable entry point.
-    public static func parse(_ data: Data, sourceFile: String) -> [UnifiedLogEntry] {
-        []
+    /// Decode a `.tracev3` file into `UnifiedLogEntry`s (M4): walk the top-level
+    /// chunks in order, tracking the current catalog, decompress each chunkset,
+    /// and decode its firehose tracepoints. Timestamps are resolved through the
+    /// timesync boot matching the file header's boot UUID — pass `timesyncByBoot`
+    /// (boot UUID → `TimesyncBoot`); without it, entries have a nil timestamp.
+    ///
+    /// **M4 scope:** entries carry timestamp, pid, event type and level. The
+    /// `process`/`subsystem`/`category`/`message` fields are resolved later (M5)
+    /// from the `.uuidtext`/`dsc` strings.
+    public static func parse(_ data: Data, sourceFile: String,
+                             timesyncByBoot: [String: TimesyncBoot] = [:]) -> [UnifiedLogEntry] {
+        let bytes = [UInt8](data)
+        let top = chunks(in: bytes)
+        guard top.first?.tag == tagHeader else { return [] }
+
+        let boot = header(of: data).flatMap { timesyncByBoot[$0.bootUUID] }
+
+        var entries: [UnifiedLogEntry] = []
+        var currentCatalog: TraceV3Catalog?
+        for chunk in top {
+            switch chunk.tag {
+            case tagCatalog:
+                currentCatalog = catalog(fromData: Array(bytes[chunk.range]))
+            case tagChunkset:
+                guard let inflated = AppleLZ4.decompress(Data(bytes[chunk.range])),
+                      !inflated.isEmpty else { continue }
+                let ib = [UInt8](inflated)
+                for inner in chunks(in: ib) where inner.tag == tagFirehose {
+                    let tps = FirehoseDecoder.tracepoints(chunkData: Array(ib[inner.range]),
+                                                          catalog: currentCatalog)
+                    for tp in tps {
+                        entries.append(tp.partialEntry(timesync: boot, sourceFile: sourceFile))
+                    }
+                }
+            default:
+                break
+            }
+        }
+        return entries
     }
 
     // MARK: - Header (0x1000)
