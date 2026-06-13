@@ -5,6 +5,39 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Added — Unified-log decode, M4: firehose tracepoints → timestamped entries
+
+Decodes the firehose chunks (`0x6001`) — the actual log records — into
+`UnifiedLogEntry`s, joining M2 (time) and M3 (process/subsystem identity). This
+is the first layer that produces real, timestamped log entries.
+
+- **`FirehoseDecoder`** (`StrataCore`, pure Swift) decodes a firehose chunk's
+  preamble (the emitting `(first,second)` proc-id pair, public-data size, base
+  mach-continuous time) and walks its fixed-24-byte tracepoint headers
+  (`data_size` bytes each, 8-byte aligned), emitting **`FirehoseTracepoint`**s.
+  Absolute time is `base + ((deltaUpper<<32)|deltaLower)`; the process (PID/EUID)
+  comes from the M3 catalog; activity type → event type, log type → level.
+- **`TraceV3Parser.parse(_:sourceFile:timesyncByBoot:)`** now walks the top-level
+  chunks in order (tracking the current catalog), decompresses each chunkset, and
+  decodes every firehose chunk against that catalog, resolving each tracepoint's
+  wall-clock through the timesync boot that matches the file header's boot UUID.
+- **M4 scope:** entries carry timestamp, PID, event type and level. The
+  `process`/`subsystem`/`category`/`message` fields stay empty until M5 resolves
+  the out-of-file `.uuidtext`/`dsc` format strings; the `FirehoseTracepoint`
+  carries the format-string location + raw data slice forward for that.
+- **Validated against the real macOS-12 image**: 22,186 entries from one Special
+  file (all in its boot window, 2025-03-24 08:41→09:35) and **349,533** from one
+  Persist file (multi-day, 2025-03-21→22); the time math holds for both base=0
+  and non-zero-base chunks; level/type distributions and 180–300 distinct PIDs
+  per file are realistic. Synthetic byte-level unit tests cover the preamble +
+  tracepoint walk, the upper/lower delta combination, activity/level mapping,
+  zero-padding termination, and the partial-entry projection. (Cross-checking
+  rendered output against `log show` waits on M5 + reconstructing a
+  `.logarchive`.)
+
+This is M4 of the unified-log arc (M1 harness → M2 timesync → M3 catalog →
+**M4 firehose** → M5 message resolution → M6 tab/timeline/analyzer).
+
 ### Added — Unified-log decode, M3: header + catalog (`.tracev3`)
 
 Decodes the two top-level metadata chunks of a `.tracev3` file — the layers that
