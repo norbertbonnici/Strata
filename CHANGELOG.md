@@ -5,6 +5,27 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Added — macOS OS version from InstallHistory (sealed-System-volume workaround)
+
+- **The sealed System volume is unreadable.** Its files (e.g.
+  `SystemVersion.plist`) live in an **APFS snapshot**, and the vendored
+  libfsapfs exposes snapshot *names* only — **no snapshot file access** — so
+  `fsapfscat` returns 0 bytes for them. That's a hard library limit, not
+  fixable here; the sealed volume only holds pristine Apple files anyway (an
+  attacker can't modify it). The one real casualty was the host card's **OS
+  version**.
+- **`MacInstallHistoryParser` + `MacInstallEvent`** (`StrataMac`/`StrataCore`) —
+  parse `/Library/Receipts/InstallHistory.plist` (on the **Data** volume, which
+  *is* readable) into the software-install records (date / `displayName` /
+  `displayVersion` / `processName`). `parseMac` folds the latest macOS-install
+  entry's version into `MacHostInfo` **only when** `SystemVersion.plist` was
+  unavailable, so the Overview host card shows the real OS version (e.g. macOS
+  12.7.6 on the test image) even on an APFS image.
+- Validated against the real image (`InstallHistory.plist` extracted via
+  `fsapfscat` from the Data volume); unit-tested (`MacInstallHistoryParserTests`);
+  macOS + iOS build. **Follow-up:** surface the full install timeline (the
+  parser already returns all events).
+
 ### Added — APFS file-content extraction (`fsapfscat`) — macOS analyzers run on APFS images
 
 The macOS APFS ingest path gave the file tree + timeline but no file *bytes*, so

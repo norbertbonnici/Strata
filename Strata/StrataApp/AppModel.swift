@@ -3251,6 +3251,7 @@ final class AppModel: ObservableObject {
                 return lower.hasSuffix("/system/library/coreservices/systemversion.plist")
                     || lower.hasSuffix("/library/preferences/systemconfiguration/preferences.plist")
                     || lower.hasSuffix("/library/preferences/systemconfiguration/networkinterfaces.plist")
+                    || lower.hasSuffix("/library/receipts/installhistory.plist")
                     || (lower.contains("/dslocal/nodes/default/users/") && lower.hasSuffix(".plist"))
             }
         }
@@ -3378,6 +3379,7 @@ final class AppModel: ObservableObject {
                 }
                 quar.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
                 var info = MacHostInfo()
+                var installs: [MacInstallEvent] = []
                 for entry in foundInfo {
                     progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
                     defer { completed += 1 }
@@ -3389,10 +3391,16 @@ final class AppModel: ObservableObject {
                         MacHostInfoParser.applyPreferences(data, to: &info)
                     } else if lower.hasSuffix("/networkinterfaces.plist") {
                         MacHostInfoParser.applyNetworkInterfaces(data, to: &info)
+                    } else if lower.hasSuffix("/installhistory.plist") {
+                        installs = MacInstallHistoryParser.parse(data, sourceFile: entry.fullPath)
                     } else {
                         MacHostInfoParser.applyUserPlist(data, to: &info)
                     }
                 }
+                // Recover the OS version from the install history when the sealed
+                // System volume's SystemVersion.plist couldn't be read (its
+                // content lives in an APFS snapshot libfsapfs can't open).
+                MacInstallHistoryParser.applyOSVersion(installs, to: &info)
                 var persist: [MacPersistenceItem] = []
                 for entry in foundPersist {
                     progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
