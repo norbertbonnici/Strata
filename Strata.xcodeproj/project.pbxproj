@@ -7,26 +7,27 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		091F03A72FD5E755003DE1CC /* sccainfo in CopyFiles */ = {isa = PBXBuildFile; fileRef = 091F03A62FD5E755003DE1CC /* sccainfo */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		093DA2B02FDC740900F9B73E /* fsapfsinfo in CopyFiles */ = {isa = PBXBuildFile; fileRef = 093DA2AF2FDC740900F9B73E /* fsapfsinfo */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		093DA2B22FDC743900F9B73E /* ewfexport in CopyFiles */ = {isa = PBXBuildFile; fileRef = 093DA2B12FDC743900F9B73E /* ewfexport */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		091F03A72FD5E755003DE1CC /* sccainfo in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 091F03A62FD5E755003DE1CC /* sccainfo */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		093DA2B02FDC740900F9B73E /* fsapfsinfo in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 093DA2AF2FDC740900F9B73E /* fsapfsinfo */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		093DA2B22FDC743900F9B73E /* ewfexport in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 093DA2B12FDC743900F9B73E /* ewfexport */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		093F5CE62FDDCAF000BE7050 /* fsapfscat in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 093F5CE52FDDCAF000BE7050 /* fsapfscat */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		099DBE0B2FCF60530042FE85 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 099DBE0A2FCF60530042FE85 /* GRDB */; };
-		09A474812FD1466C009D5CCA /* fls in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A474762FD1466C009D5CCA /* fls */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09A474822FD1466C009D5CCA /* fsstat in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A474772FD1466C009D5CCA /* fsstat */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09A474832FD1466C009D5CCA /* istat in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A474782FD1466C009D5CCA /* istat */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09A474842FD1466C009D5CCA /* mmls in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A474792FD1466C009D5CCA /* mmls */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09A474852FD1466C009D5CCA /* evtxexport in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A4747A2FD1466C009D5CCA /* evtxexport */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09A474862FD1466C009D5CCA /* evtxinfo in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A4747B2FD1466C009D5CCA /* evtxinfo */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09A474872FD1466C009D5CCA /* regfexport in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A4747C2FD1466C009D5CCA /* regfexport */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09A474882FD1466C009D5CCA /* icat in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A4747D2FD1466C009D5CCA /* icat */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09A474892FD1466C009D5CCA /* regfinfo in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A4747E2FD1466C009D5CCA /* regfinfo */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09A4748A2FD1466C009D5CCA /* tsk_loaddb in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A4747F2FD1466C009D5CCA /* tsk_loaddb */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09A4748B2FD1466C009D5CCA /* blkstat in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A474802FD1466C009D5CCA /* blkstat */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09A474C32FD1466C009D5CCA /* ewfinfo in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A474C12FD1466C009D5CCA /* ewfinfo */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09A474C42FD1466C009D5CCA /* ewfverify in CopyFiles */ = {isa = PBXBuildFile; fileRef = 09A474C22FD1466C009D5CCA /* ewfverify */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		A1B2C3D40000000000000001 /* lnkinfo in CopyFiles */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000002 /* lnkinfo */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		A1B2C3D40000000000000003 /* olecfexport in CopyFiles */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000004 /* olecfexport */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		A1B2C3D40000000000000005 /* esedbexport in CopyFiles */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000006 /* esedbexport */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09A474812FD1466C009D5CCA /* fls in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09A474762FD1466C009D5CCA /* fls */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09A474822FD1466C009D5CCA /* fsstat in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09A474772FD1466C009D5CCA /* fsstat */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09A474832FD1466C009D5CCA /* istat in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09A474782FD1466C009D5CCA /* istat */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09A474842FD1466C009D5CCA /* mmls in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09A474792FD1466C009D5CCA /* mmls */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09A474852FD1466C009D5CCA /* evtxexport in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09A4747A2FD1466C009D5CCA /* evtxexport */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09A474862FD1466C009D5CCA /* evtxinfo in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09A4747B2FD1466C009D5CCA /* evtxinfo */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09A474872FD1466C009D5CCA /* regfexport in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09A4747C2FD1466C009D5CCA /* regfexport */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09A474882FD1466C009D5CCA /* icat in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09A4747D2FD1466C009D5CCA /* icat */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09A474892FD1466C009D5CCA /* regfinfo in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09A4747E2FD1466C009D5CCA /* regfinfo */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09A4748A2FD1466C009D5CCA /* tsk_loaddb in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09A4747F2FD1466C009D5CCA /* tsk_loaddb */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09A4748B2FD1466C009D5CCA /* blkstat in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09A474802FD1466C009D5CCA /* blkstat */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09A474C32FD1466C009D5CCA /* ewfinfo in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09A474C12FD1466C009D5CCA /* ewfinfo */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09A474C42FD1466C009D5CCA /* ewfverify in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09A474C22FD1466C009D5CCA /* ewfverify */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		A1B2C3D40000000000000001 /* lnkinfo in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000002 /* lnkinfo */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		A1B2C3D40000000000000003 /* olecfexport in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000004 /* olecfexport */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		A1B2C3D40000000000000005 /* esedbexport in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000006 /* esedbexport */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -47,32 +48,34 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		099DBE0D2FCF68040042FE85 /* CopyFiles */ = {
+		099DBE0D2FCF68040042FE85 /* Copy Files (20 items) */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = tsk/bin;
 			dstSubfolderSpec = 7;
 			files = (
-				093DA2B22FDC743900F9B73E /* ewfexport in CopyFiles */,
-				093DA2B02FDC740900F9B73E /* fsapfsinfo in CopyFiles */,
-				091F03A72FD5E755003DE1CC /* sccainfo in CopyFiles */,
-				09A474812FD1466C009D5CCA /* fls in CopyFiles */,
-				09A474822FD1466C009D5CCA /* fsstat in CopyFiles */,
-				09A474832FD1466C009D5CCA /* istat in CopyFiles */,
-				09A474842FD1466C009D5CCA /* mmls in CopyFiles */,
-				09A474852FD1466C009D5CCA /* evtxexport in CopyFiles */,
-				09A474862FD1466C009D5CCA /* evtxinfo in CopyFiles */,
-				09A474872FD1466C009D5CCA /* regfexport in CopyFiles */,
-				A1B2C3D40000000000000001 /* lnkinfo in CopyFiles */,
-				A1B2C3D40000000000000003 /* olecfexport in CopyFiles */,
-				A1B2C3D40000000000000005 /* esedbexport in CopyFiles */,
-				09A474882FD1466C009D5CCA /* icat in CopyFiles */,
-				09A474892FD1466C009D5CCA /* regfinfo in CopyFiles */,
-				09A4748A2FD1466C009D5CCA /* tsk_loaddb in CopyFiles */,
-				09A4748B2FD1466C009D5CCA /* blkstat in CopyFiles */,
-				09A474C32FD1466C009D5CCA /* ewfinfo in CopyFiles */,
-				09A474C42FD1466C009D5CCA /* ewfverify in CopyFiles */,
+				093F5CE62FDDCAF000BE7050 /* fsapfscat in Copy Files (20 items) */,
+				093DA2B22FDC743900F9B73E /* ewfexport in Copy Files (20 items) */,
+				093DA2B02FDC740900F9B73E /* fsapfsinfo in Copy Files (20 items) */,
+				091F03A72FD5E755003DE1CC /* sccainfo in Copy Files (20 items) */,
+				09A474812FD1466C009D5CCA /* fls in Copy Files (20 items) */,
+				09A474822FD1466C009D5CCA /* fsstat in Copy Files (20 items) */,
+				09A474832FD1466C009D5CCA /* istat in Copy Files (20 items) */,
+				09A474842FD1466C009D5CCA /* mmls in Copy Files (20 items) */,
+				09A474852FD1466C009D5CCA /* evtxexport in Copy Files (20 items) */,
+				09A474862FD1466C009D5CCA /* evtxinfo in Copy Files (20 items) */,
+				09A474872FD1466C009D5CCA /* regfexport in Copy Files (20 items) */,
+				A1B2C3D40000000000000001 /* lnkinfo in Copy Files (20 items) */,
+				A1B2C3D40000000000000003 /* olecfexport in Copy Files (20 items) */,
+				A1B2C3D40000000000000005 /* esedbexport in Copy Files (20 items) */,
+				09A474882FD1466C009D5CCA /* icat in Copy Files (20 items) */,
+				09A474892FD1466C009D5CCA /* regfinfo in Copy Files (20 items) */,
+				09A4748A2FD1466C009D5CCA /* tsk_loaddb in Copy Files (20 items) */,
+				09A4748B2FD1466C009D5CCA /* blkstat in Copy Files (20 items) */,
+				09A474C32FD1466C009D5CCA /* ewfinfo in Copy Files (20 items) */,
+				09A474C42FD1466C009D5CCA /* ewfverify in Copy Files (20 items) */,
 			);
+			name = "Copy Files (20 items)";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -81,6 +84,7 @@
 		091F03A62FD5E755003DE1CC /* sccainfo */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = sccainfo; path = Vendor/tsk/bin/arm64/sccainfo; sourceTree = "<group>"; };
 		093DA2AF2FDC740900F9B73E /* fsapfsinfo */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = fsapfsinfo; path = Vendor/tsk/bin/arm64/fsapfsinfo; sourceTree = "<group>"; };
 		093DA2B12FDC743900F9B73E /* ewfexport */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = ewfexport; path = Vendor/tsk/bin/arm64/ewfexport; sourceTree = "<group>"; };
+		093F5CE52FDDCAF000BE7050 /* fsapfscat */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = fsapfscat; path = Vendor/tsk/bin/arm64/fsapfscat; sourceTree = "<group>"; };
 		099DBDAF2FCF54B80042FE85 /* StrataDFIR.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = StrataDFIR.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		099DBDC02FCF54B90042FE85 /* StrataTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = StrataTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		099DBDCA2FCF54B90042FE85 /* StrataUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = StrataUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -163,6 +167,7 @@
 		099DBDA62FCF54B80042FE85 = {
 			isa = PBXGroup;
 			children = (
+				093F5CE52FDDCAF000BE7050 /* fsapfscat */,
 				093DA2B12FDC743900F9B73E /* ewfexport */,
 				093DA2AF2FDC740900F9B73E /* fsapfsinfo */,
 				091F03A62FD5E755003DE1CC /* sccainfo */,
@@ -218,7 +223,7 @@
 				099DBDAB2FCF54B80042FE85 /* Sources */,
 				099DBDAC2FCF54B80042FE85 /* Frameworks */,
 				099DBDAD2FCF54B80042FE85 /* Resources */,
-				099DBE0D2FCF68040042FE85 /* CopyFiles */,
+				099DBE0D2FCF68040042FE85 /* Copy Files (20 items) */,
 			);
 			buildRules = (
 			);
