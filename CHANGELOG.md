@@ -5,6 +5,31 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Added — Unified-log decode, M2: timesync (continuous-time → wall-clock)
+
+Groundwork for decoding the macOS **unified log** (`.tracev3`). The log stores
+tracepoint times as mach-continuous time (monotonic ticks since boot); the
+**timesync** database is what converts those to real dates.
+
+- **`TimesyncParser`** (`StrataCore`, pure Swift, no vendored tool) parses
+  `/var/db/diagnostics/timesync/*.timesync` — boot records (signature `0xBBB0`:
+  boot UUID, mach timebase numerator/denominator, boot walltime) followed by
+  their periodic sync records (signature `"Ts "`: continuous-time → walltime
+  anchors). One file holds several boot sessions; `parseAll` merges files keyed
+  by boot UUID.
+- **`TimesyncBoot`** (`StrataCore`, `Codable`) exposes
+  `walltime(forContinuousTime:)` — picks the latest anchor at or before the
+  continuous time and adds the timebase-scaled delta (the boot itself is the
+  implicit `ct 0 → bootTime` anchor).
+- **Validated against the real macOS-12 image**: 4 boot sessions recovered from
+  one `.timesync`, boot times 2025-03-21…24 (matching the evidence), every sync
+  anchor self-converts with 0 ns error. Synthetic byte-level unit tests cover
+  framing, nearest-anchor selection, Apple-Silicon 125/3 timebase scaling, and
+  multi-boot files.
+
+This is M2 of the multi-PR unified-log arc (M1 real-data harness → M2 timesync →
+M3 catalog → M4 firehose → M5 message resolution → M6 tab/timeline/analyzer).
+
 ### Added — APFS file-content extraction (`fsapfscat`) — macOS analyzers run on APFS images
 
 The macOS APFS ingest path gave the file tree + timeline but no file *bytes*, so
