@@ -5,6 +5,38 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Added — Unified-log decode, M3: header + catalog (`.tracev3`)
+
+Decodes the two top-level metadata chunks of a `.tracev3` file — the layers that
+say *which boot, which process, which subsystem* a log entry belongs to. Builds
+on M2 (timesync); together they give the time and identity context the firehose
+tracepoints (M4) reference.
+
+- **`TraceV3Header`** (`StrataCore`) — `TraceV3Parser.header(of:)` parses the
+  `0x1000` header chunk and its tagged sub-records: boot UUID (`0x6102`), mach
+  timebase + continuous-time base, OS build + hardware model (`0x6101`), and the
+  timezone path + bias (`0x6103`). The **boot UUID ties a file to its
+  `TimesyncBoot`** session.
+- **`TraceV3Catalog`** / **`CatalogProcessInfo`** / **`CatalogSubchunk`**
+  (`StrataCore`) — `TraceV3Parser.catalog(fromData:)` / `catalogs(of:)` decode
+  the `0x600B` catalog: the UUID array, the variable-length process-info entries
+  (keyed by the `(first,second)` proc-id pair → PID/EUID, main-exe + `dsc` UUID
+  indices, 16-byte loaded-image sub-entries, and the 6-byte subsystem/category
+  string map a tracepoint resolves through), and the subchunk continuous-time
+  windows. `processInfo(first:second:)` is the tracepoint→process join.
+- **Validated against the real macOS-12 image**: header boot UUID
+  (`224489B3…` / `E569F361…`) **confirmed present in the M2 timesync**; build
+  `21H1320`, model `MacBookAir7,2`, tz `Europe/Tallinn`; 94 catalogs parsed from
+  one Persist file with every process-info entry resolving to real subsystems
+  (`com.apple.network/connection`, `powerd/sleepWake`, …) and all entries filling
+  the entry region exactly (the 16-byte uuid-entry stride was brute-forced
+  against the real layout). Synthetic byte-level unit tests cover the header
+  sub-records, the catalog UUID array / NUL-string pool / variable proc-info
+  walk (with and without uuid sub-entries) / subchunk windows.
+
+This is M3 of the unified-log arc (M1 harness → M2 timesync → **M3 catalog** →
+M4 firehose → M5 message resolution → M6 tab/timeline/analyzer).
+
 ### Added — Unified-log decode, M2: timesync (continuous-time → wall-clock)
 
 Groundwork for decoding the macOS **unified log** (`.tracev3`). The log stores
