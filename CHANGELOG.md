@@ -5,6 +5,35 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Added — APFS file-content extraction (`fsapfscat`) — macOS analyzers run on APFS images
+
+The macOS APFS ingest path gave the file tree + timeline but no file *bytes*, so
+the macOS analyzers silently skipped APFS *images*. They now run end-to-end:
+
+- **`fsapfscat`** — a small custom C tool (`scripts/fsapfscat.c`) linking the
+  vendored **libfsapfs** (built + statically linked by `build-tsk.sh`): opens the
+  APFS container at the byte offset, resolves a volume-relative path, and writes
+  the file's bytes to stdout — the macOS-image equivalent of TSK's `icat`. Pure
+  byte-level read (no host-OS mount), FileVault-capable (`-p`/`-r`). **Validated
+  against the real macOS-27 image** (extracted `/private/etc/hosts` byte-perfect).
+- **`FsApfsExtractor`** (`StrataTSK`, macOS) — Swift actor wrapping `fsapfscat`,
+  mirroring `TSKFileExtractor`.
+- **`EvidenceKind.apfs`** — the `.ingestionCrashed` fallback now reclassifies the
+  host as `.apfs` and records `Evidence.apfsRawURL` (the source raw, or the
+  `ewfexport` scratch for an E01). The APFS tree + volumes persist as JSON
+  (`apfsfiles/apfsvolumes.json`; `FileEntry`/`VolumeInfo` are now `Codable`) and
+  reload on case open (there's no `tsk.db`).
+- **`parseMac` + `parseBrowserHistory`** extend their extract closures with an
+  `.apfs` branch (offset from `VolumeInfo`, volume index from `fsID`, path from
+  `fullPath`), so Launch Items / Quarantine / Persistence / FSEvents / host info /
+  shell history / Safari+Chrome+Firefox all parse from an APFS image.
+- **Known limit:** the **sealed System volume**'s files live in a snapshot, so
+  libfsapfs reads 0 bytes for them (e.g. `SystemVersion.plist`); user-data
+  artifacts on the Data volume extract fine. **Bundling** `fsapfscat` into the
+  app (Xcode Copy-Files phase) is a manual step, like `fsapfsinfo`.
+- Tested (`BodyfileParserTests`, `FsApfsIngestorMappingTests`, `ApfsEvidenceTests`);
+  macOS + iOS build.
+
 ### Added — macOS APFS ingest path (via libfsapfs)
 
 Strata can now ingest the macOS APFS images The Sleuth Kit crashes on. When

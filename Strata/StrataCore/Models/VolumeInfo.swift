@@ -6,7 +6,7 @@ import Foundation
 /// copy of the NTFS metadata files (`$MFT`, `$LogFile`, ...). The evidence tree
 /// groups files under these so same-named volume metadata doesn't look like
 /// duplicates.
-public nonisolated struct VolumeInfo: Identifiable, Hashable, Sendable {
+public nonisolated struct VolumeInfo: Identifiable, Hashable, Sendable, Codable {
     public let id: Int64          // tsk_fs_info.obj_id (== tsk_files.fs_obj_id)
     public let fsType: String     // "NTFS", "FAT32", ...
     public let offsetBytes: Int64

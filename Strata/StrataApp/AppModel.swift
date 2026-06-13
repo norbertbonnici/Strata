@@ -452,6 +452,22 @@ final class AppModel: ObservableObject {
                 #else
                 timeline = []
                 #endif
+            } else if evidence.kind == .apfs {
+                // APFS images have no tsk.db; the tree + volumes were persisted
+                // as JSON at ingest. Content is re-extracted on demand via
+                // libfsapfs (see parseMac / parseBrowserHistory).
+                var files = (try? CaseStore.readApfsFiles(forHostID: evidence.id, in: bundleURL)) ?? []
+                #if !os(macOS)
+                files.removeAll(where: TimelineBuilder.isSlackEntry)
+                #endif
+                state = EvidenceState(dbURL: nil)
+                state.files = files
+                state.volumes = (try? CaseStore.readApfsVolumes(forHostID: evidence.id, in: bundleURL)) ?? []
+                #if os(macOS)
+                timeline = TimelineBuilder.build(from: files)
+                #else
+                timeline = []
+                #endif
             } else {
                 let dbURL = CaseStore.tskDatabaseURL(forHostID: evidence.id, in: bundleURL)
                 guard FileManager.default.fileExists(atPath: dbURL.path) else { return .skippedSilently }
@@ -1490,16 +1506,25 @@ final class AppModel: ObservableObject {
                         scratchDirectory: scratch) { line in
                             Task { @MainActor in self.statusMessage = line }
                         }
+                    // Reclassify as an APFS image + record the raw the content
+                    // extractor reads from (the source if raw, else the ewfexport
+                    // scratch). Persist the tree + volumes since there is no
+                    // tsk.db to re-read them from on case open.
+                    evidence.kind = .apfs
+                    evidence.apfsRawURL = result.rawScratchURL ?? evidence.sourceURL
                     var s = EvidenceState(dbURL: nil)   // no tsk.db on the APFS path
                     s.files = result.files
                     s.volumes = result.volumes
                     s.timeline = TimelineBuilder.build(from: result.files)
                     state = s
+                    try? CaseStore.writeApfsFiles(result.files, forHostID: evidence.id, in: bundleURL)
+                    try? CaseStore.writeApfsVolumes(result.volumes, forHostID: evidence.id, in: bundleURL)
                 }
 
                 // E01 carries acquisition metadata + acquisition hashes in its
                 // header - read them (cheap) instead of rehashing the image.
-                if evidence.kind == .e01 {
+                // (Check the source extension, not `kind`, which may now be .apfs.)
+                if TSKImageIngestor.imageType(for: evidence.sourceURL) == "ewf" {
                     statusMessage = "Reading E01 acquisition metadata…"
                     if let meta = try? await EWFInfo(environment: environment).read(imageAt: evidence.sourceURL) {
                         Self.applyEWFMetadata(meta, to: &evidence)
@@ -2463,20 +2488,27 @@ final class AppModel: ObservableObject {
                 hostsTouched += 1
 
                 let isLoose = evidence.kind == .kapeLooseFolder
+                let isAPFS = evidence.kind == .apfs
                 var database: TSKDatabase?
                 var extractor: TSKFileExtractor?
+                var apfsExtractor: FsApfsExtractor?
                 var scratch: URL?
                 if !isLoose {
-                    guard let dbURL = state.dbURL else { continue }
-                    database = try TSKDatabase(path: dbURL)
-                    extractor = TSKFileExtractor(
-                        environment: tskEnv,
-                        imageURL: evidence.sourceURL,
-                        imageType: TSKImageIngestor.imageType(for: evidence.sourceURL))
                     guard let bundleURL = currentCaseBundleURL else { continue }
                     let dir = CaseStore.browserHistoryScratchDirectory(forHostID: evidence.id, in: bundleURL)
                     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
                     scratch = dir
+                    if isAPFS {
+                        apfsExtractor = FsApfsExtractor(environment: tskEnv,
+                                                        rawURL: evidence.apfsRawURL ?? evidence.sourceURL)
+                    } else {
+                        guard let dbURL = state.dbURL else { continue }
+                        database = try TSKDatabase(path: dbURL)
+                        extractor = TSKFileExtractor(
+                            environment: tskEnv,
+                            imageURL: evidence.sourceURL,
+                            imageType: TSKImageIngestor.imageType(for: evidence.sourceURL))
+                    }
                 }
 
                 var collected: [BrowserHistoryEntry] = []
@@ -2490,6 +2522,24 @@ final class AppModel: ObservableObject {
                             completed += 1; continue
                         }
                         fileURL = disk
+                    } else if isAPFS {
+                        // APFS: extract the DB + its -wal/-shm sidecars via libfsapfs.
+                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name)")
+                        let off = state.volumes.first { $0.id == entry.fsID }?.offsetBytes ?? 0
+                        try? await apfsExtractor!.extract(volumePath: entry.fullPath,
+                                                          volumeIndex: entry.fsID ?? 0,
+                                                          offsetBytes: off, to: outURL)
+                        for suffix in ["-wal", "-shm"] {
+                            guard let side = state.files.first(where: {
+                                !$0.isDirectory && $0.parentPath == entry.parentPath
+                                    && $0.name.caseInsensitiveCompare(entry.name + suffix) == .orderedSame
+                            }) else { continue }
+                            let soff = state.volumes.first { $0.id == side.fsID }?.offsetBytes ?? 0
+                            try? await apfsExtractor!.extract(volumePath: side.fullPath,
+                                                              volumeIndex: side.fsID ?? 0, offsetBytes: soff,
+                                                              to: URL(fileURLWithPath: outURL.path + suffix))
+                        }
+                        fileURL = outURL
                     } else {
                         guard let info = try database!.fetchExtractInfo(forFileID: entry.id) else {
                             completed += 1; continue
@@ -3272,18 +3322,26 @@ final class AppModel: ObservableObject {
                 guard !foundPlists.isEmpty || !foundQuar.isEmpty || !foundInfo.isEmpty
                     || !foundPersist.isEmpty || !foundFSE.isEmpty || !foundShell.isEmpty else { continue }
                 let isLoose = evidence.kind == .kapeLooseFolder
+                let isAPFS = evidence.kind == .apfs
                 var database: TSKDatabase?
                 var extractor: TSKFileExtractor?
+                var apfsExtractor: FsApfsExtractor?
                 var scratch: URL?
                 if !isLoose {
-                    guard let dbURL = state.dbURL, let bundleURL = currentCaseBundleURL else { continue }
-                    database = try TSKDatabase(path: dbURL)
-                    extractor = TSKFileExtractor(environment: tskEnv, imageURL: evidence.sourceURL,
-                                                 imageType: TSKImageIngestor.imageType(for: evidence.sourceURL))
+                    guard let bundleURL = currentCaseBundleURL else { continue }
                     let dir = CaseStore.prefetchScratchDirectory(forHostID: evidence.id, in: bundleURL)
                         .deletingLastPathComponent().appendingPathComponent("mac")
                     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
                     scratch = dir
+                    if isAPFS {
+                        apfsExtractor = FsApfsExtractor(environment: tskEnv,
+                                                        rawURL: evidence.apfsRawURL ?? evidence.sourceURL)
+                    } else {
+                        guard let dbURL = state.dbURL else { continue }
+                        database = try TSKDatabase(path: dbURL)
+                        extractor = TSKFileExtractor(environment: tskEnv, imageURL: evidence.sourceURL,
+                                                     imageType: TSKImageIngestor.imageType(for: evidence.sourceURL))
+                    }
                 }
                 func extract(_ entry: FileEntry) async -> URL? {
                     if isLoose {
@@ -3291,8 +3349,15 @@ final class AppModel: ObservableObject {
                               FileManager.default.fileExists(atPath: disk.path) else { return nil }
                         return disk
                     }
-                    guard let info = try? database!.fetchExtractInfo(forFileID: entry.id) else { return nil }
                     let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name)")
+                    if isAPFS {
+                        let off = state.volumes.first { $0.id == entry.fsID }?.offsetBytes ?? 0
+                        try? await apfsExtractor!.extract(volumePath: entry.fullPath,
+                                                          volumeIndex: entry.fsID ?? 0,
+                                                          offsetBytes: off, to: outURL)
+                        return outURL
+                    }
+                    guard let info = try? database!.fetchExtractInfo(forFileID: entry.id) else { return nil }
                     try? await extractor!.extract(metaAddr: info.metaAddr,
                                                   imageOffsetSectors: info.imageOffsetSectors, to: outURL)
                     return outURL

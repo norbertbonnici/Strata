@@ -202,7 +202,7 @@ private struct EvidenceIntegrityCard: View {
                 Task { await model.verifyEWF(for: evidence.id) }
             }
             .controlSize(.small).disabled(model.isWorking)
-        case .raw, .kapeVHD:
+        case .raw, .kapeVHD, .apfs:
             if evidence.sourceHashes.contains(where: { $0.origin == .computed }) {
                 Button("Re-verify") {
                     Task { await model.verifyComputedHashes(for: evidence.id) }

@@ -298,6 +298,20 @@ public nonisolated enum CaseStore {
     public static func writeQuarantine(_ events: [QuarantineEvent], forHostID id: UUID, in bundle: URL) throws {
         try writeArray(events, at: hostDirectory(forHostID: id, in: bundle).appendingPathComponent("quarantine.json"))
     }
+    // APFS evidence has no tsk.db, so its file tree + volumes are persisted as
+    // JSON (image hosts re-read these from the TSK database on case open).
+    public static func readApfsFiles(forHostID id: UUID, in bundle: URL) throws -> [FileEntry]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle).appendingPathComponent("apfsfiles.json"))
+    }
+    public static func writeApfsFiles(_ files: [FileEntry], forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(files, at: hostDirectory(forHostID: id, in: bundle).appendingPathComponent("apfsfiles.json"))
+    }
+    public static func readApfsVolumes(forHostID id: UUID, in bundle: URL) throws -> [VolumeInfo]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle).appendingPathComponent("apfsvolumes.json"))
+    }
+    public static func writeApfsVolumes(_ volumes: [VolumeInfo], forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(volumes, at: hostDirectory(forHostID: id, in: bundle).appendingPathComponent("apfsvolumes.json"))
+    }
     public static func readMacPersistence(forHostID id: UUID, in bundle: URL) throws -> [MacPersistenceItem]? {
         try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle).appendingPathComponent(macPersistenceFilename))
     }

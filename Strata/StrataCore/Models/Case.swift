@@ -24,6 +24,7 @@ public enum EvidenceKind: String, Sendable, Codable {
     case kapeVHD
     case raw
     case kapeLooseFolder   // read directly off disk, not via TSK
+    case apfs              // macOS image read via libfsapfs (TSK crashes on APFS)
 
     /// Human-readable description for the UI.
     public var label: String {
@@ -32,6 +33,7 @@ public enum EvidenceKind: String, Sendable, Codable {
         case .kapeVHD:         return "KAPE VHD"
         case .raw:             return "Raw image"
         case .kapeLooseFolder: return "KAPE folder"
+        case .apfs:            return "APFS image"
         }
     }
 }
@@ -45,6 +47,10 @@ public nonisolated struct Evidence: Identifiable, Hashable, Sendable, Codable {
     public var sourceURL: URL        // path to the .E01 / .vhd / folder
     public var kind: EvidenceKind
     public var tskDatabaseURL: URL? = nil
+    /// The raw image the APFS ingest path reads content from (`kind == .apfs`):
+    /// the source itself for a raw/dd image, or the `ewfexport` scratch raw for
+    /// an E01. Persisted so artifact content can be re-extracted after reload.
+    public var apfsRawURL: URL? = nil
 
     // Chain-of-custody / integrity (see Custody.swift). Both are optional /
     // defaulted and listed in CodingKeys, so a legacy `hosts.json` written
@@ -53,14 +59,14 @@ public nonisolated struct Evidence: Identifiable, Hashable, Sendable, Codable {
     public var sourceHashes: [SourceHash] = []
 
     enum CodingKeys: String, CodingKey {
-        case id, displayName, sourceURL, kind, acquisition, sourceHashes
+        case id, displayName, sourceURL, kind, apfsRawURL, acquisition, sourceHashes
     }
 
     public init(id: UUID = UUID(), displayName: String, sourceURL: URL,
-                kind: EvidenceKind, tskDatabaseURL: URL? = nil,
+                kind: EvidenceKind, tskDatabaseURL: URL? = nil, apfsRawURL: URL? = nil,
                 acquisition: AcquisitionInfo? = nil, sourceHashes: [SourceHash] = []) {
         self.id = id; self.displayName = displayName; self.sourceURL = sourceURL
-        self.kind = kind; self.tskDatabaseURL = tskDatabaseURL
+        self.kind = kind; self.tskDatabaseURL = tskDatabaseURL; self.apfsRawURL = apfsRawURL
         self.acquisition = acquisition; self.sourceHashes = sourceHashes
     }
 
@@ -70,6 +76,7 @@ public nonisolated struct Evidence: Identifiable, Hashable, Sendable, Codable {
         displayName = try c.decode(String.self, forKey: .displayName)
         sourceURL = try c.decode(URL.self, forKey: .sourceURL)
         kind = try c.decode(EvidenceKind.self, forKey: .kind)
+        apfsRawURL = try c.decodeIfPresent(URL.self, forKey: .apfsRawURL)
         // Tolerate older bundles that predate these keys.
         acquisition = try c.decodeIfPresent(AcquisitionInfo.self, forKey: .acquisition)
         sourceHashes = try c.decodeIfPresent([SourceHash].self, forKey: .sourceHashes) ?? []

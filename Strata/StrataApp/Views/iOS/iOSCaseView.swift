@@ -162,6 +162,7 @@ struct OverviewTab: View {
         case .kapeVHD:         return "KAPE VHD/VHDX"
         case .raw:             return "Raw image"
         case .kapeLooseFolder: return "Loose KAPE folder"
+        case .apfs:            return "APFS image"
         }
     }
 
