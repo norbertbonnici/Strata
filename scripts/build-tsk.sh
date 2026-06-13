@@ -36,7 +36,7 @@ OUT="$ROOT/Vendor/tsk"
 SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
 DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
 
-TOOLS=(tsk_loaddb fls icat mmls fsstat blkstat istat evtxexport evtxinfo regfexport regfinfo lnkinfo olecfexport sccainfo esedbexport ewfinfo ewfverify ewfexport fsapfsinfo)
+TOOLS=(tsk_loaddb fls icat mmls fsstat blkstat istat evtxexport evtxinfo regfexport regfinfo lnkinfo olecfexport sccainfo esedbexport ewfinfo ewfverify ewfexport fsapfsinfo fsapfscat)
 
 download() {
     local url="$1" dest="$2"
@@ -250,6 +250,21 @@ SHIM
                 --disable-python --without-libfuse && \
             make -j"$(sysctl -n hw.ncpu)" && \
             make install)
+    fi
+
+    # fsapfscat - our own tiny tool (scripts/fsapfscat.c) that links libfsapfs to
+    # extract a single file's bytes from an APFS volume in a raw image (the
+    # macOS-image equivalent of TSK's icat, used by the APFS ingest path).
+    # libfsapfs bundles libbfio into libfsapfs.a but doesn't install its
+    # aggregator header, so we generate a one-line stub for the BFIO-gated
+    # container-open prototype that fsapfscat.c needs.
+    if [ ! -f "$prefix/bin/fsapfscat" ]; then
+        local stub="$BUILD/fsapfscat-include-$arch"
+        mkdir -p "$stub"
+        printf '#ifndef _STRATA_STUB_LIBBFIO_H\n#define _STRATA_STUB_LIBBFIO_H\n#include <stdint.h>\ntypedef intptr_t libbfio_handle_t;\n#endif\n' > "$stub/libbfio.h"
+        clang $CFLAGS -I"$stub" -I"$prefix/include" \
+            "$ROOT/scripts/fsapfscat.c" "$prefix/lib/libfsapfs.a" -lz -lbz2 \
+            -o "$prefix/bin/fsapfscat"
     fi
 
     # sleuthkit

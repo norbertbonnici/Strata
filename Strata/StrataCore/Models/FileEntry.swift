@@ -2,7 +2,7 @@ import Foundation
 
 /// A single file-system object surfaced from the TSK SQLite database.
 /// Mirrors the `tsk_files` columns that matter for enumeration + timeline.
-public nonisolated struct FileEntry: Identifiable, Hashable, Sendable {
+public nonisolated struct FileEntry: Identifiable, Hashable, Sendable, Codable {
     public let id: Int64          // tsk_files.obj_id
     public let metaAddr: Int64?   // MFT entry / inode number
     public let fsID: Int64?       // tsk_files.fs_obj_id - which filesystem/volume; nil for loose folders
