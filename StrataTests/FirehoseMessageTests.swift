@@ -95,6 +95,17 @@ struct FirehoseMessageTests {
         #expect(LogFormatter.render(format: "on=%{BOOL}d", items: b) == "on=true")
     }
 
+    @Test func errnoOutOfRangeDoesNotTrap() {
+        // A mis-decoded %{errno} arg far outside Int32 range must not crash the
+        // narrowing conversion — it degrades to the raw value.
+        let big = [FirehoseItem(type: 0x02, value: "9999999999999", isPrivate: false, isNumber: true)]
+        let out = LogFormatter.render(format: "err=%{errno}d", items: big)
+        #expect(out == "err=9999999999999")
+        // A small, valid errno still renders its description.
+        let small = [FirehoseItem(type: 0x02, value: "2", isPrivate: false, isNumber: true)]
+        #expect(LogFormatter.render(format: "e=%{errno}d", items: small).hasPrefix("e=2 ("))
+    }
+
     @Test func missingArgumentKeepsSpecifier() {
         // No items → the specifier text is preserved (message never lost).
         #expect(LogFormatter.render(format: "x=%@", items: []) == "x=%@")

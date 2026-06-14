@@ -93,9 +93,10 @@ public nonisolated enum LogFormatter {
 
     /// Format a single resolved value for a conversion character + annotation.
     private static func formatValue(_ value: String, conv: Character, annotation: String) -> String {
-        // errno hint: render the number as its symbolic-ish description.
-        if annotation.contains("errno"), let code = Int(value) {
-            let msg = String(cString: strerror(Int32(code)))
+        // errno hint: render the number as its symbolic-ish description. Guard
+        // the Int32 conversion — a mis-decoded arg can be out of range.
+        if annotation.contains("errno"), let code = Int(value), let c32 = Int32(exactly: code) {
+            let msg = String(cString: strerror(c32))
             return "\(value) (\(msg))"
         }
         if annotation.contains("bool"), let code = Int(value) {
