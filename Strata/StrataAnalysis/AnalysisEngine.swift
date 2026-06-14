@@ -70,5 +70,6 @@ public nonisolated struct AnalysisEngine: Sendable {
         MacPersistenceSweepAnalyzer(),
         MacQuarantineAnalyzer(),
         FSEventsAnalyzer(),
+        UnifiedLogAnalyzer(),
     ]
 }

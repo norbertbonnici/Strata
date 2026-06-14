@@ -1955,6 +1955,80 @@ struct MacPersistenceDrillView: View {
     }
 }
 
+// MARK: - Unified Log drill view (macOS)
+
+/// Read-only macOS unified-log entries for the active scope — timestamped,
+/// level-coloured, filterable by process / message. Capped for responsiveness.
+struct UnifiedLogDrillView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var query = ""
+    @State private var errorsOnly = false
+
+    private var filtered: [UnifiedLogEntry] {
+        var rows = model.unifiedLog
+        if errorsOnly { rows = rows.filter { $0.level == .error || $0.level == .fault } }
+        guard !query.isEmpty else { return rows }
+        return rows.filter {
+            $0.message.localizedCaseInsensitiveContains(query)
+                || ($0.process?.localizedCaseInsensitiveContains(query) ?? false)
+        }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitle(title: "Unified Log",
+                           subtitle: "\(model.unifiedLogCount) entr\(model.unifiedLogCount == 1 ? "y" : "ies")")
+                Toggle("Errors only", isOn: $errorsOnly)
+                    .font(.subheadline).foregroundStyle(Theme.text).tint(Theme.teal).padding(.top, 10)
+                TextField("Filter message / process...", text: $query)
+                    .textFieldStyle(.roundedBorder).padding(.top, 8)
+                let rows = filtered
+                if rows.isEmpty {
+                    ContentUnavailableView("No unified-log entries", systemImage: "list.bullet.rectangle").padding(.top, 40)
+                } else {
+                    if rows.count > 500 {
+                        Text("Showing first 500 of \(rows.count).")
+                            .font(.caption2).foregroundStyle(Theme.text3).padding(.top, 6)
+                    }
+                    Card {
+                        ForEach(Array(rows.prefix(500).enumerated()), id: \.element.id) { index, e in
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack {
+                                    Text(e.process ?? "unified log")
+                                        .font(.caption.bold()).foregroundStyle(Theme.teal)
+                                    if e.level == .error || e.level == .fault {
+                                        Text(e.level.label).font(.caption2).foregroundStyle(Theme.high)
+                                    }
+                                    Spacer()
+                                    if let t = e.timestamp {
+                                        Text(t.formatted(date: .numeric, time: .shortened))
+                                            .font(.caption2.monospacedDigit()).foregroundStyle(Theme.text3)
+                                    }
+                                }
+                                Text(e.message.isEmpty ? "(message could not be resolved)" : e.message)
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(e.message.isEmpty ? Theme.text3 : Theme.text)
+                                    .lineLimit(3)
+                            }
+                            .padding(.vertical, 5)
+                            if index < min(rows.count, 500) - 1 {
+                                Divider().background(Theme.hair2)
+                            }
+                        }
+                    }
+                }
+                Spacer(minLength: 26)
+            }
+            .padding(.horizontal)
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+    }
+}
+
 // MARK: - FSEvents drill view (macOS)
 
 /// Read-only macOS FSEvents change history for the active scope - the kernel's

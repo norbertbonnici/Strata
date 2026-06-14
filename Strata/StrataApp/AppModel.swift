@@ -47,6 +47,7 @@ nonisolated struct EvidenceState: Sendable {
     var quarantine: [QuarantineEvent] = []
     var macPersistence: [MacPersistenceItem] = []
     var fsEvents: [FSEventRecord] = []
+    var unifiedLog: [UnifiedLogEntry] = []
     // macOS host identity (empty on non-macOS evidence).
     var macInfo: MacHostInfo?
     var findings: [Finding] = []
@@ -540,6 +541,11 @@ final class AppModel: ObservableObject {
             state.quarantine = (try? CaseStore.readQuarantine(forHostID: evidence.id, in: bundleURL)) ?? []
             state.macPersistence = (try? CaseStore.readMacPersistence(forHostID: evidence.id, in: bundleURL)) ?? []
             state.fsEvents = (try? CaseStore.readFSEvents(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.unifiedLog = (try? CaseStore.readUnifiedLog(forHostID: evidence.id, in: bundleURL)) ?? []
+            if !state.unifiedLog.isEmpty {
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.unifiedLog))
+                state.timeline.sort { $0.date < $1.date }
+            }
             state.macInfo = try? CaseStore.readMacInfo(forHostID: evidence.id, in: bundleURL)
             // Fold USN journal rows back into the timeline so the Source filter
             // works without re-parsing on every case open (mirrors the evtx splice).
@@ -1113,6 +1119,7 @@ final class AppModel: ObservableObject {
         var quarantine: [QuarantineEvent] = []
         var macPersistence: [MacPersistenceItem] = []
         var fsEvents: [FSEventRecord] = []
+        var unifiedLog: [UnifiedLogEntry] = []
         var iocMatches: [IOCMatch] = []
     }
     private var derivedCache: Derived?
@@ -1184,6 +1191,7 @@ final class AppModel: ObservableObject {
             d.quarantine = s.quarantine
             d.macPersistence = s.macPersistence
             d.fsEvents = s.fsEvents
+            d.unifiedLog = s.unifiedLog
             d.iocMatches = s.iocMatches
             return d
         }
@@ -1220,6 +1228,7 @@ final class AppModel: ObservableObject {
             d.quarantine.append(contentsOf: s.quarantine)
             d.macPersistence.append(contentsOf: s.macPersistence)
             d.fsEvents.append(contentsOf: s.fsEvents)
+            d.unifiedLog.append(contentsOf: s.unifiedLog)
             d.iocMatches.append(contentsOf: s.iocMatches)
         }
         d.events.sort { $0.writtenAt < $1.writtenAt }
@@ -1257,6 +1266,7 @@ final class AppModel: ObservableObject {
         }
         // FSEvents has no timestamp; the event ID is the monotonic order.
         d.fsEvents.sort { $0.eventID < $1.eventID }
+        d.unifiedLog.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
         return d
     }
 
@@ -1300,6 +1310,7 @@ final class AppModel: ObservableObject {
     var quarantine: [QuarantineEvent] { derived().quarantine }
     var macPersistence: [MacPersistenceItem] { derived().macPersistence }
     var fsEvents: [FSEventRecord] { derived().fsEvents }
+    var unifiedLog: [UnifiedLogEntry] { derived().unifiedLog }
     /// Linux host info for the active scope (tiny; not worth caching). In the
     /// combined scope the first host that has one wins.
     var linuxInfo: LinuxHostInfo? {
@@ -1350,6 +1361,7 @@ final class AppModel: ObservableObject {
     var quarantineCount: Int { scopedCount(\.quarantine.count) }
     var macPersistenceCount: Int { scopedCount(\.macPersistence.count) }
     var fsEventCount: Int { scopedCount(\.fsEvents.count) }
+    var unifiedLogCount: Int { scopedCount(\.unifiedLog.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
     /// True once the Linux log parse has produced *something* in the active
@@ -1388,6 +1400,9 @@ final class AppModel: ObservableObject {
         if lastlogCount > 0 { s.insert(.lastlog) }
         if webAccessCount > 0 { s.insert(.weblog) }
         if shellHistoryCount > 0 { s.insert(.shellHistory) }
+        // macOS unified log — the primary macOS telemetry (high volume; the
+        // Source filter lets the analyst toggle it off).
+        if unifiedLogCount > 0 { s.insert(.unifiedLog) }
         // Windows bounded execution / usage.
         if prefetchCount > 0 { s.insert(.prefetch) }
         if browserHistoryCount > 0 { s.insert(.browser) }
@@ -1823,6 +1838,7 @@ final class AppModel: ObservableObject {
         await parseWmi()
         await parseLinux()
         await parseMac()
+        await parseUnifiedLog()
         await runAnalyzers()
     }
 
@@ -3479,6 +3495,161 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Decode the macOS **unified log** (`.tracev3`). Discovers the diagnostics
+    /// logs + timesync + the referenced `.uuidtext`/`dsc` string catalogs, extracts
+    /// them (loose / icat / `fsapfscat`), and assembles timestamped, message-bearing
+    /// `UnifiedLogEntry`s off-main. Only the durable **Persist** + short-term
+    /// **Special** logs are decoded; Signpost (perf) and HighVolume (I/O tracing)
+    /// are skipped as low-signal + high-volume.
+    func parseUnifiedLog() async {
+        guard !evidenceList.isEmpty else { return }
+        errorMessage = nil
+        isWorking = true
+        defer { isWorking = false; progress = nil }
+
+        // The diagnostics logs we decode (Persist + Special only).
+        func tracev3Files(_ s: EvidenceState) -> [FileEntry] {
+            s.files.filter { e in
+                guard !e.isDirectory, e.size > 0, e.name.lowercased().hasSuffix(".tracev3") else { return false }
+                let p = e.fullPath.lowercased()
+                return p.contains("/diagnostics/persist/") || p.contains("/diagnostics/special/")
+            }
+        }
+        func timesyncFiles(_ s: EvidenceState) -> [FileEntry] {
+            s.files.filter { !$0.isDirectory && $0.size > 0
+                && $0.fullPath.lowercased().contains("/diagnostics/timesync/")
+                && $0.name.lowercased().hasSuffix(".timesync") }
+        }
+        // All `.uuidtext`/`dsc` files, indexed by their 32-hex UUID key. A
+        // uuidtext lives at `…/uuidtext/<XX>/<30hex>` (key = XX+name); a dsc at
+        // `…/uuidtext/dsc/<32hex>` (key = name).
+        func stringCatalogIndex(_ s: EvidenceState) -> [String: (entry: FileEntry, isDsc: Bool)] {
+            var index: [String: (FileEntry, Bool)] = [:]
+            for e in s.files where !e.isDirectory && e.size > 0
+                && e.fullPath.lowercased().contains("/uuidtext/") {
+                let comps = e.fullPath.split(separator: "/")
+                guard comps.count >= 2 else { continue }
+                let parent = String(comps[comps.count - 2])
+                let name = e.name.uppercased()
+                if parent.lowercased() == "dsc", name.count == 32 {
+                    index[name] = (e, true)
+                } else if parent.count == 2, name.count == 30 {
+                    index[parent.uppercased() + name] = (e, false)
+                }
+            }
+            return index
+        }
+
+        let totalWork = evidenceList.reduce(0) { acc, e in
+            guard let s = states[e.id], s.unifiedLog.isEmpty else { return acc }
+            return acc + tracev3Files(s).count
+        }
+        guard totalWork > 0 else { statusMessage = "No unified-log files to parse."; return }
+        progress = ProgressInfo(current: 0, total: totalWork, label: "Decoding unified log")
+        var completed = 0
+
+        do {
+            let tskEnv = try TSKEnvironment.discover()
+            for evidence in evidenceList {
+                guard var state = states[evidence.id], state.unifiedLog.isEmpty else { continue }
+                let tv3 = tracev3Files(state)
+                guard !tv3.isEmpty else { continue }
+                let tsFiles = timesyncFiles(state)
+                let catalogIndex = stringCatalogIndex(state)
+
+                let isLoose = evidence.kind == .kapeLooseFolder
+                let isAPFS = evidence.kind == .apfs
+                var database: TSKDatabase?
+                var extractor: TSKFileExtractor?
+                var apfsExtractor: FsApfsExtractor?
+                var scratch: URL?
+                if !isLoose {
+                    guard let bundleURL = currentCaseBundleURL else { continue }
+                    let dir = CaseStore.unifiedLogScratchDirectory(forHostID: evidence.id, in: bundleURL)
+                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    scratch = dir
+                    if isAPFS {
+                        apfsExtractor = FsApfsExtractor(environment: tskEnv,
+                                                        rawURL: evidence.apfsRawURL ?? evidence.sourceURL)
+                    } else {
+                        guard let dbURL = state.dbURL else { continue }
+                        database = try TSKDatabase(path: dbURL)
+                        extractor = TSKFileExtractor(environment: tskEnv, imageURL: evidence.sourceURL,
+                                                     imageType: TSKImageIngestor.imageType(for: evidence.sourceURL))
+                    }
+                }
+                func extract(_ entry: FileEntry) async -> Data? {
+                    if isLoose {
+                        guard let disk = entry.diskURL,
+                              FileManager.default.fileExists(atPath: disk.path) else { return nil }
+                        return try? Data(contentsOf: disk)
+                    }
+                    let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name)")
+                    if isAPFS {
+                        let off = state.volumes.first { $0.id == entry.fsID }?.offsetBytes ?? 0
+                        try? await apfsExtractor!.extract(volumePath: entry.fullPath,
+                                                          volumeIndex: entry.fsID ?? 0,
+                                                          offsetBytes: off, to: outURL)
+                    } else {
+                        guard let info = try? database!.fetchExtractInfo(forFileID: entry.id) else { return nil }
+                        try? await extractor!.extract(metaAddr: info.metaAddr,
+                                                      imageOffsetSectors: info.imageOffsetSectors, to: outURL)
+                    }
+                    return try? Data(contentsOf: outURL)
+                }
+
+                // 1. timesync → boot anchors.
+                var timesyncDatas: [Data] = []
+                for entry in tsFiles { if let d = await extract(entry) { timesyncDatas.append(d) } }
+                let timesyncByBoot = TimesyncParser.parseAll(timesyncDatas)
+
+                // 2. the .tracev3 logs.
+                var tracev3: [(data: Data, sourceFile: String)] = []
+                for entry in tv3 {
+                    progress = ProgressInfo(current: completed, total: totalWork,
+                                            label: "\(evidence.displayName): \(entry.name)")
+                    completed += 1
+                    if let d = await extract(entry) { tracev3.append((d, entry.fullPath)) }
+                }
+                guard !tracev3.isEmpty else { continue }
+
+                // 3. the referenced .uuidtext/dsc string catalogs.
+                let needed = UnifiedLogAssembler.referencedUUIDs(in: tracev3.map { $0.data })
+                var uuidTexts: [String: UUIDTextFile] = [:]
+                var dscs: [String: DscFile] = [:]
+                for uuid in needed {
+                    let key = uuid.replacingOccurrences(of: "-", with: "").uppercased()
+                    guard let hit = catalogIndex[key], let data = await extract(hit.entry) else { continue }
+                    if hit.isDsc {
+                        if let f = DscParser.parse(data, uuid: uuid) { dscs[uuid] = f }
+                    } else if let f = UUIDTextParser.parse(data, uuid: uuid) {
+                        uuidTexts[uuid] = f
+                    }
+                }
+                let strings = UnifiedLogStringCatalog(uuidTexts: uuidTexts, dscs: dscs)
+
+                // 4. assemble off-main (hundreds of thousands of tracepoints).
+                progress = ProgressInfo(current: completed, total: totalWork,
+                                        label: "\(evidence.displayName): rendering messages")
+                var entries = await Task.detached(priority: .userInitiated) {
+                    UnifiedLogAssembler.assemble(tracev3: tracev3, timesyncByBoot: timesyncByBoot, strings: strings)
+                }.value
+                entries.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+
+                state.unifiedLog = entries
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: entries))
+                state.timeline.sort { $0.date < $1.date }
+                states[evidence.id] = state
+                if let bundleURL = currentCaseBundleURL {
+                    try? CaseStore.writeUnifiedLog(entries, forHostID: evidence.id, in: bundleURL)
+                }
+            }
+            progress = ProgressInfo(current: completed, total: totalWork, label: "Unified-log decode complete")
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func parsePrefetch() async {
         guard !evidenceList.isEmpty else {
             errorMessage = "No evidence loaded."
@@ -4158,7 +4329,8 @@ final class AppModel: ObservableObject {
                                           launchItems: state.launchItems,
                                           quarantine: state.quarantine,
                                           macPersistence: state.macPersistence,
-                                          fsEvents: state.fsEvents)
+                                          fsEvents: state.fsEvents,
+                                          unifiedLog: state.unifiedLog)
             let results = await analysisEngine.run(on: context)
             state.findings = results
             states[evidence.id] = state

@@ -5,6 +5,39 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Added — macOS Unified Log, M6: integration (tab + timeline + analyzer)
+
+The unified-log decoder is now wired into the app end-to-end — **the macOS
+unified log finally appears in Strata**, the payoff of the M1–M5 decoder arc.
+
+- **`AppModel.parseUnifiedLog()`** (macOS) discovers the diagnostics logs
+  (durable **Persist** + short-term **Special**; Signpost/HighVolume skipped as
+  low-signal + high-volume), the `timesync` database, and the **referenced**
+  `.uuidtext`/`dsc` string catalogs, extracts them all via the existing
+  loose/`icat`/`fsapfscat` closure, and assembles timestamped, message-bearing
+  `UnifiedLogEntry`s off-main. Runs after `parseMac()` in `parseArtifacts()`.
+- **`UnifiedLogAssembler`** (`StrataCore`) ties the layers together: walk each
+  `.tracev3`'s chunks → catalog (M3) → firehose tracepoints (M4) → resolve +
+  render via the string catalogs (M5) → `UnifiedLogEntry` with timestamp (M2),
+  pid, level, process, and message. `referencedUUIDs` enumerates the catalog
+  files to extract.
+- **Unified Log tab** (`UnifiedLogView`, macOS — level-coloured, filterable,
+  row-capped table + detail pane) + **iOS drill** (`UnifiedLogDrillView`), gated
+  to `.macos` evidence. Persisted as `unifiedlog.json`; spliced onto the
+  **timeline** (`TimelineSource.unifiedLog`, a default macOS source); reloads on
+  case open.
+- **`UnifiedLogAnalyzer`** (`StrataAnalysis`) — high-precision checks: `sudo`
+  privilege escalation (T1548.003), `osascript`/AppleScript execution
+  (T1059.002), and accepted SSH logins (T1021.004).
+- **Validated against the real macOS-12 image**: the assembler produces 22,186
+  fully timestamped entries from one Special file with messages + process names
+  resolved; both platforms build; 33 unit tests pass.
+- **Known limits:** message/process coverage depends on the referenced
+  `.uuidtext` being present (absolute/uuid-relative `flags 0x0c` ≈17% still need
+  loaded-image resolution); a busy **Persist** log is hundreds of thousands of
+  entries → a large `unifiedlog.json` (same bracket as `events.json`);
+  per-entry subsystem/category attribution is a later refinement.
+
 ### Added — Unified-log decode, M5b: argument items → rendered messages
 
 The piece that turns a format string + raw arg bytes into the **readable log

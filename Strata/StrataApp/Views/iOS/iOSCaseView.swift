@@ -503,6 +503,16 @@ struct MoreTab: View {
                     .buttonStyle(.plain)
                     Divider().background(Theme.hair2).padding(.leading, 50)
                     }
+                    if model.shows(osFamily: .macos) {
+                    NavigationLink {
+                        UnifiedLogDrillView()
+                    } label: {
+                        moreRow(icon: "list.bullet.rectangle", title: "Unified Log",
+                                trailing: counter(model.unifiedLogCount))
+                    }
+                    .buttonStyle(.plain)
+                    Divider().background(Theme.hair2).padding(.leading, 50)
+                    }
 
                     NavigationLink {
                         LateralDrillView()
