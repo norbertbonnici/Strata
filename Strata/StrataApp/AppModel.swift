@@ -3364,12 +3364,16 @@ final class AppModel: ObservableObject {
             return "system"
         }
         let total = evidenceList.reduce(0) { acc, e in
-            guard let s = states[e.id], s.launchItems.isEmpty, s.quarantine.isEmpty,
-                  s.macPersistence.isEmpty, s.fsEvents.isEmpty, s.tcc.isEmpty,
-                  s.macInfo == nil else { return acc }
-            return acc + plists(s).count + quarantines(s).count + hostInfoFiles(s).count
-                + persistenceFiles(s).count + fseventsFiles(s).count + shellHistoryFiles(s).count
-                + tccFiles(s).count + knowledgeFiles(s).count
+            guard let s = states[e.id] else { return acc }
+            return acc
+                + (s.launchItems.isEmpty ? plists(s).count : 0)
+                + (s.quarantine.isEmpty ? quarantines(s).count : 0)
+                + (s.macInfo == nil ? hostInfoFiles(s).count : 0)
+                + (s.macPersistence.isEmpty ? persistenceFiles(s).count : 0)
+                + (s.fsEvents.isEmpty ? fseventsFiles(s).count : 0)
+                + (s.shellHistory.isEmpty ? shellHistoryFiles(s).count : 0)
+                + (s.tcc.isEmpty ? tccFiles(s).count : 0)
+                + (s.knowledgeC.isEmpty ? knowledgeFiles(s).count : 0)
         }
         guard total > 0 else { statusMessage = "No new macOS artifacts to parse."; return }
         progress = ProgressInfo(current: 0, total: total, label: "Parsing macOS artifacts")
@@ -3377,18 +3381,15 @@ final class AppModel: ObservableObject {
         do {
             let tskEnv = try TSKEnvironment.discover()
             for evidence in evidenceList {
-                guard var state = states[evidence.id],
-                      state.launchItems.isEmpty, state.quarantine.isEmpty,
-                      state.macPersistence.isEmpty, state.fsEvents.isEmpty,
-                      state.tcc.isEmpty, state.macInfo == nil else { continue }
-                let foundPlists = plists(state)
-                let foundQuar = quarantines(state)
-                let foundInfo = hostInfoFiles(state)
-                let foundPersist = persistenceFiles(state)
-                let foundFSE = fseventsFiles(state)
-                let foundShell = shellHistoryFiles(state)
-                let foundTCC = tccFiles(state)
-                let foundKnowledge = knowledgeFiles(state)
+                guard var state = states[evidence.id] else { continue }
+                let foundPlists = state.launchItems.isEmpty ? plists(state) : []
+                let foundQuar = state.quarantine.isEmpty ? quarantines(state) : []
+                let foundInfo = state.macInfo == nil ? hostInfoFiles(state) : []
+                let foundPersist = state.macPersistence.isEmpty ? persistenceFiles(state) : []
+                let foundFSE = state.fsEvents.isEmpty ? fseventsFiles(state) : []
+                let foundShell = state.shellHistory.isEmpty ? shellHistoryFiles(state) : []
+                let foundTCC = state.tcc.isEmpty ? tccFiles(state) : []
+                let foundKnowledge = state.knowledgeC.isEmpty ? knowledgeFiles(state) : []
                 guard !foundPlists.isEmpty || !foundQuar.isEmpty || !foundInfo.isEmpty
                     || !foundPersist.isEmpty || !foundFSE.isEmpty || !foundShell.isEmpty
                     || !foundTCC.isEmpty || !foundKnowledge.isEmpty else { continue }
@@ -3547,26 +3548,38 @@ final class AppModel: ObservableObject {
                 }
                 knowledge.sort { ($0.startDate ?? .distantPast) > ($1.startDate ?? .distantPast) }
 
-                state.launchItems = launch
-                state.quarantine = quar
-                state.macPersistence = persist
-                state.fsEvents = fsEvents
-                state.tcc = tcc
-                state.knowledgeC = knowledge
+                if !foundPlists.isEmpty { state.launchItems = launch }
+                if !foundQuar.isEmpty { state.quarantine = quar }
+                if !foundPersist.isEmpty { state.macPersistence = persist }
+                if !foundFSE.isEmpty { state.fsEvents = fsEvents }
+                if !foundTCC.isEmpty { state.tcc = tcc }
+                if !foundKnowledge.isEmpty { state.knowledgeC = knowledge }
                 if !macShell.isEmpty { state.shellHistory.append(contentsOf: macShell) }
-                state.macInfo = info.isEmpty ? nil : info
+                if !foundInfo.isEmpty { state.macInfo = info.isEmpty ? nil : info }
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
-                    try? CaseStore.writeLaunchItems(launch, forHostID: evidence.id, in: bundleURL)
-                    try? CaseStore.writeQuarantine(quar, forHostID: evidence.id, in: bundleURL)
-                    try? CaseStore.writeMacPersistence(persist, forHostID: evidence.id, in: bundleURL)
-                    try? CaseStore.writeFSEvents(fsEvents, forHostID: evidence.id, in: bundleURL)
-                    try? CaseStore.writeTCC(tcc, forHostID: evidence.id, in: bundleURL)
-                    try? CaseStore.writeKnowledgeC(knowledge, forHostID: evidence.id, in: bundleURL)
+                    if !foundPlists.isEmpty {
+                        try? CaseStore.writeLaunchItems(launch, forHostID: evidence.id, in: bundleURL)
+                    }
+                    if !foundQuar.isEmpty {
+                        try? CaseStore.writeQuarantine(quar, forHostID: evidence.id, in: bundleURL)
+                    }
+                    if !foundPersist.isEmpty {
+                        try? CaseStore.writeMacPersistence(persist, forHostID: evidence.id, in: bundleURL)
+                    }
+                    if !foundFSE.isEmpty {
+                        try? CaseStore.writeFSEvents(fsEvents, forHostID: evidence.id, in: bundleURL)
+                    }
+                    if !foundTCC.isEmpty {
+                        try? CaseStore.writeTCC(tcc, forHostID: evidence.id, in: bundleURL)
+                    }
+                    if !foundKnowledge.isEmpty {
+                        try? CaseStore.writeKnowledgeC(knowledge, forHostID: evidence.id, in: bundleURL)
+                    }
                     if !macShell.isEmpty {
                         try? CaseStore.writeShellHistory(state.shellHistory, forHostID: evidence.id, in: bundleURL)
                     }
-                    if let info = state.macInfo {
+                    if !foundInfo.isEmpty, let info = state.macInfo {
                         try? CaseStore.writeMacInfo(info, forHostID: evidence.id, in: bundleURL)
                     }
                 }
