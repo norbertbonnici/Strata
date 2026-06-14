@@ -391,6 +391,22 @@ public nonisolated enum TimelineBuilder {
         return out.sorted { $0.date < $1.date }
     }
 
+    /// Project TCC privacy grants onto the timeline. `kind` is `.changed`; the
+    /// path encodes `service → client (authValue)` so rows read well and search
+    /// matches. Grants without a `last_modified` time are dropped.
+    public static func build(from grants: [TCCAccess]) -> [TimelineEvent] {
+        var out: [TimelineEvent] = []
+        out.reserveCapacity(grants.count)
+        for g in grants {
+            guard let date = g.lastModified else { continue }
+            out.append(TimelineEvent(date: date, kind: .changed, source: .tcc,
+                                     fileID: 0,
+                                     path: "\(g.serviceLabel) → \(g.clientLabel) (\(g.authValue.label))",
+                                     size: 0, isDeleted: false))
+        }
+        return out.sorted { $0.date < $1.date }
+    }
+
     /// Project auditd events onto the timeline. `kind` is `.changed`; the path
     /// encodes the record type + command/summary. Events without a timestamp
     /// are dropped.

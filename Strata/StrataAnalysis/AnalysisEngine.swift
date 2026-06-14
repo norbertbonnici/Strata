@@ -71,5 +71,6 @@ public nonisolated struct AnalysisEngine: Sendable {
         MacQuarantineAnalyzer(),
         FSEventsAnalyzer(),
         UnifiedLogAnalyzer(),
+        TCCAnalyzer(),
     ]
 }

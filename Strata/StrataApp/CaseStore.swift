@@ -45,6 +45,7 @@ public nonisolated enum CaseStore {
     private static let packagesFilename   = "packages.json"
     private static let journaldFilename   = "journald.json"
     private static let unifiedLogFilename = "unifiedlog.json"
+    private static let tccFilename        = "tcc.json"
     private static let auditFilename      = "audit.json"
     private static let syslogFilename     = "syslog.json"
     private static let lastlogFilename    = "lastlog.json"
@@ -546,6 +547,16 @@ public nonisolated enum CaseStore {
                                        forHostID id: UUID, in bundle: URL) throws {
         try writeArray(entries, at: hostDirectory(forHostID: id, in: bundle)
             .appendingPathComponent(unifiedLogFilename))
+    }
+
+    public static func readTCC(forHostID id: UUID, in bundle: URL) throws -> [TCCAccess]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(tccFilename))
+    }
+    public static func writeTCC(_ entries: [TCCAccess],
+                                forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(entries, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(tccFilename))
     }
 
     public static func readAudit(forHostID id: UUID, in bundle: URL) throws -> [AuditEvent]? {

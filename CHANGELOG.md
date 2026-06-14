@@ -5,6 +5,36 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Added — macOS TCC (privacy & consent) database
+
+Strata now parses the macOS **TCC** database (`TCC.db`) — the record of which
+apps were granted (or denied) privacy-sensitive capabilities, and when. This is
+high-signal for macOS DFIR: stalkerware / info-stealers / RMM tooling that
+obtained **Accessibility** (keystroke injection / UI control), **Screen
+Recording**, **Input Monitoring**, **Full Disk Access**, **Camera/Microphone**,
+or **Automation** is visible here with the grant's `last_modified` time.
+
+- **`TCCAccess`** (`StrataCore`) + **`TCCParser`** (`StrataMac`, macOS) read the
+  `access` table directly via GRDB (SQLite, like browser history — no vendored
+  tool; the evidence DB is copied to scratch and opened read-write so a WAL-mode
+  DB opens). Handles the modern `auth_value` schema and the legacy `allowed`
+  boolean; maps `kTCCService*` keys to friendly names (Camera, Screen Recording,
+  Full Disk Access, …). Both the system DB (`/Library/Application Support/
+  com.apple.TCC/`) and per-user DBs are collected, with the owning scope recorded.
+- **Wired into `parseMac`**, persisted as `tcc.json`, spliced onto the timeline
+  (`TimelineSource.tcc`, default macOS source), with a **TCC (Privacy)** tab
+  (`TCCView`, sortable/filterable, sensitive services highlighted) + iOS drill,
+  gated to `.macos` evidence.
+- **`TCCAnalyzer`** flags **sensitive capabilities allowed to a non-Apple
+  client** (Apple-signed system clients are expected to hold these and are not
+  flagged), mapped to ATT&CK — Screen Recording → T1113, Camera → T1125,
+  Microphone → T1123, Accessibility/Input Monitoring → T1056.001, Full Disk
+  Access → T1005, Automation → T1059.002.
+- **Validated against a real macOS-12 image** (schema + values pinned from the
+  on-disk DB: e.g. `screensharing.agent`→Screen Recording, `sshd-keygen-wrapper`
+  →Full Disk Access); synthetic unit tests cover the model (labels/sensitivity/
+  client kind) + the analyzer (flag/skip/dedupe).
+
 ### Added — Unified Log: full format-string resolution (absolute / shared-cache large-offset)
 
 Closes the last decode gap — the `0x08` absolute / `0x0a` uuid-relative / `0x0c`

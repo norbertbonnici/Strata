@@ -513,6 +513,16 @@ struct MoreTab: View {
                     .buttonStyle(.plain)
                     Divider().background(Theme.hair2).padding(.leading, 50)
                     }
+                    if model.shows(osFamily: .macos) {
+                    NavigationLink {
+                        TCCDrillView()
+                    } label: {
+                        moreRow(icon: "hand.raised", title: "TCC (Privacy)",
+                                trailing: counter(model.tccCount))
+                    }
+                    .buttonStyle(.plain)
+                    Divider().background(Theme.hair2).padding(.leading, 50)
+                    }
 
                     NavigationLink {
                         LateralDrillView()
