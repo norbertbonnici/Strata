@@ -5,6 +5,34 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Added — macOS KnowledgeC (behavioural activity timeline)
+
+Strata now parses the macOS **KnowledgeC** store (`knowledgeC.db`, CoreDuet) —
+the richest behavioural timeline on a Mac: which app was in focus and for how
+long, screen on/off, media playback, Safari visits. Places a user at the
+keyboard and reconstructs app activity minute-by-minute.
+
+- **`KnowledgeEntry`** (`StrataCore`) + **`KnowledgeCParser`** (`StrataMac`,
+  GRDB) read the `ZOBJECT` table directly (SQLite/Core Data — copy-to-scratch,
+  read-write/WAL-safe). Only the high-value streams are pulled (`/app/inFocus`,
+  `/app/usage`, `/app/activity`, `/display/isBacklit`, `/device/isLocked`,
+  `/device/isPluggedIn`, `/media/nowPlaying`, `/safari/history`,
+  `/notification/usage`); the high-volume low-signal streams are skipped.
+  Core Data "Mac absolute time" decodes straight via
+  `Date(timeIntervalSinceReferenceDate:)`. System + per-user stores, with scope.
+- **Wired into `parseMac`**, persisted as `knowledgec.json`, spliced onto the
+  timeline (`TimelineSource.knowledgeC`, default macOS source), with a
+  **KnowledgeC** tab (`KnowledgeCView`, sortable/filterable + category picker,
+  showing app + duration) + iOS drill, gated to `.macos` evidence.
+- **`KnowledgeCAnalyzer`** flags a **remote-access / RMM / screen-sharing tool
+  that was actually in focus** (TeamViewer, AnyDesk, ScreenConnect, Splashtop,
+  VNC, …) → ATT&CK **T1219** — proof of hands-on-keyboard remote operation with a
+  timestamp, complementing the file-presence `RMMToolAnalyzer`.
+- **Validated against a real macOS-12 image** (schema + values pinned from the
+  on-disk DB: e.g. `/app/inFocus` → `com.apple.Terminal`/`com.google.Chrome` with
+  start/end; `/safari/history` URLs); synthetic unit tests cover the model
+  (category/summary/duration/Mac-time) + the analyzer.
+
 ### Added — macOS TCC (privacy & consent) database
 
 Strata now parses the macOS **TCC** database (`TCC.db`) — the record of which

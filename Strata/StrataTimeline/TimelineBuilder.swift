@@ -407,6 +407,22 @@ public nonisolated enum TimelineBuilder {
         return out.sorted { $0.date < $1.date }
     }
 
+    /// Project KnowledgeC behavioural records onto the timeline. `kind` is
+    /// `.changed`; the path encodes `category: summary` (app focus, screen
+    /// on/off, media, Safari) so rows read well and search matches. Records
+    /// without a start time are dropped.
+    public static func build(from records: [KnowledgeEntry]) -> [TimelineEvent] {
+        var out: [TimelineEvent] = []
+        out.reserveCapacity(records.count)
+        for r in records {
+            guard let date = r.startDate else { continue }
+            out.append(TimelineEvent(date: date, kind: .changed, source: .knowledgeC,
+                                     fileID: 0, path: "\(r.category.label): \(r.summary)",
+                                     size: 0, isDeleted: false))
+        }
+        return out.sorted { $0.date < $1.date }
+    }
+
     /// Project auditd events onto the timeline. `kind` is `.changed`; the path
     /// encodes the record type + command/summary. Events without a timestamp
     /// are dropped.

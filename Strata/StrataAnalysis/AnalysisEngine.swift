@@ -72,5 +72,6 @@ public nonisolated struct AnalysisEngine: Sendable {
         FSEventsAnalyzer(),
         UnifiedLogAnalyzer(),
         TCCAnalyzer(),
+        KnowledgeCAnalyzer(),
     ]
 }

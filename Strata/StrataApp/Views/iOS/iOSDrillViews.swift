@@ -1955,6 +1955,64 @@ struct MacPersistenceDrillView: View {
     }
 }
 
+// MARK: - KnowledgeC drill view (macOS)
+
+/// Read-only macOS KnowledgeC behavioural timeline for the active scope — app
+/// focus/usage, screen on/off, media, Safari. Filterable by app/value.
+struct KnowledgeCDrillView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var query = ""
+
+    private var filtered: [KnowledgeEntry] {
+        let rows = model.knowledgeC
+        guard !query.isEmpty else { return rows }
+        return rows.filter {
+            ($0.value?.localizedCaseInsensitiveContains(query) ?? false)
+                || $0.category.label.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitle(title: "KnowledgeC",
+                           subtitle: "\(model.knowledgeCCount) record\(model.knowledgeCCount == 1 ? "" : "s")")
+                TextField("Filter app / value...", text: $query)
+                    .textFieldStyle(.roundedBorder).padding(.top, 10)
+                let rows = filtered
+                if rows.isEmpty {
+                    ContentUnavailableView("No KnowledgeC records", systemImage: "brain").padding(.top, 40)
+                } else {
+                    Card {
+                        ForEach(Array(rows.prefix(800).enumerated()), id: \.element.id) { index, e in
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack {
+                                    Text(e.category.label).font(.caption.bold()).foregroundStyle(Theme.teal)
+                                    Spacer()
+                                    if let t = e.startDate {
+                                        Text(t.formatted(date: .numeric, time: .shortened))
+                                            .font(.caption2.monospacedDigit()).foregroundStyle(Theme.text3)
+                                    }
+                                }
+                                Text(e.summary).font(.caption.monospaced())
+                                    .foregroundStyle(Theme.text).lineLimit(2)
+                            }
+                            .padding(.vertical, 5)
+                            if index < min(rows.count, 800) - 1 { Divider().background(Theme.hair2) }
+                        }
+                    }
+                }
+                Spacer(minLength: 26)
+            }
+            .padding(.horizontal)
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+    }
+}
+
 // MARK: - TCC (privacy) drill view (macOS)
 
 /// Read-only macOS TCC privacy grants for the active scope — which apps were
