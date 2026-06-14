@@ -5,6 +5,39 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Added — Unified-log decode, M5a: format-string catalogs (`.uuidtext` / `dsc`)
+
+Parses the out-of-file string catalogs the unified log points at, and resolves a
+tracepoint's **format string** + **emitting process name** — the inputs M5b needs
+to render readable messages.
+
+- **`UUIDTextParser`** / **`UUIDTextFile`** (`StrataCore`) parse a `.uuidtext`
+  file (`/var/db/uuidtext/XX/YYYY…`, magic `0x66778899`): the entry range table +
+  per-range format-string blocks + the trailing image path. `formatString(at:)`
+  resolves a main-executable format string; `processName` is the image path leaf.
+- **`DscParser`** / **`DscFile`** (`StrataCore`) parse a `dsc` shared-cache
+  strings file (`/var/db/uuidtext/dsc/<uuid>`, magic `hcsd`, v2/Monterey+): the
+  range + UUID tables. `resolve(offset:)` binary-searches the covering range →
+  the shared-cache format string + owning library path.
+- **`UnifiedLogStringCatalog`** (`StrataCore`) holds the loaded `.uuidtext`/`dsc`
+  set and dispatches by the tracepoint's format-string-type flags
+  (`flags & 0x0e`): `0x02` main-exe → the process's main `.uuidtext`, `0x04`
+  shared-cache → the `dsc`; `0x08`/`0x0a`/`0x0c` (absolute / uuid-relative) keep
+  the process name and defer the string to M5b's loaded-image resolution.
+- **Validated against the real macOS-12 image**: real format strings resolve —
+  e.g. `syncdefaultsd`'s *"Adopted persona %@ and copied context %@"* (main-exe)
+  and shared-cache strings from `dsc` with library paths like
+  `/usr/lib/system/libsystem_blocks.dylib`. The flag dispatch is clean on real
+  data: **100%** of `shared-cache` (`0x04`) tracepoints resolved via the `dsc`,
+  and all `main-exe` (`0x02`) tracepoints for a process resolved via its
+  `.uuidtext` (≈83% of all tracepoints covered with just the one `dsc` + one
+  `.uuidtext`; the rest are absolute/uuid-relative, M5b). Synthetic byte-level
+  unit tests cover both parsers + the resolver dispatch. (`.uuidtext`/`dsc` live
+  on the Data volume, so `fsapfscat` reads them fine — not sealed.)
+
+This is M5a of the unified-log arc (M1 → M2 timesync → M3 catalog → M4 firehose →
+**M5a string catalogs** → M5b message rendering → M6 tab/timeline/analyzer).
+
 ### Added — Unified-log decode, M4: firehose tracepoints → timestamped entries
 
 Decodes the firehose chunks (`0x6001`) — the actual log records — into
