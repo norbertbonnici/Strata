@@ -39,7 +39,7 @@ struct FirehoseMessageTests {
         // 15-byte synthetic optional header (like the real flags=0x603 case).
         let header = Array(repeating: UInt8(0xEE), count: 15)
         let data = Self.stringArgsData(header: header, values: ["BA08DA59-3A00-4EA5"])
-        let items = FirehoseItemDecoder.decode(data, expectedCount: 1)
+        let items = FirehoseItemDecoder.decode(data, flags: 0, expectedCount: 1).items
         #expect(items.count == 1)
         #expect(items[0].value == "BA08DA59-3A00-4EA5")
         #expect(items[0].isNumber == false)
@@ -48,7 +48,7 @@ struct FirehoseMessageTests {
     @Test func decodesMultipleStringArgs() {
         let data = Self.stringArgsData(header: [0, 0, 0, 0, 0, 0, 0, 0],
                                        values: ["PersonalPersona", "NoEncryption"])
-        let items = FirehoseItemDecoder.decode(data, expectedCount: 2)
+        let items = FirehoseItemDecoder.decode(data, flags: 0, expectedCount: 2).items
         #expect(items.count == 2)
         #expect(items[0].value == "PersonalPersona")
         #expect(items[1].value == "NoEncryption")
@@ -58,10 +58,21 @@ struct FirehoseMessageTests {
         // A private string item (type 0x21) with size 0 → <private>.
         var data: [UInt8] = Array(repeating: 0, count: 8)
         data += [0x22, 0x01, 0x21, 0x01] + Self.le16(0) + Self.le16(0)   // private, empty
-        let items = FirehoseItemDecoder.decode(data, expectedCount: 1)
+        let items = FirehoseItemDecoder.decode(data, flags: 0, expectedCount: 1).items
         #expect(items.count == 1)
         #expect(items[0].isPrivate)
         #expect(items[0].value == nil)
+    }
+
+    @Test func deterministicHeaderExtractsSubsystem() {
+        // flags=0x0200 (has_subsystem): pc_id(4) + subsystem u16(=7), then the
+        // item block. The deterministic parse locates both.
+        var data: [UInt8] = [0, 0, 0, 0]          // pc_id (always present)
+        data += Self.le16(7)                      // subsystem id
+        data += [0x22, 0x01, 0x42, 0x01] + Self.le16(0) + Self.le16(4) + Array("abc".utf8) + [0]
+        let d = FirehoseItemDecoder.decode(data, flags: 0x0200, expectedCount: 1)
+        #expect(d.subsystemID == 7)
+        #expect(d.items.first?.value == "abc")
     }
 
     // MARK: - formatter

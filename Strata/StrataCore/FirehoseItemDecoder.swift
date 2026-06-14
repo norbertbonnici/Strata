@@ -18,13 +18,28 @@ public nonisolated struct FirehoseItem: Sendable, Hashable {
 /// `(offset u16, size u16)` into the value region. Plain numbers (`0x0`/`0x2`)
 /// carry their bytes inline (sequentially) in the value region.
 ///
-/// The optional header's size is flag-dependent and underdocumented, so rather
-/// than parse it, we **anchor** on the descriptor block: scan candidate start
-/// positions and accept the one whose descriptors parse in-bounds and whose
-/// value region is consumed exactly to the end of the data (preferring a match
-/// whose item count equals the format string's specifier count). This is
-/// self-validating and robust to unknown header fields.
+/// The optional header (between the 24-byte tracepoint header and the item
+/// block) is parsed **deterministically** by flag (order confirmed against the
+/// real macOS-12 image, per Mandiant `macos-UnifiedLogs`): `has_current_aid`
+/// (0x0001 → 8B), `has_private_data` (0x0100 → 4B), the always-present `pc_id`
+/// (4B), `has_large_offset` (0x0020 → 2B), `has_subsystem` (0x0200 → 2B
+/// subsystem id), `has_rules` (0x0400 → 1B ttl), `has_oversize` (0x0800 → 4B).
+/// That yields the **subsystem identifier** for free. If the deterministic
+/// header doesn't land on a self-consistent item block (an unhandled flag combo),
+/// we fall back to **anchoring**: scanning candidate start positions for the one
+/// whose descriptors parse in-bounds and consume the value region exactly.
 public nonisolated enum FirehoseItemDecoder {
+
+    /// The decode result: the argument items plus the subsystem identifier
+    /// (present only when the deterministic header parse succeeded and the
+    /// `has_subsystem` flag was set).
+    public struct Decoded: Sendable {
+        public let items: [FirehoseItem]
+        public let subsystemID: UInt16?
+        public init(items: [FirehoseItem], subsystemID: UInt16?) {
+            self.items = items; self.subsystemID = subsystemID
+        }
+    }
 
     /// Item types that carry a `(offset, size)` into the value region.
     static let stringTypes: Set<UInt8> = [0x20, 0x21, 0x22, 0x25, 0x40, 0x41, 0x42,
@@ -38,25 +53,51 @@ public nonisolated enum FirehoseItemDecoder {
     /// Sensitive items rendered as `<private>` (no metadata).
     static let sensitiveTypes: Set<UInt8> = [0x05, 0x45, 0x85]
 
-    /// Decode the items, anchoring the descriptor block. `expectedCount` is the
-    /// format string's specifier count (used to disambiguate the anchor).
-    public static func decode(_ data: [UInt8], expectedCount: Int) -> [FirehoseItem] {
-        let n = data.count
-        var best: [FirehoseItem]? = nil
-        var bestScore = Int.min
+    /// Decode the items + subsystem id. `flags` drives the deterministic
+    /// optional-header parse; `expectedCount` is the format string's specifier
+    /// count (used to disambiguate the anchor fallback).
+    public static func decode(_ data: [UInt8], flags: UInt16, expectedCount: Int) -> Decoded {
+        // 1. Deterministic optional-header parse — also yields the subsystem id.
+        if let (start, subsystemID) = optionalHeaderEnd(data, flags: flags),
+           let (items, exact, _) = tryParse(data, at: start), exact {
+            return Decoded(items: items, subsystemID: subsystemID)
+        }
+        // 2. Fallback: anchor on the descriptor block (no subsystem).
+        return Decoded(items: anchorDecode(data, expectedCount: expectedCount), subsystemID: nil)
+    }
 
-        // `item` + `number_items` need 2 bytes; descriptors then values follow.
+    /// Compute the offset of the `item` byte (and the subsystem id when present)
+    /// by walking the flag-driven optional header. Returns nil if it runs past
+    /// the buffer.
+    static func optionalHeaderEnd(_ d: [UInt8], flags: UInt16) -> (start: Int, subsystem: UInt16?)? {
+        let n = d.count
+        func u16(_ o: Int) -> UInt16 { (o + 1 < n) ? UInt16(d[o]) | (UInt16(d[o + 1]) << 8) : 0 }
+        var p = 0
+        if flags & 0x0001 != 0 { p += 8 }     // has_current_aid: activity id + sentinel
+        if flags & 0x0100 != 0 { p += 4 }     // has_private_data: offset + size
+        p += 4                                 // pc_id (always present)
+        if flags & 0x0020 != 0 { p += 2 }     // has_large_offset
+        var subsystem: UInt16?
+        if flags & 0x0200 != 0 { subsystem = u16(p); p += 2 }   // has_subsystem
+        if flags & 0x0400 != 0 { p += 1 }     // has_rules: ttl
+        if flags & 0x0800 != 0 { p += 4 }     // has_oversize: data ref
+        return p + 2 <= n ? (p, subsystem) : nil
+    }
+
+    /// Anchor on the descriptor block: scan for the start whose descriptors parse
+    /// in-bounds and consume the value region exactly (preferring `expectedCount`).
+    private static func anchorDecode(_ data: [UInt8], expectedCount: Int) -> [FirehoseItem] {
+        let n = data.count
+        var best: [FirehoseItem]?
+        var bestScore = Int.min
         var p = 0
         while p + 2 <= n {
             if let (items, consumedExactly, count) = tryParse(data, at: p) {
-                // Score: exact consumption strongly preferred; matching the
-                // expected arg count next; earlier anchor as a tiebreak.
                 var score = 0
                 if consumedExactly { score += 1000 }
                 if count == expectedCount { score += 500 }
                 score -= p
                 if score > bestScore { bestScore = score; best = items }
-                // A clean exact+count match is as good as it gets.
                 if consumedExactly && count == expectedCount { break }
             }
             p += 1

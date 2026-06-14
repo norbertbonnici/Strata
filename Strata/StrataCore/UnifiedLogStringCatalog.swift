@@ -96,13 +96,17 @@ public nonisolated struct UnifiedLogStringCatalog: Sendable {
                        mainUUID: String?, dscUUID: String?) -> Message {
         let r = resolve(flags: flags, formatStringLocation: formatStringLocation,
                         mainUUID: mainUUID, dscUUID: dscUUID)
+        // Decode the argument items + subsystem id regardless of whether the
+        // format string resolved (the subsystem id is still useful).
+        let decoded = FirehoseItemDecoder.decode(
+            data, flags: flags,
+            expectedCount: r.formatString.map { LogFormatter.specifierCount($0) } ?? 0)
         guard let fmt = r.formatString else {
             return Message(process: r.process, library: r.library, message: nil,
-                           subsystemIdentifier: nil, source: r.source)
+                           subsystemIdentifier: decoded.subsystemID, source: r.source)
         }
-        let items = FirehoseItemDecoder.decode(data, expectedCount: LogFormatter.specifierCount(fmt))
-        let message = LogFormatter.render(format: fmt, items: items)
+        let message = LogFormatter.render(format: fmt, items: decoded.items)
         return Message(process: r.process, library: r.library, message: message,
-                       subsystemIdentifier: nil, source: r.source)
+                       subsystemIdentifier: decoded.subsystemID, source: r.source)
     }
 }

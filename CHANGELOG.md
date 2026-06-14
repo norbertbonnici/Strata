@@ -29,14 +29,24 @@ unified log finally appears in Strata**, the payoff of the M1–M5 decoder arc.
 - **`UnifiedLogAnalyzer`** (`StrataAnalysis`) — high-precision checks: `sudo`
   privilege escalation (T1548.003), `osascript`/AppleScript execution
   (T1059.002), and accepted SSH logins (T1021.004).
+- **Per-entry subsystem/category** — `FirehoseItemDecoder` now parses the
+  firehose **optional header deterministically** by flag (`has_current_aid` /
+  `has_private_data` / `pc_id` / `has_large_offset` / `has_subsystem` /
+  `has_rules` / `has_oversize`, order confirmed against the real image) instead
+  of only anchoring on the descriptor block. That both locates the item block
+  exactly (the anchor is now a fallback) and recovers the **subsystem
+  identifier**, which the assembler resolves to `subsystem`/`category` strings
+  via the catalog's per-process subsystem table. **Validated: 100% of
+  `has_subsystem` tracepoints resolved** (e.g. `com.apple.kvs/Misc`) — 14,843 of
+  one Special file's 22,186 entries carry a subsystem.
 - **Validated against the real macOS-12 image**: the assembler produces 22,186
-  fully timestamped entries from one Special file with messages + process names
-  resolved; both platforms build; 33 unit tests pass.
+  fully timestamped entries from one Special file with messages, process names,
+  and subsystem/category resolved; both platforms build; 39 unit tests pass.
 - **Known limits:** message/process coverage depends on the referenced
   `.uuidtext` being present (absolute/uuid-relative `flags 0x0c` ≈17% still need
-  loaded-image resolution); a busy **Persist** log is hundreds of thousands of
-  entries → a large `unifiedlog.json` (same bracket as `events.json`);
-  per-entry subsystem/category attribution is a later refinement.
+  loaded-image resolution — deferred, since a wrong-image heuristic would harm
+  forensic integrity); a busy **Persist** log is hundreds of thousands of
+  entries → a large `unifiedlog.json` (same bracket as `events.json`).
 
 ### Added — Unified-log decode, M5b: argument items → rendered messages
 

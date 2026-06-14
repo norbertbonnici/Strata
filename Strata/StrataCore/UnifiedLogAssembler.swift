@@ -56,10 +56,14 @@ public nonisolated enum UnifiedLogAssembler {
                             let m = strings.render(flags: tp.flags,
                                                    formatStringLocation: tp.formatStringLocation,
                                                    data: tp.data, mainUUID: mainUUID, dscUUID: dscUUID)
+                            // Resolve the subsystem id (from the tracepoint) to
+                            // its subsystem/category strings via the process's
+                            // catalog subsystem table.
+                            let sub = m.subsystemIdentifier.flatMap { pi?.subsystem(for: $0) }
                             out.append(UnifiedLogEntry(
                                 timestamp: boot?.walltime(forContinuousTime: tp.continuousTime),
                                 eventType: tp.eventType, level: tp.level, pid: Int(tp.pid),
-                                process: m.process, subsystem: nil, category: nil,
+                                process: m.process, subsystem: sub?.subsystem, category: sub?.category,
                                 message: m.message ?? "", sourceFile: leaf))
                         }
                     }
