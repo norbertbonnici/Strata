@@ -44,6 +44,7 @@ public nonisolated enum CaseStore {
     private static let webAccessFilename  = "weblog.json"
     private static let packagesFilename   = "packages.json"
     private static let journaldFilename   = "journald.json"
+    private static let unifiedLogFilename = "unifiedlog.json"
     private static let auditFilename      = "audit.json"
     private static let syslogFilename     = "syslog.json"
     private static let lastlogFilename    = "lastlog.json"
@@ -123,6 +124,11 @@ public nonisolated enum CaseStore {
     public static func prefetchScratchDirectory(forHostID id: UUID, in bundle: URL) -> URL {
         hostDirectory(forHostID: id, in: bundle)
             .appendingPathComponent("prefetch", isDirectory: true)
+    }
+
+    public static func unifiedLogScratchDirectory(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent("unifiedlog", isDirectory: true)
     }
 
     // MARK: - Create / load
@@ -530,6 +536,16 @@ public nonisolated enum CaseStore {
                                      forHostID id: UUID, in bundle: URL) throws {
         try writeArray(entries, at: hostDirectory(forHostID: id, in: bundle)
             .appendingPathComponent(journaldFilename))
+    }
+
+    public static func readUnifiedLog(forHostID id: UUID, in bundle: URL) throws -> [UnifiedLogEntry]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(unifiedLogFilename))
+    }
+    public static func writeUnifiedLog(_ entries: [UnifiedLogEntry],
+                                       forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(entries, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(unifiedLogFilename))
     }
 
     public static func readAudit(forHostID id: UUID, in bundle: URL) throws -> [AuditEvent]? {

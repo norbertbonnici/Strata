@@ -373,6 +373,24 @@ public nonisolated enum TimelineBuilder {
         return out.sorted { $0.date < $1.date }
     }
 
+    /// Project macOS unified-log entries onto the timeline. `kind` is `.changed`;
+    /// the path encodes `process: message` (with subsystem when present) so rows
+    /// read well and free-text search matches. Entries without a timestamp are
+    /// dropped.
+    public static func build(from entries: [UnifiedLogEntry]) -> [TimelineEvent] {
+        var out: [TimelineEvent] = []
+        out.reserveCapacity(entries.count)
+        for entry in entries {
+            guard let date = entry.timestamp else { continue }
+            let proc = entry.process.map { "\($0): " } ?? ""
+            let sub = entry.subsystem.map { "[\($0)] " } ?? ""
+            out.append(TimelineEvent(date: date, kind: .changed, source: .unifiedLog,
+                                     fileID: 0, path: "\(proc)\(sub)\(entry.message)",
+                                     size: 0, isDeleted: false))
+        }
+        return out.sorted { $0.date < $1.date }
+    }
+
     /// Project auditd events onto the timeline. `kind` is `.changed`; the path
     /// encodes the record type + command/summary. Events without a timestamp
     /// are dropped.

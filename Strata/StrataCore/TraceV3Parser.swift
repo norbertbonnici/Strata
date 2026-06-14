@@ -281,7 +281,11 @@ public nonisolated enum TraceV3Parser {
             var uuidEntries: [CatalogProcessInfo.UUIDEntry] = []
             for k in 0..<nUUID {
                 let b = p + 40 + k * uuidEntrySize
-                uuidEntries.append(.init(size: u32(b), uuidIndex: u16(b + 8)))
+                // load_address is a 48-bit value: lo u32 @+10, hi u16 @+14.
+                let lo = UInt64(u32(b + 10))
+                let hi = UInt64(UInt16(truncatingIfNeeded: u16(b + 14)))
+                uuidEntries.append(.init(size: u32(b), loadAddress: lo | (hi << 32),
+                                         uuidIndex: u16(b + 8)))
             }
             var q = p + 40 + nUUID * uuidEntrySize
             let nSub = Int(u32(q))

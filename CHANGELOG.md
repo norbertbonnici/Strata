@@ -5,6 +5,151 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Added — Unified Log: full format-string resolution (absolute / shared-cache large-offset)
+
+Closes the last decode gap — the `0x08` absolute / `0x0a` uuid-relative / `0x0c`
+large-shared-cache format-string references (~17% of tracepoints, and the bulk of
+the high-volume **Persist** log) now resolve. The algorithm was reversed from the
+real image and triangulated against Mandiant `macos-UnifiedLogs`, Khatri's
+`UnifiedLogReader`, and the libyal/dtformats spec.
+
+- **`FirehoseItemDecoder`** now parses the full format-string reference out of the
+  firehose optional header: `pc_id`, the `large_offset` / `large_shared_cache`
+  values, the absolute alt-uuid index, and the embedded `uuid_relative` UUID
+  (field order/sizes confirmed on real tracepoints).
+- **`UnifiedLogStringCatalog.render`** implements the real dispatch + offset math:
+  - dynamic (`fmtLoc & 0x80000000`) → the message is `"%s"`;
+  - **main_exe** (`0x02`) → the process `.uuidtext`;
+  - **shared_cache / large_shared_cache** (`0x04`/`0x0c`) → the `dsc` at
+    `largeOffset(…) + fmtLoc`, where the extension is
+    `0x80000000·large_offset` or `0x100000000·(large_shared_cache/2)`;
+  - **absolute** (`0x08`) → the loaded image whose
+    `[load_address, load_address+size]` range contains `0x100000000·altIndex +
+    pc_id`, resolved in that image's `.uuidtext`;
+  - **uuid_relative** (`0x0a`) → the embedded UUID's `.uuidtext`.
+- **`CatalogProcessInfo.UUIDEntry`** now carries the 48-bit `loadAddress` (lo u32 @
+  +10, hi u16 @ +14) for the absolute range lookup; the assembler passes the
+  process's loaded-image table to the resolver.
+- **Validated on the real macOS-12 image**: `0x0c` references now render real
+  strings whose specifier counts match the decoded args — e.g.
+  `"[HID] [MT] %s%s%s device bootloaded"` →
+  *"[com.apple.Multitouch] [HID] [MT] MTSimpleHIDManager::deviceDidBootload …"*.
+  **Persist-file message coverage went from ~2.5% to 31% with only the `dsc`
+  loaded** (main-exe/absolute/uuid-relative add more once every referenced
+  `.uuidtext` is extracted, as the app does). Synthetic unit tests cover the
+  large-offset math + the dynamic-`%s` path.
+
+### Added — macOS Unified Log, M6: integration (tab + timeline + analyzer)
+
+The unified-log decoder is now wired into the app end-to-end — **the macOS
+unified log finally appears in Strata**, the payoff of the M1–M5 decoder arc.
+
+- **`AppModel.parseUnifiedLog()`** (macOS) discovers the diagnostics logs
+  (durable **Persist** + short-term **Special**; Signpost/HighVolume skipped as
+  low-signal + high-volume), the `timesync` database, and the **referenced**
+  `.uuidtext`/`dsc` string catalogs, extracts them all via the existing
+  loose/`icat`/`fsapfscat` closure, and assembles timestamped, message-bearing
+  `UnifiedLogEntry`s off-main. Runs after `parseMac()` in `parseArtifacts()`.
+- **`UnifiedLogAssembler`** (`StrataCore`) ties the layers together: walk each
+  `.tracev3`'s chunks → catalog (M3) → firehose tracepoints (M4) → resolve +
+  render via the string catalogs (M5) → `UnifiedLogEntry` with timestamp (M2),
+  pid, level, process, and message. `referencedUUIDs` enumerates the catalog
+  files to extract.
+- **Unified Log tab** (`UnifiedLogView`, macOS — level-coloured, filterable,
+  row-capped table + detail pane) + **iOS drill** (`UnifiedLogDrillView`), gated
+  to `.macos` evidence. Persisted as `unifiedlog.json`; spliced onto the
+  **timeline** (`TimelineSource.unifiedLog`, a default macOS source); reloads on
+  case open.
+- **`UnifiedLogAnalyzer`** (`StrataAnalysis`) — high-precision checks: `sudo`
+  privilege escalation (T1548.003), `osascript`/AppleScript execution
+  (T1059.002), and accepted SSH logins (T1021.004).
+- **Per-entry subsystem/category** — `FirehoseItemDecoder` now parses the
+  firehose **optional header deterministically** by flag (`has_current_aid` /
+  `has_private_data` / `pc_id` / `has_large_offset` / `has_subsystem` /
+  `has_rules` / `has_oversize`, order confirmed against the real image) instead
+  of only anchoring on the descriptor block. That both locates the item block
+  exactly (the anchor is now a fallback) and recovers the **subsystem
+  identifier**, which the assembler resolves to `subsystem`/`category` strings
+  via the catalog's per-process subsystem table. The header parse also accounts
+  for the extra u16 that **absolute (`0x08`) / `0x0c`** format-string types carry,
+  so subsystem now resolves for those high-volume buckets too (e.g. ~79% of
+  `0x0c` tracepoints). **Validated on the real image:** all `has_subsystem`
+  tracepoints of the resolvable types map to a real subsystem (e.g.
+  `com.apple.kvs/Misc`) — 128,164 of one Persist file's 349,533 entries carry a
+  subsystem.
+- **Validated against the real macOS-12 image**: the assembler produces 22,186
+  fully timestamped entries from one Special file with messages, process names,
+  and subsystem/category resolved; both platforms build; 39 unit tests pass.
+- **Known limits:** message/process coverage depends on the referenced
+  `.uuidtext` being present (absolute/uuid-relative `flags 0x0c` ≈17% still need
+  loaded-image resolution — deferred, since a wrong-image heuristic would harm
+  forensic integrity); a busy **Persist** log is hundreds of thousands of
+  entries → a large `unifiedlog.json` (same bracket as `events.json`).
+
+### Added — Unified-log decode, M5b: argument items → rendered messages
+
+The piece that turns a format string + raw arg bytes into the **readable log
+message** — the whole point of the unified-log decode.
+
+- **`FirehoseItemDecoder`** (`StrataCore`) decodes a tracepoint's argument items:
+  `item`/`number_items`, then per-item `type`/`type_size` (+ `(offset,size)` for
+  string/data items), then the value region. The flag-driven optional header is
+  underdocumented, so instead of parsing it the decoder **anchors** on the
+  self-describing descriptor block — scanning for the start whose descriptors
+  parse in-bounds and whose value region is consumed exactly (preferring the
+  format string's specifier count). Handles string/object, private/redacted
+  (`<private>`), sensitive, and inline-number items.
+- **`LogFormatter`** (`StrataCore`) renders the format string against the items:
+  `%@`/`%s`, the integer family (`%d %u %x %o`, length modifiers), `%f`/`%c`/`%p`,
+  `%%`, and Apple's `%{…}` annotations (`%{public}`/`%{private}`/`%{sensitive}`
+  visibility, `%{errno}`/`%{BOOL}` hints). Unparseable specifiers are kept intact
+  so a message is never lost.
+- **`UnifiedLogStringCatalog.render(...)`** ties it together: resolve the format
+  string (M5a) → decode items → render → `{process, library, message}`.
+- **Validated against the real macOS-12 image**: real messages render fully —
+  *"About to adopt persona BA08DA59-3A00-4EA5-869A-26B1137AA2CD"*, *"Adopted
+  persona BA08DA59-… and copied context <UMUserPersonaContext: 0x7fd655110780>"*
+  (2 args), *"Getting sync manager for lookup key=PersonalPersona
+  storeType=NoEncryption container=<CKContainerID: …>"* (3 args), and shared-cache
+  messages via the `dsc`. ~90% of resolvable tracepoints render cleanly; the rest
+  are the absolute/uuid-relative (`flags 0x0c`) loaded-image gap (M6 follow-up).
+  Synthetic byte-level unit tests cover the item decoder (single/multi/private
+  args) + the formatter (specifiers, annotations, escapes, end-to-end via the
+  catalog).
+
+### Added — Unified-log decode, M5a: format-string catalogs (`.uuidtext` / `dsc`)
+
+Parses the out-of-file string catalogs the unified log points at, and resolves a
+tracepoint's **format string** + **emitting process name** — the inputs M5b needs
+to render readable messages.
+
+- **`UUIDTextParser`** / **`UUIDTextFile`** (`StrataCore`) parse a `.uuidtext`
+  file (`/var/db/uuidtext/XX/YYYY…`, magic `0x66778899`): the entry range table +
+  per-range format-string blocks + the trailing image path. `formatString(at:)`
+  resolves a main-executable format string; `processName` is the image path leaf.
+- **`DscParser`** / **`DscFile`** (`StrataCore`) parse a `dsc` shared-cache
+  strings file (`/var/db/uuidtext/dsc/<uuid>`, magic `hcsd`, v2/Monterey+): the
+  range + UUID tables. `resolve(offset:)` binary-searches the covering range →
+  the shared-cache format string + owning library path.
+- **`UnifiedLogStringCatalog`** (`StrataCore`) holds the loaded `.uuidtext`/`dsc`
+  set and dispatches by the tracepoint's format-string-type flags
+  (`flags & 0x0e`): `0x02` main-exe → the process's main `.uuidtext`, `0x04`
+  shared-cache → the `dsc`; `0x08`/`0x0a`/`0x0c` (absolute / uuid-relative) keep
+  the process name and defer the string to M5b's loaded-image resolution.
+- **Validated against the real macOS-12 image**: real format strings resolve —
+  e.g. `syncdefaultsd`'s *"Adopted persona %@ and copied context %@"* (main-exe)
+  and shared-cache strings from `dsc` with library paths like
+  `/usr/lib/system/libsystem_blocks.dylib`. The flag dispatch is clean on real
+  data: **100%** of `shared-cache` (`0x04`) tracepoints resolved via the `dsc`,
+  and all `main-exe` (`0x02`) tracepoints for a process resolved via its
+  `.uuidtext` (≈83% of all tracepoints covered with just the one `dsc` + one
+  `.uuidtext`; the rest are absolute/uuid-relative, M5b). Synthetic byte-level
+  unit tests cover both parsers + the resolver dispatch. (`.uuidtext`/`dsc` live
+  on the Data volume, so `fsapfscat` reads them fine — not sealed.)
+
+This is M5a of the unified-log arc (M1 → M2 timesync → M3 catalog → M4 firehose →
+**M5a string catalogs** → M5b message rendering → M6 tab/timeline/analyzer).
+
 ### Added — Unified-log decode, M4: firehose tracepoints → timestamped entries
 
 Decodes the firehose chunks (`0x6001`) — the actual log records — into

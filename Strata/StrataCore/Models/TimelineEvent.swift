@@ -43,6 +43,7 @@ public enum TimelineSource: String, CaseIterable, Sendable, Codable {
     case auditd     = "AUDIT"
     case syslog     = "SYS"
     case lastlog    = "LAST"
+    case unifiedLog = "ULOG"
 
     public nonisolated var label: String {
         switch self {
@@ -67,6 +68,7 @@ public enum TimelineSource: String, CaseIterable, Sendable, Codable {
         case .auditd:     return "Audit"
         case .syslog:     return "System Log"
         case .lastlog:    return "Last Login"
+        case .unifiedLog: return "Unified Log"
         }
     }
 }
