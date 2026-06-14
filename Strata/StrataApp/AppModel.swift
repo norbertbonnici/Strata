@@ -48,6 +48,8 @@ nonisolated struct EvidenceState: Sendable {
     var macPersistence: [MacPersistenceItem] = []
     var fsEvents: [FSEventRecord] = []
     var unifiedLog: [UnifiedLogEntry] = []
+    var tcc: [TCCAccess] = []
+    var knowledgeC: [KnowledgeEntry] = []
     // macOS host identity (empty on non-macOS evidence).
     var macInfo: MacHostInfo?
     var findings: [Finding] = []
@@ -542,8 +544,12 @@ final class AppModel: ObservableObject {
             state.macPersistence = (try? CaseStore.readMacPersistence(forHostID: evidence.id, in: bundleURL)) ?? []
             state.fsEvents = (try? CaseStore.readFSEvents(forHostID: evidence.id, in: bundleURL)) ?? []
             state.unifiedLog = (try? CaseStore.readUnifiedLog(forHostID: evidence.id, in: bundleURL)) ?? []
-            if !state.unifiedLog.isEmpty {
+            state.tcc = (try? CaseStore.readTCC(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.knowledgeC = (try? CaseStore.readKnowledgeC(forHostID: evidence.id, in: bundleURL)) ?? []
+            if !state.unifiedLog.isEmpty || !state.tcc.isEmpty || !state.knowledgeC.isEmpty {
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: state.unifiedLog))
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.tcc))
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.knowledgeC))
                 state.timeline.sort { $0.date < $1.date }
             }
             state.macInfo = try? CaseStore.readMacInfo(forHostID: evidence.id, in: bundleURL)
@@ -1120,6 +1126,8 @@ final class AppModel: ObservableObject {
         var macPersistence: [MacPersistenceItem] = []
         var fsEvents: [FSEventRecord] = []
         var unifiedLog: [UnifiedLogEntry] = []
+        var tcc: [TCCAccess] = []
+        var knowledgeC: [KnowledgeEntry] = []
         var iocMatches: [IOCMatch] = []
     }
     private var derivedCache: Derived?
@@ -1192,6 +1200,8 @@ final class AppModel: ObservableObject {
             d.macPersistence = s.macPersistence
             d.fsEvents = s.fsEvents
             d.unifiedLog = s.unifiedLog
+            d.tcc = s.tcc
+            d.knowledgeC = s.knowledgeC
             d.iocMatches = s.iocMatches
             return d
         }
@@ -1229,6 +1239,8 @@ final class AppModel: ObservableObject {
             d.macPersistence.append(contentsOf: s.macPersistence)
             d.fsEvents.append(contentsOf: s.fsEvents)
             d.unifiedLog.append(contentsOf: s.unifiedLog)
+            d.tcc.append(contentsOf: s.tcc)
+            d.knowledgeC.append(contentsOf: s.knowledgeC)
             d.iocMatches.append(contentsOf: s.iocMatches)
         }
         d.events.sort { $0.writtenAt < $1.writtenAt }
@@ -1267,6 +1279,8 @@ final class AppModel: ObservableObject {
         // FSEvents has no timestamp; the event ID is the monotonic order.
         d.fsEvents.sort { $0.eventID < $1.eventID }
         d.unifiedLog.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+        d.tcc.sort { ($0.lastModified ?? .distantPast) > ($1.lastModified ?? .distantPast) }
+        d.knowledgeC.sort { ($0.startDate ?? .distantPast) > ($1.startDate ?? .distantPast) }
         return d
     }
 
@@ -1311,6 +1325,8 @@ final class AppModel: ObservableObject {
     var macPersistence: [MacPersistenceItem] { derived().macPersistence }
     var fsEvents: [FSEventRecord] { derived().fsEvents }
     var unifiedLog: [UnifiedLogEntry] { derived().unifiedLog }
+    var tcc: [TCCAccess] { derived().tcc }
+    var knowledgeC: [KnowledgeEntry] { derived().knowledgeC }
     /// Linux host info for the active scope (tiny; not worth caching). In the
     /// combined scope the first host that has one wins.
     var linuxInfo: LinuxHostInfo? {
@@ -1362,6 +1378,8 @@ final class AppModel: ObservableObject {
     var macPersistenceCount: Int { scopedCount(\.macPersistence.count) }
     var fsEventCount: Int { scopedCount(\.fsEvents.count) }
     var unifiedLogCount: Int { scopedCount(\.unifiedLog.count) }
+    var tccCount: Int { scopedCount(\.tcc.count) }
+    var knowledgeCCount: Int { scopedCount(\.knowledgeC.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
     /// True once the Linux log parse has produced *something* in the active
@@ -1403,6 +1421,8 @@ final class AppModel: ObservableObject {
         // macOS unified log — the primary macOS telemetry (high volume; the
         // Source filter lets the analyst toggle it off).
         if unifiedLogCount > 0 { s.insert(.unifiedLog) }
+        if tccCount > 0 { s.insert(.tcc) }
+        if knowledgeCCount > 0 { s.insert(.knowledgeC) }
         // Windows bounded execution / usage.
         if prefetchCount > 0 { s.insert(.prefetch) }
         if browserHistoryCount > 0 { s.insert(.browser) }
@@ -3313,11 +3333,43 @@ final class AppModel: ObservableObject {
                     && (name == ".zsh_history" || name == ".bash_history" || name == ".sh_history")
             }
         }
+        // TCC privacy-permission databases: the system one under
+        // /Library/Application Support/com.apple.TCC/ and per-user copies under
+        // ~/Library/Application Support/com.apple.TCC/.
+        func tccFiles(_ s: EvidenceState) -> [FileEntry] {
+            s.files.filter { entry in
+                guard !entry.isDirectory, entry.size > 0 else { return false }
+                let lower = entry.fullPath.lowercased()
+                return entry.name.lowercased() == "tcc.db" && lower.contains("/com.apple.tcc/")
+            }
+        }
+        // KnowledgeC behavioural databases — the system store under
+        // /private/var/db/CoreDuet/Knowledge/ and per-user ones under
+        // ~/Library/Application Support/Knowledge/.
+        func knowledgeFiles(_ s: EvidenceState) -> [FileEntry] {
+            s.files.filter { entry in
+                guard !entry.isDirectory, entry.size > 0 else { return false }
+                let lower = entry.fullPath.lowercased()
+                return entry.name.lowercased() == "knowledgec.db"
+                    && (lower.contains("/coreduet/knowledge/") || lower.contains("/application support/knowledge/"))
+            }
+        }
+        // The owning scope for a macOS db path: "system" unless it lives under a
+        // user home, in which case the user's name.
+        func macScope(_ path: String) -> String {
+            let comps = path.split(separator: "/").map(String.init)
+            if let i = comps.firstIndex(where: { $0.lowercased() == "users" }), i + 1 < comps.count {
+                return comps[i + 1]
+            }
+            return "system"
+        }
         let total = evidenceList.reduce(0) { acc, e in
             guard let s = states[e.id], s.launchItems.isEmpty, s.quarantine.isEmpty,
-                  s.macPersistence.isEmpty, s.fsEvents.isEmpty, s.macInfo == nil else { return acc }
+                  s.macPersistence.isEmpty, s.fsEvents.isEmpty, s.tcc.isEmpty,
+                  s.macInfo == nil else { return acc }
             return acc + plists(s).count + quarantines(s).count + hostInfoFiles(s).count
                 + persistenceFiles(s).count + fseventsFiles(s).count + shellHistoryFiles(s).count
+                + tccFiles(s).count + knowledgeFiles(s).count
         }
         guard total > 0 else { statusMessage = "No new macOS artifacts to parse."; return }
         progress = ProgressInfo(current: 0, total: total, label: "Parsing macOS artifacts")
@@ -3328,15 +3380,18 @@ final class AppModel: ObservableObject {
                 guard var state = states[evidence.id],
                       state.launchItems.isEmpty, state.quarantine.isEmpty,
                       state.macPersistence.isEmpty, state.fsEvents.isEmpty,
-                      state.macInfo == nil else { continue }
+                      state.tcc.isEmpty, state.macInfo == nil else { continue }
                 let foundPlists = plists(state)
                 let foundQuar = quarantines(state)
                 let foundInfo = hostInfoFiles(state)
                 let foundPersist = persistenceFiles(state)
                 let foundFSE = fseventsFiles(state)
                 let foundShell = shellHistoryFiles(state)
+                let foundTCC = tccFiles(state)
+                let foundKnowledge = knowledgeFiles(state)
                 guard !foundPlists.isEmpty || !foundQuar.isEmpty || !foundInfo.isEmpty
-                    || !foundPersist.isEmpty || !foundFSE.isEmpty || !foundShell.isEmpty else { continue }
+                    || !foundPersist.isEmpty || !foundFSE.isEmpty || !foundShell.isEmpty
+                    || !foundTCC.isEmpty || !foundKnowledge.isEmpty else { continue }
                 let isLoose = evidence.kind == .kapeLooseFolder
                 let isAPFS = evidence.kind == .apfs
                 var database: TSKDatabase?
@@ -3469,10 +3524,35 @@ final class AppModel: ObservableObject {
                         shell: shell, sourceFile: entry.fullPath))
                 }
 
+                // TCC privacy-permission grants (SQLite, read via GRDB off the
+                // extracted scratch copy).
+                var tcc: [TCCAccess] = []
+                for entry in foundTCC {
+                    progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    guard let url = await extract(entry) else { continue }
+                    tcc.append(contentsOf: (try? TCCParser.parse(
+                        fileAt: url, scope: macScope(entry.fullPath), sourceFile: entry.fullPath)) ?? [])
+                }
+                tcc.sort { ($0.lastModified ?? .distantPast) > ($1.lastModified ?? .distantPast) }
+
+                // KnowledgeC behavioural timeline (SQLite/Core Data via GRDB).
+                var knowledge: [KnowledgeEntry] = []
+                for entry in foundKnowledge {
+                    progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    guard let url = await extract(entry) else { continue }
+                    knowledge.append(contentsOf: (try? KnowledgeCParser.parse(
+                        fileAt: url, scope: macScope(entry.fullPath), sourceFile: entry.fullPath)) ?? [])
+                }
+                knowledge.sort { ($0.startDate ?? .distantPast) > ($1.startDate ?? .distantPast) }
+
                 state.launchItems = launch
                 state.quarantine = quar
                 state.macPersistence = persist
                 state.fsEvents = fsEvents
+                state.tcc = tcc
+                state.knowledgeC = knowledge
                 if !macShell.isEmpty { state.shellHistory.append(contentsOf: macShell) }
                 state.macInfo = info.isEmpty ? nil : info
                 states[evidence.id] = state
@@ -3481,6 +3561,8 @@ final class AppModel: ObservableObject {
                     try? CaseStore.writeQuarantine(quar, forHostID: evidence.id, in: bundleURL)
                     try? CaseStore.writeMacPersistence(persist, forHostID: evidence.id, in: bundleURL)
                     try? CaseStore.writeFSEvents(fsEvents, forHostID: evidence.id, in: bundleURL)
+                    try? CaseStore.writeTCC(tcc, forHostID: evidence.id, in: bundleURL)
+                    try? CaseStore.writeKnowledgeC(knowledge, forHostID: evidence.id, in: bundleURL)
                     if !macShell.isEmpty {
                         try? CaseStore.writeShellHistory(state.shellHistory, forHostID: evidence.id, in: bundleURL)
                     }
@@ -4330,7 +4412,9 @@ final class AppModel: ObservableObject {
                                           quarantine: state.quarantine,
                                           macPersistence: state.macPersistence,
                                           fsEvents: state.fsEvents,
-                                          unifiedLog: state.unifiedLog)
+                                          unifiedLog: state.unifiedLog,
+                                          tcc: state.tcc,
+                                          knowledgeC: state.knowledgeC)
             let results = await analysisEngine.run(on: context)
             state.findings = results
             states[evidence.id] = state

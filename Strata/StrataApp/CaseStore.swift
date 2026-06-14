@@ -45,6 +45,8 @@ public nonisolated enum CaseStore {
     private static let packagesFilename   = "packages.json"
     private static let journaldFilename   = "journald.json"
     private static let unifiedLogFilename = "unifiedlog.json"
+    private static let tccFilename        = "tcc.json"
+    private static let knowledgeCFilename = "knowledgec.json"
     private static let auditFilename      = "audit.json"
     private static let syslogFilename     = "syslog.json"
     private static let lastlogFilename    = "lastlog.json"
@@ -546,6 +548,26 @@ public nonisolated enum CaseStore {
                                        forHostID id: UUID, in bundle: URL) throws {
         try writeArray(entries, at: hostDirectory(forHostID: id, in: bundle)
             .appendingPathComponent(unifiedLogFilename))
+    }
+
+    public static func readTCC(forHostID id: UUID, in bundle: URL) throws -> [TCCAccess]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(tccFilename))
+    }
+    public static func writeTCC(_ entries: [TCCAccess],
+                                forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(entries, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(tccFilename))
+    }
+
+    public static func readKnowledgeC(forHostID id: UUID, in bundle: URL) throws -> [KnowledgeEntry]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(knowledgeCFilename))
+    }
+    public static func writeKnowledgeC(_ entries: [KnowledgeEntry],
+                                       forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(entries, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(knowledgeCFilename))
     }
 
     public static func readAudit(forHostID id: UUID, in bundle: URL) throws -> [AuditEvent]? {

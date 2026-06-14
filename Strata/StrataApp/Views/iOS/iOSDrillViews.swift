@@ -1955,6 +1955,133 @@ struct MacPersistenceDrillView: View {
     }
 }
 
+// MARK: - KnowledgeC drill view (macOS)
+
+/// Read-only macOS KnowledgeC behavioural timeline for the active scope — app
+/// focus/usage, screen on/off, media, Safari. Filterable by app/value.
+struct KnowledgeCDrillView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var query = ""
+
+    private var filtered: [KnowledgeEntry] {
+        let rows = model.knowledgeC
+        guard !query.isEmpty else { return rows }
+        return rows.filter {
+            ($0.value?.localizedCaseInsensitiveContains(query) ?? false)
+                || $0.category.label.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitle(title: "KnowledgeC",
+                           subtitle: "\(model.knowledgeCCount) record\(model.knowledgeCCount == 1 ? "" : "s")")
+                TextField("Filter app / value...", text: $query)
+                    .textFieldStyle(.roundedBorder).padding(.top, 10)
+                let rows = filtered
+                if rows.isEmpty {
+                    ContentUnavailableView("No KnowledgeC records", systemImage: "brain").padding(.top, 40)
+                } else {
+                    Card {
+                        ForEach(Array(rows.prefix(800).enumerated()), id: \.element.id) { index, e in
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack {
+                                    Text(e.category.label).font(.caption.bold()).foregroundStyle(Theme.teal)
+                                    Spacer()
+                                    if let t = e.startDate {
+                                        Text(t.formatted(date: .numeric, time: .shortened))
+                                            .font(.caption2.monospacedDigit()).foregroundStyle(Theme.text3)
+                                    }
+                                }
+                                Text(e.summary).font(.caption.monospaced())
+                                    .foregroundStyle(Theme.text).lineLimit(2)
+                            }
+                            .padding(.vertical, 5)
+                            if index < min(rows.count, 800) - 1 { Divider().background(Theme.hair2) }
+                        }
+                    }
+                }
+                Spacer(minLength: 26)
+            }
+            .padding(.horizontal)
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+    }
+}
+
+// MARK: - TCC (privacy) drill view (macOS)
+
+/// Read-only macOS TCC privacy grants for the active scope — which apps were
+/// allowed Camera/Mic/Screen/Accessibility/Full Disk Access, sensitive ones
+/// highlighted. Filterable by service / client.
+struct TCCDrillView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var query = ""
+    @State private var sensitiveOnly = false
+
+    private var filtered: [TCCAccess] {
+        var rows = model.tcc
+        if sensitiveOnly { rows = rows.filter { $0.isSensitive } }
+        guard !query.isEmpty else { return rows }
+        return rows.filter {
+            $0.serviceLabel.localizedCaseInsensitiveContains(query)
+                || $0.client.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitle(title: "TCC (Privacy)",
+                           subtitle: "\(model.tccCount) grant\(model.tccCount == 1 ? "" : "s")")
+                Toggle("Sensitive only", isOn: $sensitiveOnly)
+                    .font(.subheadline).foregroundStyle(Theme.text).tint(Theme.teal).padding(.top, 10)
+                TextField("Filter service / client...", text: $query)
+                    .textFieldStyle(.roundedBorder).padding(.top, 8)
+                let rows = filtered
+                if rows.isEmpty {
+                    ContentUnavailableView("No TCC grants", systemImage: "hand.raised").padding(.top, 40)
+                } else {
+                    Card {
+                        ForEach(Array(rows.prefix(800).enumerated()), id: \.element.id) { index, g in
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack {
+                                    Text(g.serviceLabel)
+                                        .font(.caption.bold())
+                                        .foregroundStyle(g.isSensitive ? Color.orange : Theme.teal)
+                                    if g.authValue == .allowed {
+                                        Text("Allowed").font(.caption2).foregroundStyle(Theme.high)
+                                    }
+                                    Spacer()
+                                    if let t = g.lastModified {
+                                        Text(t.formatted(date: .numeric, time: .shortened))
+                                            .font(.caption2.monospacedDigit()).foregroundStyle(Theme.text3)
+                                    }
+                                }
+                                Text(g.clientLabel).font(.caption.monospaced())
+                                    .foregroundStyle(Theme.text).lineLimit(2)
+                                Text(g.scope).font(.caption2).foregroundStyle(Theme.text3)
+                            }
+                            .padding(.vertical, 5)
+                            if index < min(rows.count, 800) - 1 { Divider().background(Theme.hair2) }
+                        }
+                    }
+                }
+                Spacer(minLength: 26)
+            }
+            .padding(.horizontal)
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+    }
+}
+
 // MARK: - Unified Log drill view (macOS)
 
 /// Read-only macOS unified-log entries for the active scope — timestamped,
