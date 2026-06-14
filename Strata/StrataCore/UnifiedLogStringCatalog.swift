@@ -74,8 +74,35 @@ public nonisolated struct UnifiedLogStringCatalog: Sendable {
             return Resolved(formatString: nil, process: process, library: nil, source: source)
         default:
             // absolute / uuid-relative / other: best-effort process name now;
-            // loaded-image resolution lands in M5b.
+            // loaded-image resolution is a known gap (~17% on the test image).
             return Resolved(formatString: nil, process: process, library: process, source: source)
         }
+    }
+
+    /// The fully resolved + rendered message for a firehose tracepoint.
+    public struct Message: Sendable, Equatable {
+        public var process: String?
+        public var library: String?
+        /// The rendered message (format string + substituted args), or nil if the
+        /// format string couldn't be resolved.
+        public var message: String?
+        public var subsystemIdentifier: UInt16?
+        public var source: Source
+    }
+
+    /// Resolve a tracepoint's format string (M5a), decode its argument items and
+    /// render the final message (M5b). `data` is the tracepoint's data section.
+    public func render(flags: UInt16, formatStringLocation: UInt32, data: [UInt8],
+                       mainUUID: String?, dscUUID: String?) -> Message {
+        let r = resolve(flags: flags, formatStringLocation: formatStringLocation,
+                        mainUUID: mainUUID, dscUUID: dscUUID)
+        guard let fmt = r.formatString else {
+            return Message(process: r.process, library: r.library, message: nil,
+                           subsystemIdentifier: nil, source: r.source)
+        }
+        let items = FirehoseItemDecoder.decode(data, expectedCount: LogFormatter.specifierCount(fmt))
+        let message = LogFormatter.render(format: fmt, items: items)
+        return Message(process: r.process, library: r.library, message: message,
+                       subsystemIdentifier: nil, source: r.source)
     }
 }

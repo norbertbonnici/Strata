@@ -5,6 +5,37 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Added — Unified-log decode, M5b: argument items → rendered messages
+
+The piece that turns a format string + raw arg bytes into the **readable log
+message** — the whole point of the unified-log decode.
+
+- **`FirehoseItemDecoder`** (`StrataCore`) decodes a tracepoint's argument items:
+  `item`/`number_items`, then per-item `type`/`type_size` (+ `(offset,size)` for
+  string/data items), then the value region. The flag-driven optional header is
+  underdocumented, so instead of parsing it the decoder **anchors** on the
+  self-describing descriptor block — scanning for the start whose descriptors
+  parse in-bounds and whose value region is consumed exactly (preferring the
+  format string's specifier count). Handles string/object, private/redacted
+  (`<private>`), sensitive, and inline-number items.
+- **`LogFormatter`** (`StrataCore`) renders the format string against the items:
+  `%@`/`%s`, the integer family (`%d %u %x %o`, length modifiers), `%f`/`%c`/`%p`,
+  `%%`, and Apple's `%{…}` annotations (`%{public}`/`%{private}`/`%{sensitive}`
+  visibility, `%{errno}`/`%{BOOL}` hints). Unparseable specifiers are kept intact
+  so a message is never lost.
+- **`UnifiedLogStringCatalog.render(...)`** ties it together: resolve the format
+  string (M5a) → decode items → render → `{process, library, message}`.
+- **Validated against the real macOS-12 image**: real messages render fully —
+  *"About to adopt persona BA08DA59-3A00-4EA5-869A-26B1137AA2CD"*, *"Adopted
+  persona BA08DA59-… and copied context <UMUserPersonaContext: 0x7fd655110780>"*
+  (2 args), *"Getting sync manager for lookup key=PersonalPersona
+  storeType=NoEncryption container=<CKContainerID: …>"* (3 args), and shared-cache
+  messages via the `dsc`. ~90% of resolvable tracepoints render cleanly; the rest
+  are the absolute/uuid-relative (`flags 0x0c`) loaded-image gap (M6 follow-up).
+  Synthetic byte-level unit tests cover the item decoder (single/multi/private
+  args) + the formatter (specifiers, annotations, escapes, end-to-end via the
+  catalog).
+
 ### Added — Unified-log decode, M5a: format-string catalogs (`.uuidtext` / `dsc`)
 
 Parses the out-of-file string catalogs the unified log points at, and resolves a
