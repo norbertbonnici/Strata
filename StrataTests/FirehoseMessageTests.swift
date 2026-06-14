@@ -87,6 +87,26 @@ struct FirehoseMessageTests {
         #expect(d.items.first?.value == "abc")
     }
 
+    @Test func largeSharedCacheOffsetMath() {
+        // large_shared_cache=4 → 0x100000000 * (4/2) (the real 0x0c case).
+        #expect(UnifiedLogStringCatalog.largeOffset(2, 4) == 0x2_0000_0000)
+        // large_offset 1/2 and > large_shared_cache → 0x80000000 * large_offset.
+        #expect(UnifiedLogStringCatalog.largeOffset(2, 0) == 0x1_0000_0000)
+        #expect(UnifiedLogStringCatalog.largeOffset(1, 0) == 0x8000_0000)
+        // no large data → no extension (plain shared-cache offset).
+        #expect(UnifiedLogStringCatalog.largeOffset(0, 0) == 0)
+    }
+
+    @Test func dynamicFormatStringRendersPercentS() {
+        // The high bit on the format-string offset means the message is "%s".
+        let cat = UnifiedLogStringCatalog()
+        // one string arg "live" → "%s" renders to "live".
+        let data = Self.stringArgsData(header: Array(repeating: 0, count: 8), values: ["live"])
+        let m = cat.render(flags: 0x0004, formatStringLocation: 0x8000_0000, data: data,
+                           mainUUID: nil, dscUUID: nil)
+        #expect(m.message == "live")
+    }
+
     // MARK: - formatter
 
     @Test func rendersObjectAndStringSpecifiers() {

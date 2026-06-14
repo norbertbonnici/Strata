@@ -60,13 +60,17 @@ public nonisolated struct CatalogProcessInfo: Sendable, Hashable, Codable {
     public let uuidEntries: [UUIDEntry]
     public let subsystems: [Subsystem]
 
-    /// A loaded-image range used to resolve an absolute program counter to a
-    /// UUID (M5). `size` is the image's text size; `uuidIndex` indexes the
-    /// catalog UUID array.
+    /// A loaded-image range used to resolve an **absolute** program counter to a
+    /// UUID. `loadAddress` is the image's virtual base and `size` its extent, so
+    /// `loadAddress <= pc <= loadAddress + size` identifies the image;
+    /// `uuidIndex` indexes the catalog UUID array.
     public struct UUIDEntry: Sendable, Hashable, Codable {
         public let size: UInt32
+        public let loadAddress: UInt64
         public let uuidIndex: Int
-        public init(size: UInt32, uuidIndex: Int) { self.size = size; self.uuidIndex = uuidIndex }
+        public init(size: UInt32, loadAddress: UInt64 = 0, uuidIndex: Int) {
+            self.size = size; self.loadAddress = loadAddress; self.uuidIndex = uuidIndex
+        }
     }
 
     /// A subsystem/category pair keyed by the per-process identifier a firehose

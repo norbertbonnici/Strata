@@ -5,6 +5,40 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Added — Unified Log: full format-string resolution (absolute / shared-cache large-offset)
+
+Closes the last decode gap — the `0x08` absolute / `0x0a` uuid-relative / `0x0c`
+large-shared-cache format-string references (~17% of tracepoints, and the bulk of
+the high-volume **Persist** log) now resolve. The algorithm was reversed from the
+real image and triangulated against Mandiant `macos-UnifiedLogs`, Khatri's
+`UnifiedLogReader`, and the libyal/dtformats spec.
+
+- **`FirehoseItemDecoder`** now parses the full format-string reference out of the
+  firehose optional header: `pc_id`, the `large_offset` / `large_shared_cache`
+  values, the absolute alt-uuid index, and the embedded `uuid_relative` UUID
+  (field order/sizes confirmed on real tracepoints).
+- **`UnifiedLogStringCatalog.render`** implements the real dispatch + offset math:
+  - dynamic (`fmtLoc & 0x80000000`) → the message is `"%s"`;
+  - **main_exe** (`0x02`) → the process `.uuidtext`;
+  - **shared_cache / large_shared_cache** (`0x04`/`0x0c`) → the `dsc` at
+    `largeOffset(…) + fmtLoc`, where the extension is
+    `0x80000000·large_offset` or `0x100000000·(large_shared_cache/2)`;
+  - **absolute** (`0x08`) → the loaded image whose
+    `[load_address, load_address+size]` range contains `0x100000000·altIndex +
+    pc_id`, resolved in that image's `.uuidtext`;
+  - **uuid_relative** (`0x0a`) → the embedded UUID's `.uuidtext`.
+- **`CatalogProcessInfo.UUIDEntry`** now carries the 48-bit `loadAddress` (lo u32 @
+  +10, hi u16 @ +14) for the absolute range lookup; the assembler passes the
+  process's loaded-image table to the resolver.
+- **Validated on the real macOS-12 image**: `0x0c` references now render real
+  strings whose specifier counts match the decoded args — e.g.
+  `"[HID] [MT] %s%s%s device bootloaded"` →
+  *"[com.apple.Multitouch] [HID] [MT] MTSimpleHIDManager::deviceDidBootload …"*.
+  **Persist-file message coverage went from ~2.5% to 31% with only the `dsc`
+  loaded** (main-exe/absolute/uuid-relative add more once every referenced
+  `.uuidtext` is extracted, as the app does). Synthetic unit tests cover the
+  large-offset math + the dynamic-`%s` path.
+
 ### Added — macOS Unified Log, M6: integration (tab + timeline + analyzer)
 
 The unified-log decoder is now wired into the app end-to-end — **the macOS

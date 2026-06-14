@@ -90,23 +90,75 @@ public nonisolated struct UnifiedLogStringCatalog: Sendable {
         public var source: Source
     }
 
-    /// Resolve a tracepoint's format string (M5a), decode its argument items and
-    /// render the final message (M5b). `data` is the tracepoint's data section.
-    public func render(flags: UInt16, formatStringLocation: UInt32, data: [UInt8],
-                       mainUUID: String?, dscUUID: String?) -> Message {
-        let r = resolve(flags: flags, formatStringLocation: formatStringLocation,
-                        mainUUID: mainUUID, dscUUID: dscUUID)
-        // Decode the argument items + subsystem id regardless of whether the
-        // format string resolved (the subsystem id is still useful).
-        let decoded = FirehoseItemDecoder.decode(
-            data, flags: flags,
-            expectedCount: r.formatString.map { LogFormatter.specifierCount($0) } ?? 0)
-        guard let fmt = r.formatString else {
-            return Message(process: r.process, library: r.library, message: nil,
-                           subsystemIdentifier: decoded.subsystemID, source: r.source)
+    /// A loaded image of the emitting process: its virtual base + extent + UUID,
+    /// used to resolve an **absolute** program counter to the owning `.uuidtext`.
+    public struct ImageEntry: Sendable, Equatable {
+        public let loadAddress: UInt64
+        public let size: UInt32
+        public let uuid: String
+        public init(loadAddress: UInt64, size: UInt32, uuid: String) {
+            self.loadAddress = loadAddress; self.size = size; self.uuid = uuid
         }
-        let message = LogFormatter.render(format: fmt, items: decoded.items)
-        return Message(process: r.process, library: r.library, message: message,
-                       subsystemIdentifier: decoded.subsystemID, source: r.source)
+    }
+
+    /// Resolve a tracepoint's format string and render the final message.
+    /// Implements the full firehose resolution: main-exe / shared-cache
+    /// (with the large-offset math) / absolute (loaded-image range lookup) /
+    /// uuid-relative. `imageEntries` are the process's loaded images (from the
+    /// catalog) — needed only for the absolute case.
+    public func render(flags: UInt16, formatStringLocation fmtLoc: UInt32, data: [UInt8],
+                       mainUUID: String?, dscUUID: String?,
+                       imageEntries: [ImageEntry] = []) -> Message {
+        let source = Source(flags: flags)
+        let process = mainUUID.flatMap { uuidTexts[$0]?.processName }
+        let decoded = FirehoseItemDecoder.decode(data, flags: flags, expectedCount: 0)
+
+        var formatString: String?
+        var library: String? = process
+        if fmtLoc & 0x8000_0000 != 0 {
+            // Dynamic format string — the message is a single runtime string.
+            formatString = "%s"
+        } else {
+            switch flags & 0x000e {
+            case 0x02:   // main_exe
+                formatString = mainUUID.flatMap { uuidTexts[$0]?.formatString(at: fmtLoc) }
+            case 0x04, 0x0c:   // shared_cache (+ large_shared_cache)
+                let real = Self.largeOffset(decoded.largeOffset, decoded.largeSharedCache) &+ UInt64(fmtLoc)
+                if let dsc = dscUUID.flatMap({ dscs[$0] }), let r = dsc.resolve(offset: real) {
+                    formatString = r.formatString
+                    let leaf = (r.imagePath as NSString).lastPathComponent
+                    if !leaf.isEmpty { library = leaf }
+                }
+            case 0x08:   // absolute → loaded-image range lookup
+                let addr = (0x1_0000_0000 &* UInt64(decoded.altIndex)) &+ UInt64(decoded.pcID)
+                if let img = imageEntries.first(where: {
+                    addr >= $0.loadAddress && addr <= $0.loadAddress &+ UInt64($0.size)
+                }), let ut = uuidTexts[img.uuid] {
+                    formatString = ut.formatString(at: fmtLoc)
+                    library = ut.processName
+                }
+            case 0x0a:   // uuid_relative → the embedded UUID's .uuidtext
+                if let u = decoded.uuidRelative, let ut = uuidTexts[u] {
+                    formatString = ut.formatString(at: fmtLoc)
+                    library = ut.processName
+                }
+            default:
+                break
+            }
+        }
+
+        let message = formatString.map { LogFormatter.render(format: $0, items: decoded.items) }
+        return Message(process: process, library: library, message: message,
+                       subsystemIdentifier: decoded.subsystemID, source: source)
+    }
+
+    /// The shared-cache large-offset extension (Mandiant `get_message`):
+    /// combines the `large_offset` / `large_shared_cache` values into the high
+    /// bits added to the format-string offset before the `dsc` lookup.
+    static func largeOffset(_ largeOffset: UInt16, _ largeSharedCache: UInt16) -> UInt64 {
+        let lo = UInt64(largeOffset), lsc = UInt64(largeSharedCache)
+        if (lo == 1 || lo == 2) && lo > lsc { return 0x8000_0000 &* lo }
+        if lsc != 0 { return 0x1_0000_0000 &* (lsc / 2) }
+        return 0x1_0000_0000 &* lo
     }
 }

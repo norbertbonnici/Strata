@@ -36,9 +36,32 @@ public nonisolated enum FirehoseItemDecoder {
     public struct Decoded: Sendable {
         public let items: [FirehoseItem]
         public let subsystemID: UInt16?
-        public init(items: [FirehoseItem], subsystemID: UInt16?) {
+        /// Format-string reference fields parsed from the optional header, used to
+        /// resolve absolute / shared-cache-with-large-offset strings.
+        public let pcID: UInt32
+        public let largeOffset: UInt16
+        public let largeSharedCache: UInt16
+        public let altIndex: UInt16
+        /// The embedded 32-hex UUID for a `uuid_relative` (`0x0a`) tracepoint.
+        public let uuidRelative: String?
+        public init(items: [FirehoseItem], subsystemID: UInt16?,
+                    pcID: UInt32 = 0, largeOffset: UInt16 = 0, largeSharedCache: UInt16 = 0,
+                    altIndex: UInt16 = 0, uuidRelative: String? = nil) {
             self.items = items; self.subsystemID = subsystemID
+            self.pcID = pcID; self.largeOffset = largeOffset; self.largeSharedCache = largeSharedCache
+            self.altIndex = altIndex; self.uuidRelative = uuidRelative
         }
+    }
+
+    /// The format-string reference fields recovered from the optional header.
+    struct HeaderInfo {
+        var start: Int
+        var subsystem: UInt16?
+        var pcID: UInt32 = 0
+        var largeOffset: UInt16 = 0
+        var largeSharedCache: UInt16 = 0
+        var altIndex: UInt16 = 0
+        var uuidRelative: String?
     }
 
     /// Item types that carry a `(offset, size)` into the value region.
@@ -57,37 +80,62 @@ public nonisolated enum FirehoseItemDecoder {
     /// optional-header parse; `expectedCount` is the format string's specifier
     /// count (used to disambiguate the anchor fallback).
     public static func decode(_ data: [UInt8], flags: UInt16, expectedCount: Int) -> Decoded {
-        // 1. Deterministic optional-header parse — also yields the subsystem id.
-        if let (start, subsystemID) = optionalHeaderEnd(data, flags: flags),
-           let (items, exact, _) = tryParse(data, at: start), exact {
-            return Decoded(items: items, subsystemID: subsystemID)
+        // 1. Deterministic optional-header parse — also yields the subsystem id
+        //    and the format-string reference fields.
+        if let h = optionalHeaderEnd(data, flags: flags),
+           let (items, exact, _) = tryParse(data, at: h.start), exact {
+            return Decoded(items: items, subsystemID: h.subsystem, pcID: h.pcID,
+                           largeOffset: h.largeOffset, largeSharedCache: h.largeSharedCache,
+                           altIndex: h.altIndex, uuidRelative: h.uuidRelative)
         }
-        // 2. Fallback: anchor on the descriptor block (no subsystem).
+        // 2. Fallback: anchor on the descriptor block (no subsystem/refs).
         return Decoded(items: anchorDecode(data, expectedCount: expectedCount), subsystemID: nil)
     }
 
-    /// Compute the offset of the `item` byte (and the subsystem id when present)
-    /// by walking the flag-driven optional header. Returns nil if it runs past
-    /// the buffer.
-    static func optionalHeaderEnd(_ d: [UInt8], flags: UInt16) -> (start: Int, subsystem: UInt16?)? {
+    /// Walk the flag-driven optional header, recovering the `item`-byte offset,
+    /// the subsystem id, and the format-string reference fields (pc_id,
+    /// large_offset / large_shared_cache, absolute alt-index, uuid_relative).
+    /// Returns nil if it runs past the buffer. Field order + sizes confirmed
+    /// against the real image (Mandiant `firehose_formatter_flags` / Khatri).
+    static func optionalHeaderEnd(_ d: [UInt8], flags: UInt16) -> HeaderInfo? {
         let n = d.count
         func u16(_ o: Int) -> UInt16 { (o + 1 < n) ? UInt16(d[o]) | (UInt16(d[o + 1]) << 8) : 0 }
+        func u32(_ o: Int) -> UInt32 {
+            (o + 3 < n) ? UInt32(d[o]) | (UInt32(d[o + 1]) << 8) | (UInt32(d[o + 2]) << 16) | (UInt32(d[o + 3]) << 24) : 0
+        }
+        func uuid(_ o: Int) -> String {
+            guard o + 16 <= n else { return "" }
+            return (o..<o + 16).map { String(format: "%02X", d[$0]) }.joined()
+        }
         var p = 0
         if flags & 0x0001 != 0 { p += 8 }     // has_current_aid: activity id + sentinel
         if flags & 0x0100 != 0 { p += 4 }     // has_private_data: offset + size
-        p += 4                                 // pc_id (always present)
-        if flags & 0x0020 != 0 { p += 2 }     // has_large_offset
-        // Absolute (0x08) / "0x0c" format strings carry an extra u16
-        // (a shared-cache/uuid index) before the rest of the header — confirmed
-        // against the real image. uuid_relative (0x0a) reads a wider field, so
-        // it isn't handled here and falls back to the anchor.
+        var h = HeaderInfo(start: 0, subsystem: nil)
+        h.pcID = u32(p); p += 4                // pc_id (always present)
+
+        // Format-type extras (the formatter flags).
         let formatType = flags & 0x000e
-        if formatType == 0x08 || formatType == 0x0c { p += 2 }
-        var subsystem: UInt16?
-        if flags & 0x0200 != 0 { subsystem = u16(p); p += 2 }   // has_subsystem
+        var largeOffsetRead = false
+        switch formatType {
+        case 0x0c:   // large_shared_cache: optional large_offset u16, then large_shared_cache u16
+            if flags & 0x0020 != 0 { h.largeOffset = u16(p); p += 2 }
+            h.largeSharedCache = u16(p); p += 2
+            largeOffsetRead = true
+        case 0x08:   // absolute: alt-uuid index (only when not also main_exe)
+            if flags & 0x0002 == 0 { h.altIndex = u16(p); p += 2 }
+        case 0x0a:   // uuid_relative: an explicit 16-byte UUID
+            h.uuidRelative = uuid(p); p += 16
+        default:
+            break
+        }
+        // has_large_offset, unless the format-type handler already consumed it.
+        if flags & 0x0020 != 0 && !largeOffsetRead { h.largeOffset = u16(p); p += 2 }
+
+        if flags & 0x0200 != 0 { h.subsystem = u16(p); p += 2 }   // has_subsystem
         if flags & 0x0400 != 0 { p += 1 }     // has_rules: ttl
-        if flags & 0x0800 != 0 { p += 4 }     // has_oversize: data ref
-        return p + 2 <= n ? (p, subsystem) : nil
+        if flags & 0x0800 != 0 { p += 2 }     // has_oversize: data ref (u16)
+        h.start = p
+        return p + 2 <= n ? h : nil
     }
 
     /// Anchor on the descriptor block: scan for the start whose descriptors parse

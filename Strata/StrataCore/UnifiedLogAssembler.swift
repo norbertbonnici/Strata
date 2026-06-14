@@ -53,9 +53,15 @@ public nonisolated enum UnifiedLogAssembler {
                             let pi = c.processInfo(first: tp.firstProcID, second: tp.secondProcID)
                             let mainUUID = pi.flatMap { c.uuid(at: $0.mainUUIDIndex) }
                             let dscUUID = pi.flatMap { c.uuid(at: $0.dscUUIDIndex) }
+                            // Loaded-image table for the absolute-address case.
+                            let images: [UnifiedLogStringCatalog.ImageEntry] = (pi?.uuidEntries ?? []).compactMap {
+                                guard let u = c.uuid(at: $0.uuidIndex) else { return nil }
+                                return .init(loadAddress: $0.loadAddress, size: $0.size, uuid: u)
+                            }
                             let m = strings.render(flags: tp.flags,
                                                    formatStringLocation: tp.formatStringLocation,
-                                                   data: tp.data, mainUUID: mainUUID, dscUUID: dscUUID)
+                                                   data: tp.data, mainUUID: mainUUID, dscUUID: dscUUID,
+                                                   imageEntries: images)
                             // Resolve the subsystem id (from the tracepoint) to
                             // its subsystem/category strings via the process's
                             // catalog subsystem table.
