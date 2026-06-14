@@ -36,9 +36,13 @@ unified log finally appears in Strata**, the payoff of the M1–M5 decoder arc.
   of only anchoring on the descriptor block. That both locates the item block
   exactly (the anchor is now a fallback) and recovers the **subsystem
   identifier**, which the assembler resolves to `subsystem`/`category` strings
-  via the catalog's per-process subsystem table. **Validated: 100% of
-  `has_subsystem` tracepoints resolved** (e.g. `com.apple.kvs/Misc`) — 14,843 of
-  one Special file's 22,186 entries carry a subsystem.
+  via the catalog's per-process subsystem table. The header parse also accounts
+  for the extra u16 that **absolute (`0x08`) / `0x0c`** format-string types carry,
+  so subsystem now resolves for those high-volume buckets too (e.g. ~79% of
+  `0x0c` tracepoints). **Validated on the real image:** all `has_subsystem`
+  tracepoints of the resolvable types map to a real subsystem (e.g.
+  `com.apple.kvs/Misc`) — 128,164 of one Persist file's 349,533 entries carry a
+  subsystem.
 - **Validated against the real macOS-12 image**: the assembler produces 22,186
   fully timestamped entries from one Special file with messages, process names,
   and subsystem/category resolved; both platforms build; 39 unit tests pass.

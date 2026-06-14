@@ -75,6 +75,18 @@ struct FirehoseMessageTests {
         #expect(d.items.first?.value == "abc")
     }
 
+    @Test func absoluteFormatTypeReadsExtraBeforeSubsystem() {
+        // flags=0x020c (format-type 0x0c + has_subsystem): pc_id(4) + the 0x0c
+        // extra u16 + subsystem u16(=9), then the item block.
+        var data: [UInt8] = [0, 0, 0, 0]          // pc_id
+        data += Self.le16(0)                      // 0x0c format-type extra
+        data += Self.le16(9)                      // subsystem id
+        data += [0x22, 0x01, 0x42, 0x01] + Self.le16(0) + Self.le16(4) + Array("abc".utf8) + [0]
+        let d = FirehoseItemDecoder.decode(data, flags: 0x020c, expectedCount: 1)
+        #expect(d.subsystemID == 9)
+        #expect(d.items.first?.value == "abc")
+    }
+
     // MARK: - formatter
 
     @Test func rendersObjectAndStringSpecifiers() {

@@ -77,6 +77,12 @@ public nonisolated enum FirehoseItemDecoder {
         if flags & 0x0100 != 0 { p += 4 }     // has_private_data: offset + size
         p += 4                                 // pc_id (always present)
         if flags & 0x0020 != 0 { p += 2 }     // has_large_offset
+        // Absolute (0x08) / "0x0c" format strings carry an extra u16
+        // (a shared-cache/uuid index) before the rest of the header — confirmed
+        // against the real image. uuid_relative (0x0a) reads a wider field, so
+        // it isn't handled here and falls back to the anchor.
+        let formatType = flags & 0x000e
+        if formatType == 0x08 || formatType == 0x0c { p += 2 }
         var subsystem: UInt16?
         if flags & 0x0200 != 0 { subsystem = u16(p); p += 2 }   // has_subsystem
         if flags & 0x0400 != 0 { p += 1 }     // has_rules: ttl
