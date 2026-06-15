@@ -43,6 +43,23 @@ builds can backfill newly added data.
 5. Network / Device Context
    - Known Wi-Fi networks, DHCP leases, Bluetooth devices, USB/iOS pairings, and Time Machine destinations.
 
+## Recovery
+
+- **Signature carving (deleted / sealed / encrypted recovery).** `FileCarver`
+  (`StrataCore`, pure-Swift, synthetic-fixture tested) scans an image's raw bytes
+  for file magic headers and recovers the embedded files independent of the
+  filesystem — reaching deleted files in unallocated space and content libfsapfs
+  won't surface through the volume layer (sealed System snapshot, locked
+  FileVault), because it reads raw bytes directly. Recovers SQLite / PNG / JPEG /
+  PDF / ZIP with exact sizes (header/footer) and bplist / gzip capped. Opt-in via
+  **Tools ▸ Carve Deleted Files** (`AppModel.carveArtifacts()`, runs on each APFS
+  host's raw image off-main); results persist as `carved.json`, surface in a
+  **Carved Files** tab (offset / type / size / source, with Save-recovered-bytes),
+  and carry no timestamps so there's no timeline projection. This partially
+  mitigates the two deferred large items (APFS unallocated recovery; sealed
+  System-volume reads). *The engine is fully tested; the end-to-end carve over a
+  real APFS image is not yet validated (no toolchain build / image in CI).*
+
 ## Detection & Access Improvements
 
 - **Unified Log detection breadth.** `UnifiedLogAnalyzer` was expanded beyond the

@@ -52,6 +52,8 @@ nonisolated struct EvidenceState: Sendable {
     var knowledgeC: [KnowledgeEntry] = []
     var macRecentItems: [MacRecentItem] = []
     var macSecurityEvents: [MacSecurityEvent] = []
+    // Files recovered by raw-image signature carving (no filesystem, no times).
+    var carvedFiles: [CarvedFile] = []
     // macOS host identity (empty on non-macOS evidence).
     var macInfo: MacHostInfo?
     var findings: [Finding] = []
@@ -559,6 +561,7 @@ final class AppModel: ObservableObject {
             state.knowledgeC = (try? CaseStore.readKnowledgeC(forHostID: evidence.id, in: bundleURL)) ?? []
             state.macRecentItems = (try? CaseStore.readMacRecentItems(forHostID: evidence.id, in: bundleURL)) ?? []
             state.macSecurityEvents = (try? CaseStore.readMacSecurityEvents(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.carvedFiles = (try? CaseStore.readCarved(forHostID: evidence.id, in: bundleURL)) ?? []
             if !state.unifiedLog.isEmpty || !state.tcc.isEmpty || !state.knowledgeC.isEmpty
                 || !state.macRecentItems.isEmpty || !state.macSecurityEvents.isEmpty {
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: state.unifiedLog))
@@ -1008,6 +1011,12 @@ final class AppModel: ObservableObject {
         lockedApfsVolumes.values.contains { !$0.isEmpty }
     }
 
+    /// True when any loaded host is an APFS image (the carve target — drives the
+    /// Tools ▸ Carve command's enabled state).
+    var hasApfsHost: Bool {
+        evidenceList.contains { $0.kind == .apfs }
+    }
+
     /// Triggered by Tools ▸ Unlock FileVault Volume (and auto-shown after an
     /// ingest that found locked volumes). Prompts for the active host's secret,
     /// falling back to the first host that has a locked volume.
@@ -1163,6 +1172,7 @@ final class AppModel: ObservableObject {
         var knowledgeC: [KnowledgeEntry] = []
         var macRecentItems: [MacRecentItem] = []
         var macSecurityEvents: [MacSecurityEvent] = []
+        var carvedFiles: [CarvedFile] = []
         var iocMatches: [IOCMatch] = []
     }
     private var derivedCache: Derived?
@@ -1239,6 +1249,7 @@ final class AppModel: ObservableObject {
             d.knowledgeC = s.knowledgeC
             d.macRecentItems = s.macRecentItems
             d.macSecurityEvents = s.macSecurityEvents
+            d.carvedFiles = s.carvedFiles
             d.iocMatches = s.iocMatches
             return d
         }
@@ -1280,6 +1291,7 @@ final class AppModel: ObservableObject {
             d.knowledgeC.append(contentsOf: s.knowledgeC)
             d.macRecentItems.append(contentsOf: s.macRecentItems)
             d.macSecurityEvents.append(contentsOf: s.macSecurityEvents)
+            d.carvedFiles.append(contentsOf: s.carvedFiles)
             d.iocMatches.append(contentsOf: s.iocMatches)
         }
         d.events.sort { $0.writtenAt < $1.writtenAt }
@@ -1370,6 +1382,7 @@ final class AppModel: ObservableObject {
     var knowledgeC: [KnowledgeEntry] { derived().knowledgeC }
     var macRecentItems: [MacRecentItem] { derived().macRecentItems }
     var macSecurityEvents: [MacSecurityEvent] { derived().macSecurityEvents }
+    var carvedFiles: [CarvedFile] { derived().carvedFiles }
     /// Linux host info for the active scope (tiny; not worth caching). In the
     /// combined scope the first host that has one wins.
     var linuxInfo: LinuxHostInfo? {
@@ -1425,6 +1438,7 @@ final class AppModel: ObservableObject {
     var knowledgeCCount: Int { scopedCount(\.knowledgeC.count) }
     var macRecentItemCount: Int { scopedCount(\.macRecentItems.count) }
     var macSecurityEventCount: Int { scopedCount(\.macSecurityEvents.count) }
+    var carvedFileCount: Int { scopedCount(\.carvedFiles.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
     /// True once the Linux log parse has produced *something* in the active
@@ -1705,6 +1719,55 @@ final class AppModel: ObservableObject {
             errorMessage = error.localizedDescription
             statusMessage = ""
         }
+    }
+
+    /// Carve recoverable files directly out of each APFS host's raw image by
+    /// signature, bypassing the filesystem + libfsapfs — this reaches deleted
+    /// files in unallocated space and content libfsapfs won't surface (sealed
+    /// System snapshot, locked FileVault). Opt-in (Tools ▸ Carve Deleted Files);
+    /// results persist as `carved.json`. No timeline splice (carved files carry
+    /// no timestamps, like FSEvents / the WMI carve).
+    func carveArtifacts() async {
+        guard let bundleURL = currentCaseBundleURL else { return }
+        errorMessage = nil
+        isWorking = true
+        defer { isWorking = false }
+        var hostsTouched = 0
+        for evidence in evidenceList where evidence.kind == .apfs {
+            guard var state = states[evidence.id],
+                  let raw = evidence.apfsRawURL,
+                  FileManager.default.fileExists(atPath: raw.path) else { continue }
+            statusMessage = "Carving \(evidence.displayName) (raw signature scan)…"
+            let source = raw.lastPathComponent
+            let carved: [CarvedFile] = await Task.detached(priority: .userInitiated) {
+                (try? FileCarver.carveFile(at: raw, source: source)) ?? []
+            }.value
+            state.carvedFiles = carved
+            states[evidence.id] = state
+            try? CaseStore.writeCarved(carved, forHostID: evidence.id, in: bundleURL)
+            appendCustody(.analysed,
+                          detail: "Carved \(carved.count) recoverable file(s) from \(evidence.displayName)",
+                          evidenceID: evidence.id)
+            hostsTouched += 1
+        }
+        statusMessage = hostsTouched == 0
+            ? "No APFS image to carve — carving runs on the macOS APFS ingest path."
+            : "Carving complete."
+    }
+
+    /// Re-read a carved file's bytes from its source image (offset + length), for
+    /// the macOS view's Save action. Matches the host by the carve's source name.
+    func carvedFileData(_ carved: CarvedFile) -> Data? {
+        for evidence in evidenceList where evidence.kind == .apfs {
+            guard let raw = evidence.apfsRawURL, raw.lastPathComponent == carved.source,
+                  let handle = try? FileHandle(forReadingFrom: raw) else { continue }
+            defer { try? handle.close() }
+            do {
+                try handle.seek(toOffset: UInt64(carved.offset))
+                return try handle.read(upToCount: Int(carved.size))
+            } catch { return nil }
+        }
+        return nil
     }
 
     #endif

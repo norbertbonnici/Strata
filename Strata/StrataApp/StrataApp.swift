@@ -85,6 +85,9 @@ private struct ToolsCommands: Commands {
             Button("Unlock FileVault Volume...") { model.requestFileVaultUnlock() }
                 .disabled(!model.hasLockedApfsVolumes || model.isWorking)
 
+            Button("Carve Deleted Files") { Task { await model.carveArtifacts() } }
+                .disabled(!model.hasApfsHost || model.isWorking)
+
             Divider()
 
             Button("Export...") { model.requestExport() }

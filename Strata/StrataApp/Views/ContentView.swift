@@ -38,6 +38,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case knowledgeC = "KnowledgeC"
     case macRecentItems = "Recent Items"
     case macSecurity = "macOS Security"
+    case carvedFiles = "Carved Files"
     case lateral = "Lateral"
     case killChain = "Kill Chain"
     case iocs = "IOCs"
@@ -85,6 +86,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .knowledgeC: return "brain"
         case .macRecentItems: return "clock.arrow.circlepath"
         case .macSecurity: return "checkmark.shield"
+        case .carvedFiles: return "doc.badge.arrow.up"
         case .lateral:   return "point.3.connected.trianglepath.dotted"
         case .killChain: return "link"
         case .iocs:      return "scope"
@@ -107,7 +109,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .linuxLogs, .shellHistory, .linuxPersistence, .linuxAccess, .webLogs,
              .packages, .journald, .audit, .syslog, .lastlog:
             return .linux
-        case .launchItems, .quarantine, .macPersistence, .fsEvents, .unifiedLog, .tcc, .knowledgeC, .macRecentItems, .macSecurity:
+        case .launchItems, .quarantine, .macPersistence, .fsEvents, .unifiedLog, .tcc, .knowledgeC, .macRecentItems, .macSecurity, .carvedFiles:
             return .macos
         case .overview, .search, .evidence, .timeline, .browser, .lateral,
              .killChain, .iocs, .annotations, .designUI, .activity, .custody:
@@ -250,6 +252,7 @@ struct ContentView: View {
                 case .knowledgeC: KnowledgeCView()
                 case .macRecentItems: MacRecentItemsView()
                 case .macSecurity: MacSecurityView()
+                case .carvedFiles: CarvedFilesView()
                 case .lateral:   LateralMovementView()
                 case .killChain: KillChainView()
                 case .iocs:      IOCView()
