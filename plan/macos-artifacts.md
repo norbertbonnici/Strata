@@ -43,6 +43,18 @@ builds can backfill newly added data.
 5. Network / Device Context
    - Known Wi-Fi networks, DHCP leases, Bluetooth devices, USB/iOS pairings, and Time Machine destinations.
 
+## Kernel & System Extensions
+
+- **done.** `MacKextParser` (`StrataMac`) inventories kernel extensions (each
+  `Foo.kext/Contents/Info.plist` under `/Library/Extensions` or
+  `/System/Library/Extensions`) and modern System Extensions (the
+  `/Library/SystemExtensions/db.plist`, walked leniently for any `identifier`).
+  `MacKextEntry` (`StrataCore`); discovered/parsed in `AppModel.parseMac()`,
+  cached as `kexts.json`, surfaced in an **Extensions** tab (third-party-only
+  filter). `MacKextAnalyzer` flags non-Apple extensions — T1547.006, **high** for
+  a `.kext` (kernel code), **medium** for a user-space System Extension. No
+  timeline (no per-item timestamp). Covered by `StrataTests/MacKextTests.swift`.
+
 ## Recovery
 
 - **Signature carving (deleted / sealed / encrypted recovery).** `FileCarver`

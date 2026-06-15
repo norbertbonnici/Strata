@@ -49,6 +49,7 @@ public nonisolated enum CaseStore {
     private static let knowledgeCFilename = "knowledgec.json"
     private static let macRecentItemsFilename = "macrecentitems.json"
     private static let carvedFilename = "carved.json"
+    private static let kextsFilename = "kexts.json"
     private static let macSecurityFilename = "macsecurity.json"
     private static let auditFilename      = "audit.json"
     private static let syslogFilename     = "syslog.json"
@@ -600,6 +601,15 @@ public nonisolated enum CaseStore {
     public static func writeCarved(_ files: [CarvedFile], forHostID id: UUID, in bundle: URL) throws {
         try writeArray(files, at: hostDirectory(forHostID: id, in: bundle)
             .appendingPathComponent(carvedFilename))
+    }
+
+    public static func readKexts(forHostID id: UUID, in bundle: URL) throws -> [MacKextEntry]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(kextsFilename))
+    }
+    public static func writeKexts(_ kexts: [MacKextEntry], forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(kexts, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(kextsFilename))
     }
 
     public static func readAudit(forHostID id: UUID, in bundle: URL) throws -> [AuditEvent]? {
