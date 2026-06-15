@@ -47,6 +47,8 @@ public nonisolated enum CaseStore {
     private static let unifiedLogFilename = "unifiedlog.json"
     private static let tccFilename        = "tcc.json"
     private static let knowledgeCFilename = "knowledgec.json"
+    private static let macRecentItemsFilename = "macrecentitems.json"
+    private static let macSecurityFilename = "macsecurity.json"
     private static let auditFilename      = "audit.json"
     private static let syslogFilename     = "syslog.json"
     private static let lastlogFilename    = "lastlog.json"
@@ -568,6 +570,26 @@ public nonisolated enum CaseStore {
                                        forHostID id: UUID, in bundle: URL) throws {
         try writeArray(entries, at: hostDirectory(forHostID: id, in: bundle)
             .appendingPathComponent(knowledgeCFilename))
+    }
+
+    public static func readMacRecentItems(forHostID id: UUID, in bundle: URL) throws -> [MacRecentItem]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(macRecentItemsFilename))
+    }
+    public static func writeMacRecentItems(_ items: [MacRecentItem],
+                                           forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(items, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(macRecentItemsFilename))
+    }
+
+    public static func readMacSecurityEvents(forHostID id: UUID, in bundle: URL) throws -> [MacSecurityEvent]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(macSecurityFilename))
+    }
+    public static func writeMacSecurityEvents(_ events: [MacSecurityEvent],
+                                              forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(events, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(macSecurityFilename))
     }
 
     public static func readAudit(forHostID id: UUID, in bundle: URL) throws -> [AuditEvent]? {
