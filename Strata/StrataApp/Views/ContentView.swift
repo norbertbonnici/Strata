@@ -36,10 +36,14 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case unifiedLog = "Unified Log"
     case tcc = "TCC (Privacy)"
     case knowledgeC = "KnowledgeC"
+    case macRecentItems = "Recent Items"
+    case macSecurity = "macOS Security"
     case lateral = "Lateral"
     case killChain = "Kill Chain"
     case iocs = "IOCs"
     case annotations = "Annotations"
+    case designUI = "Design UI"
+    case activity = "Activity"
     case custody = "Custody"
 
     var id: String { rawValue }
@@ -79,10 +83,14 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .unifiedLog: return "list.bullet.rectangle"
         case .tcc:       return "hand.raised"
         case .knowledgeC: return "brain"
+        case .macRecentItems: return "clock.arrow.circlepath"
+        case .macSecurity: return "checkmark.shield"
         case .lateral:   return "point.3.connected.trianglepath.dotted"
         case .killChain: return "link"
         case .iocs:      return "scope"
         case .annotations: return "bookmark"
+        case .designUI:  return "rectangle.3.group"
+        case .activity:  return "waveform.path.ecg"
         case .custody:   return "checkmark.seal"
         }
     }
@@ -99,10 +107,10 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .linuxLogs, .shellHistory, .linuxPersistence, .linuxAccess, .webLogs,
              .packages, .journald, .audit, .syslog, .lastlog:
             return .linux
-        case .launchItems, .quarantine, .macPersistence, .fsEvents, .unifiedLog, .tcc, .knowledgeC:
+        case .launchItems, .quarantine, .macPersistence, .fsEvents, .unifiedLog, .tcc, .knowledgeC, .macRecentItems, .macSecurity:
             return .macos
         case .overview, .search, .evidence, .timeline, .browser, .lateral,
-             .killChain, .iocs, .annotations, .custody:
+             .killChain, .iocs, .annotations, .designUI, .activity, .custody:
             return nil
         }
     }
@@ -234,10 +242,14 @@ struct ContentView: View {
                 case .unifiedLog: UnifiedLogView()
                 case .tcc:       TCCView()
                 case .knowledgeC: KnowledgeCView()
+                case .macRecentItems: MacRecentItemsView()
+                case .macSecurity: MacSecurityView()
                 case .lateral:   LateralMovementView()
                 case .killChain: KillChainView()
                 case .iocs:      IOCView()
                 case .annotations: AnnotationsView()
+                case .designUI:  DesignSurfacesView()
+                case .activity:  ActivityLifecycleView()
                 case .custody:   ChainOfCustodyView()
                 }
             }

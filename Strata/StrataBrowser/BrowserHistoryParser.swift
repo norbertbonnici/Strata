@@ -50,6 +50,47 @@ public nonisolated struct BrowserHistoryParser: Sendable {
         return try readDatabase(at: fileURL, sourceFile: sourceFile, includeSidecars: false)
     }
 
+    /// Parse Safari `Downloads.plist`. The schema has drifted across macOS
+    /// versions, so this walks plist dictionaries leniently and emits any object
+    /// carrying a source URL or local destination path.
+    public static func parseSafariDownloads(fileAt fileURL: URL, sourceFile: String) throws -> [BrowserHistoryEntry] {
+        let data = try Data(contentsOf: fileURL)
+        guard let object = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) else {
+            return []
+        }
+        let profile = BrowserHistoryEntry.profile(forPath: sourceFile)
+        var out: [BrowserHistoryEntry] = []
+        var seen = Set<String>()
+        collectSafariDownloadDictionaries(from: object) { dict in
+            let sourceURL = firstString(dict, keys: [
+                "DownloadEntryURL", "DownloadEntryURLString", "URL", "url", "NSURL"
+            ])
+            let targetPath = firstString(dict, keys: [
+                "DownloadEntryPath", "DownloadEntryDestinationURL", "DownloadEntryDestinationPath",
+                "path", "Path", "targetPath"
+            ])
+            let url = sourceURL ?? targetPath ?? ""
+            guard !url.isEmpty else { return }
+            let key = "\(url)|\(targetPath ?? "")|\(sourceFile)"
+            guard seen.insert(key).inserted else { return }
+            out.append(BrowserHistoryEntry(
+                browser: .safari,
+                kind: .download,
+                url: url,
+                title: firstString(dict, keys: ["DownloadEntryFileName", "filename", "Name", "name"]),
+                timestamp: firstDate(dict, keys: [
+                    "DownloadEntryDateAddedKey", "DownloadEntryDateFinishedKey", "dateAdded", "Date", "date"
+                ]),
+                targetPath: targetPath,
+                receivedBytes: firstInt64(dict, keys: ["DownloadEntryProgressBytesSoFar", "receivedBytes", "bytesReceived"]),
+                totalBytes: firstInt64(dict, keys: ["DownloadEntryProgressTotalToLoad", "totalBytes", "bytesTotal"]),
+                referrer: firstString(dict, keys: ["DownloadEntryReferrer", "referrer", "originURL"]),
+                userProfile: profile,
+                sourceFile: sourceFile))
+        }
+        return out.sorted { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+    }
+
     /// True when `fileURL` begins with the SQLite file magic
     /// (`"SQLite format 3\0"`, 16 bytes) — the cheap, definitive "is this even a
     /// database" test before handing the file to GRDB.
@@ -209,6 +250,84 @@ public nonisolated struct BrowserHistoryParser: Sendable {
     }
     private static func intValue(_ v: Int64?) -> Int? { v.map(Int.init) }
     private static func int64Value(_ v: Int64?) -> Int64? { v }
+
+    private static func collectSafariDownloadDictionaries(from object: Any, visit: ([String: Any]) -> Void) {
+        if let dict = object as? [String: Any] {
+            if firstString(dict, keys: ["DownloadEntryURL", "DownloadEntryURLString", "DownloadEntryPath"]) != nil {
+                visit(dict)
+            }
+            dict.values.forEach { collectSafariDownloadDictionaries(from: $0, visit: visit) }
+        } else if let array = object as? [Any] {
+            array.forEach { collectSafariDownloadDictionaries(from: $0, visit: visit) }
+        } else if let dict = object as? NSDictionary {
+            var swift: [String: Any] = [:]
+            for (key, value) in dict {
+                if let key = key as? String { swift[key] = value }
+            }
+            collectSafariDownloadDictionaries(from: swift, visit: visit)
+        } else if let array = object as? NSArray {
+            array.forEach { collectSafariDownloadDictionaries(from: $0, visit: visit) }
+        }
+    }
+
+    private static func firstString(_ dict: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            guard let value = dict[key] else { continue }
+            if let string = stringValue(value) { return string }
+        }
+        return nil
+    }
+
+    private static func stringValue(_ value: Any) -> String? {
+        if let string = value as? String {
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        if let url = value as? URL { return url.absoluteString }
+        if let dict = value as? [String: Any] {
+            return firstString(dict, keys: ["NSURL", "NS.relative", "relative", "url", "URL", "path", "Path"])
+        }
+        if let dict = value as? NSDictionary {
+            var swift: [String: Any] = [:]
+            for (key, value) in dict {
+                if let key = key as? String { swift[key] = value }
+            }
+            return stringValue(swift)
+        }
+        return nil
+    }
+
+    private static func firstDate(_ dict: [String: Any], keys: [String]) -> Date? {
+        for key in keys {
+            guard let value = dict[key], let date = dateValue(value) else { continue }
+            return date
+        }
+        return nil
+    }
+
+    private static func dateValue(_ value: Any) -> Date? {
+        if let date = value as? Date { return date }
+        if let number = value as? NSNumber {
+            let seconds = number.doubleValue
+            guard seconds > 0 else { return nil }
+            if seconds > 1_000_000_000 { return Date(timeIntervalSince1970: seconds) }
+            return BrowserHistoryEntry.safariTime(seconds)
+        }
+        if let string = value as? String {
+            if let seconds = Double(string) { return dateValue(NSNumber(value: seconds)) }
+            return ISO8601DateFormatter().date(from: string)
+        }
+        return nil
+    }
+
+    private static func firstInt64(_ dict: [String: Any], keys: [String]) -> Int64? {
+        for key in keys {
+            guard let value = dict[key] else { continue }
+            if let number = value as? NSNumber { return number.int64Value }
+            if let string = value as? String, let n = Int64(string) { return n }
+        }
+        return nil
+    }
 }
 
 #endif

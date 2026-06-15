@@ -46,6 +46,8 @@ public enum TimelineSource: String, CaseIterable, Sendable, Codable {
     case unifiedLog = "ULOG"
     case tcc        = "TCC"
     case knowledgeC = "KNOW"
+    case macRecent  = "MREC"
+    case macSecurity = "MSEC"
 
     public nonisolated var label: String {
         switch self {
@@ -73,6 +75,8 @@ public enum TimelineSource: String, CaseIterable, Sendable, Codable {
         case .unifiedLog: return "Unified Log"
         case .tcc:        return "TCC (Privacy)"
         case .knowledgeC: return "KnowledgeC"
+        case .macRecent:  return "macOS Recent Items"
+        case .macSecurity: return "macOS Security"
         }
     }
 }

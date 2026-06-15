@@ -50,6 +50,8 @@ nonisolated struct EvidenceState: Sendable {
     var unifiedLog: [UnifiedLogEntry] = []
     var tcc: [TCCAccess] = []
     var knowledgeC: [KnowledgeEntry] = []
+    var macRecentItems: [MacRecentItem] = []
+    var macSecurityEvents: [MacSecurityEvent] = []
     // macOS host identity (empty on non-macOS evidence).
     var macInfo: MacHostInfo?
     var findings: [Finding] = []
@@ -546,10 +548,15 @@ final class AppModel: ObservableObject {
             state.unifiedLog = (try? CaseStore.readUnifiedLog(forHostID: evidence.id, in: bundleURL)) ?? []
             state.tcc = (try? CaseStore.readTCC(forHostID: evidence.id, in: bundleURL)) ?? []
             state.knowledgeC = (try? CaseStore.readKnowledgeC(forHostID: evidence.id, in: bundleURL)) ?? []
-            if !state.unifiedLog.isEmpty || !state.tcc.isEmpty || !state.knowledgeC.isEmpty {
+            state.macRecentItems = (try? CaseStore.readMacRecentItems(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.macSecurityEvents = (try? CaseStore.readMacSecurityEvents(forHostID: evidence.id, in: bundleURL)) ?? []
+            if !state.unifiedLog.isEmpty || !state.tcc.isEmpty || !state.knowledgeC.isEmpty
+                || !state.macRecentItems.isEmpty || !state.macSecurityEvents.isEmpty {
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: state.unifiedLog))
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: state.tcc))
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: state.knowledgeC))
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.macRecentItems))
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.macSecurityEvents))
                 state.timeline.sort { $0.date < $1.date }
             }
             state.macInfo = try? CaseStore.readMacInfo(forHostID: evidence.id, in: bundleURL)
@@ -1128,6 +1135,8 @@ final class AppModel: ObservableObject {
         var unifiedLog: [UnifiedLogEntry] = []
         var tcc: [TCCAccess] = []
         var knowledgeC: [KnowledgeEntry] = []
+        var macRecentItems: [MacRecentItem] = []
+        var macSecurityEvents: [MacSecurityEvent] = []
         var iocMatches: [IOCMatch] = []
     }
     private var derivedCache: Derived?
@@ -1202,6 +1211,8 @@ final class AppModel: ObservableObject {
             d.unifiedLog = s.unifiedLog
             d.tcc = s.tcc
             d.knowledgeC = s.knowledgeC
+            d.macRecentItems = s.macRecentItems
+            d.macSecurityEvents = s.macSecurityEvents
             d.iocMatches = s.iocMatches
             return d
         }
@@ -1241,6 +1252,8 @@ final class AppModel: ObservableObject {
             d.unifiedLog.append(contentsOf: s.unifiedLog)
             d.tcc.append(contentsOf: s.tcc)
             d.knowledgeC.append(contentsOf: s.knowledgeC)
+            d.macRecentItems.append(contentsOf: s.macRecentItems)
+            d.macSecurityEvents.append(contentsOf: s.macSecurityEvents)
             d.iocMatches.append(contentsOf: s.iocMatches)
         }
         d.events.sort { $0.writtenAt < $1.writtenAt }
@@ -1281,6 +1294,8 @@ final class AppModel: ObservableObject {
         d.unifiedLog.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
         d.tcc.sort { ($0.lastModified ?? .distantPast) > ($1.lastModified ?? .distantPast) }
         d.knowledgeC.sort { ($0.startDate ?? .distantPast) > ($1.startDate ?? .distantPast) }
+        d.macRecentItems.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+        d.macSecurityEvents.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
         return d
     }
 
@@ -1327,6 +1342,8 @@ final class AppModel: ObservableObject {
     var unifiedLog: [UnifiedLogEntry] { derived().unifiedLog }
     var tcc: [TCCAccess] { derived().tcc }
     var knowledgeC: [KnowledgeEntry] { derived().knowledgeC }
+    var macRecentItems: [MacRecentItem] { derived().macRecentItems }
+    var macSecurityEvents: [MacSecurityEvent] { derived().macSecurityEvents }
     /// Linux host info for the active scope (tiny; not worth caching). In the
     /// combined scope the first host that has one wins.
     var linuxInfo: LinuxHostInfo? {
@@ -1380,6 +1397,8 @@ final class AppModel: ObservableObject {
     var unifiedLogCount: Int { scopedCount(\.unifiedLog.count) }
     var tccCount: Int { scopedCount(\.tcc.count) }
     var knowledgeCCount: Int { scopedCount(\.knowledgeC.count) }
+    var macRecentItemCount: Int { scopedCount(\.macRecentItems.count) }
+    var macSecurityEventCount: Int { scopedCount(\.macSecurityEvents.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
     /// True once the Linux log parse has produced *something* in the active
@@ -1423,6 +1442,8 @@ final class AppModel: ObservableObject {
         if unifiedLogCount > 0 { s.insert(.unifiedLog) }
         if tccCount > 0 { s.insert(.tcc) }
         if knowledgeCCount > 0 { s.insert(.knowledgeC) }
+        if macRecentItemCount > 0 { s.insert(.macRecent) }
+        if macSecurityEventCount > 0 { s.insert(.macSecurity) }
         // Windows bounded execution / usage.
         if prefetchCount > 0 { s.insert(.prefetch) }
         if browserHistoryCount > 0 { s.insert(.browser) }
@@ -2465,12 +2486,13 @@ final class AppModel: ObservableObject {
 
     // MARK: - Browser history parsing
 
-    /// Parse web-browser history databases (Chromium `History`, Firefox
-    /// `places.sqlite`) for every loaded evidence that doesn't already have
-    /// results. These are ordinary SQLite files (not sparse ADSes), so they're
-    /// extracted with the plain icat path that registry/prefetch/SRUM use. The
-    /// SQLite read itself (`BrowserHistoryParser`, GRDB) is run off the main
-    /// actor in a detached task. Mirrors `parseSrum`; does NOT run analyzers.
+    /// Parse web-browser history stores (Chromium `History`, Firefox
+    /// `places.sqlite`, Safari `History.db` and `Downloads.plist`) for every
+    /// loaded evidence that doesn't already have results. These are ordinary
+    /// files (not sparse ADSes), so they're extracted with the plain icat path
+    /// that registry/prefetch/SRUM use. The SQLite/plist read itself
+    /// (`BrowserHistoryParser`, GRDB for SQLite) is run off the main actor in a
+    /// detached task. Mirrors `parseSrum`; does NOT run analyzers.
     func parseBrowserHistory() async {
         guard !evidenceList.isEmpty else {
             errorMessage = "No evidence loaded."
@@ -2487,11 +2509,13 @@ final class AppModel: ObservableObject {
             state.files.filter {
                 guard !$0.isDirectory, $0.size > 0 else { return false }
                 let n = $0.name.lowercased()
-                // Safari's DB is History.db under ~/Library/Safari/; gate the
-                // .db variant on the Safari directory so unrelated History.db
-                // files elsewhere aren't copied + probed.
+                // Safari's DB/download plist live under ~/Library/Safari/; gate
+                // those names on the Safari directory so unrelated History.db or
+                // Downloads.plist files elsewhere aren't copied + probed.
+                let lower = $0.fullPath.lowercased()
                 return n == "history" || n == "places.sqlite"
-                    || (n == "history.db" && $0.fullPath.lowercased().contains("/safari/"))
+                    || (n == "history.db" && lower.contains("/safari/"))
+                    || (n == "downloads.plist" && lower.contains("/safari/"))
             }
         }
 
@@ -2511,9 +2535,9 @@ final class AppModel: ObservableObject {
             var hostsTouched = 0
             var hostsCollected = 0
             // A Linux host carries unrelated files named `History` (IPython, etc.);
-            // count how many candidates were *actually* SQLite databases so an
-            // image with only name-collisions reports "none found", not "corrupt".
-            var realDatabasesSeen = 0
+            // count how many candidates were *actually* parseable browser stores so
+            // an image with only name-collisions reports "none found", not "corrupt".
+            var realStoresSeen = 0
 
             for evidence in evidenceList {
                 guard var state = states[evidence.id] else { continue }
@@ -2604,10 +2628,15 @@ final class AppModel: ObservableObject {
                     // (mirrors parseRegistry) so it isn't indistinguishable from
                     // "nothing was ever parsed".
                     let source = entry.fullPath
-                    if BrowserHistoryParser.isSQLiteDatabase(at: fileURL) { realDatabasesSeen += 1 }
+                    let isSafariDownloads = entry.name.caseInsensitiveCompare("Downloads.plist") == .orderedSame
+                        && entry.fullPath.lowercased().contains("/safari/")
+                    if isSafariDownloads || BrowserHistoryParser.isSQLiteDatabase(at: fileURL) { realStoresSeen += 1 }
                     do {
                         let parsed = try await Task.detached(priority: .userInitiated) {
-                            try BrowserHistoryParser.parse(fileAt: fileURL, sourceFile: source)
+                            if isSafariDownloads {
+                                return try BrowserHistoryParser.parseSafariDownloads(fileAt: fileURL, sourceFile: source)
+                            }
+                            return try BrowserHistoryParser.parse(fileAt: fileURL, sourceFile: source)
                         }.value
                         collected.append(contentsOf: parsed)
                     } catch {
@@ -2631,14 +2660,14 @@ final class AppModel: ObservableObject {
             }
             progress = ProgressInfo(current: completed, total: totalCandidates,
                                     label: "Browser history parse complete")
-            if realDatabasesSeen > 0, hostsCollected == 0 {
-                // Real SQLite browser DBs were present but yielded nothing - a
-                // genuine problem (unreadable/corrupt/schema drift).
-                errorMessage = "Browser history parse extracted no entries - check that the History / places.sqlite databases are accessible and not corrupt."
-            } else if hostsTouched > 0, realDatabasesSeen == 0 {
-                // Only files *named* History/places.sqlite that aren't databases
+            if realStoresSeen > 0, hostsCollected == 0 {
+                // Real browser stores were present but yielded nothing - a genuine
+                // problem (unreadable/corrupt/schema drift).
+                errorMessage = "Browser history parse extracted no entries - check that the History / places.sqlite / Safari Downloads.plist stores are accessible and not corrupt."
+            } else if hostsTouched > 0, realStoresSeen == 0 {
+                // Only files *named* like browser stores that aren't parseable stores
                 // (common on Linux servers with no browser installed) - expected.
-                statusMessage = "No browser history databases found."
+                statusMessage = "No browser history stores found."
             }
         } catch {
             self.errorMessage = error.localizedDescription
@@ -3354,6 +3383,44 @@ final class AppModel: ObservableObject {
                     && (lower.contains("/coreduet/knowledge/") || lower.contains("/application support/knowledge/"))
             }
         }
+        // Recent Items / LSSharedFileList stores: recent apps, documents,
+        // servers, favorites, and Finder sidebar lists.
+        func recentItemFiles(_ s: EvidenceState) -> [FileEntry] {
+            s.files.filter { entry in
+                guard !entry.isDirectory, entry.size > 0 else { return false }
+                let lower = entry.fullPath.lowercased()
+                let name = entry.name.lowercased()
+                let isRecentList = lower.contains("/com.apple.sharedfilelist/")
+                    && (name.hasSuffix(".sfl") || name.hasSuffix(".sfl2") || name.hasSuffix(".sfl3") || name.hasSuffix(".plist"))
+                let isSidebarList = name == "com.apple.sidebarlists.plist"
+                    || lower.hasSuffix("/library/preferences/com.apple.finder.plist")
+                return isRecentList || isSidebarList
+            }
+        }
+        // Gatekeeper, XProtect, XProtect Remediator, MRT, and syspolicyd logs.
+        // install.log is included because Apple security-data updates and some
+        // XProtect/MRT activity are commonly recorded there.
+        func securityEventFiles(_ s: EvidenceState) -> [FileEntry] {
+            s.files.filter { entry in
+                guard !entry.isDirectory, entry.size > 0 else { return false }
+                let lower = entry.fullPath.lowercased()
+                let name = entry.name.lowercased()
+                let isLog = name.hasSuffix(".log") || name.hasSuffix(".log.0") || name == "install.log"
+                guard isLog else { return false }
+                if name == "install.log", lower.contains("/var/log/") { return true }
+                if lower.contains("/library/logs/") || lower.contains("/var/log/") {
+                    return name.contains("xprotect")
+                        || name.contains("xprotectremediator")
+                        || name.contains("mrt")
+                        || name.contains("gatekeeper")
+                        || name.contains("syspolicyd")
+                }
+                if lower.contains("/diagnosticreports/") {
+                    return name.contains("xprotect") || name.contains("mrt") || name.contains("syspolicyd")
+                }
+                return false
+            }
+        }
         // The owning scope for a macOS db path: "system" unless it lives under a
         // user home, in which case the user's name.
         func macScope(_ path: String) -> String {
@@ -3374,6 +3441,8 @@ final class AppModel: ObservableObject {
                 + (s.shellHistory.isEmpty ? shellHistoryFiles(s).count : 0)
                 + (s.tcc.isEmpty ? tccFiles(s).count : 0)
                 + (s.knowledgeC.isEmpty ? knowledgeFiles(s).count : 0)
+                + (s.macRecentItems.isEmpty ? recentItemFiles(s).count : 0)
+                + (s.macSecurityEvents.isEmpty ? securityEventFiles(s).count : 0)
         }
         guard total > 0 else { statusMessage = "No new macOS artifacts to parse."; return }
         progress = ProgressInfo(current: 0, total: total, label: "Parsing macOS artifacts")
@@ -3390,9 +3459,12 @@ final class AppModel: ObservableObject {
                 let foundShell = state.shellHistory.isEmpty ? shellHistoryFiles(state) : []
                 let foundTCC = state.tcc.isEmpty ? tccFiles(state) : []
                 let foundKnowledge = state.knowledgeC.isEmpty ? knowledgeFiles(state) : []
+                let foundRecent = state.macRecentItems.isEmpty ? recentItemFiles(state) : []
+                let foundSecurity = state.macSecurityEvents.isEmpty ? securityEventFiles(state) : []
                 guard !foundPlists.isEmpty || !foundQuar.isEmpty || !foundInfo.isEmpty
                     || !foundPersist.isEmpty || !foundFSE.isEmpty || !foundShell.isEmpty
-                    || !foundTCC.isEmpty || !foundKnowledge.isEmpty else { continue }
+                    || !foundTCC.isEmpty || !foundKnowledge.isEmpty || !foundRecent.isEmpty
+                    || !foundSecurity.isEmpty else { continue }
                 let isLoose = evidence.kind == .kapeLooseFolder
                 let isAPFS = evidence.kind == .apfs
                 var database: TSKDatabase?
@@ -3548,14 +3620,45 @@ final class AppModel: ObservableObject {
                 }
                 knowledge.sort { ($0.startDate ?? .distantPast) > ($1.startDate ?? .distantPast) }
 
+                // Recent Items / LSSharedFileList user-activity stores.
+                var recentItems: [MacRecentItem] = []
+                for entry in foundRecent {
+                    progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    guard let url = await extract(entry), let data = try? Data(contentsOf: url) else { continue }
+                    recentItems.append(contentsOf: MacRecentItemParser.parse(
+                        data: data, sourceFile: entry.fullPath, scope: macScope(entry.fullPath)))
+                }
+                recentItems.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+
+                // Gatekeeper / XProtect / MRT durable security logs.
+                var securityEvents: [MacSecurityEvent] = []
+                for entry in foundSecurity {
+                    progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    guard let url = await extract(entry), let data = try? Data(contentsOf: url) else { continue }
+                    securityEvents.append(contentsOf: MacSecurityParser.parse(
+                        data: data, sourceFile: entry.fullPath, scope: macScope(entry.fullPath)))
+                }
+                securityEvents.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+
                 if !foundPlists.isEmpty { state.launchItems = launch }
                 if !foundQuar.isEmpty { state.quarantine = quar }
                 if !foundPersist.isEmpty { state.macPersistence = persist }
                 if !foundFSE.isEmpty { state.fsEvents = fsEvents }
                 if !foundTCC.isEmpty { state.tcc = tcc }
                 if !foundKnowledge.isEmpty { state.knowledgeC = knowledge }
+                if !foundRecent.isEmpty { state.macRecentItems = recentItems }
+                if !foundSecurity.isEmpty { state.macSecurityEvents = securityEvents }
                 if !macShell.isEmpty { state.shellHistory.append(contentsOf: macShell) }
                 if !foundInfo.isEmpty { state.macInfo = info.isEmpty ? nil : info }
+                if !tcc.isEmpty || !knowledge.isEmpty || !recentItems.isEmpty || !securityEvents.isEmpty {
+                    state.timeline.append(contentsOf: TimelineBuilder.build(from: tcc))
+                    state.timeline.append(contentsOf: TimelineBuilder.build(from: knowledge))
+                    state.timeline.append(contentsOf: TimelineBuilder.build(from: recentItems))
+                    state.timeline.append(contentsOf: TimelineBuilder.build(from: securityEvents))
+                    state.timeline.sort { $0.date < $1.date }
+                }
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
                     if !foundPlists.isEmpty {
@@ -3575,6 +3678,12 @@ final class AppModel: ObservableObject {
                     }
                     if !foundKnowledge.isEmpty {
                         try? CaseStore.writeKnowledgeC(knowledge, forHostID: evidence.id, in: bundleURL)
+                    }
+                    if !foundRecent.isEmpty {
+                        try? CaseStore.writeMacRecentItems(recentItems, forHostID: evidence.id, in: bundleURL)
+                    }
+                    if !foundSecurity.isEmpty {
+                        try? CaseStore.writeMacSecurityEvents(securityEvents, forHostID: evidence.id, in: bundleURL)
                     }
                     if !macShell.isEmpty {
                         try? CaseStore.writeShellHistory(state.shellHistory, forHostID: evidence.id, in: bundleURL)
@@ -4427,7 +4536,9 @@ final class AppModel: ObservableObject {
                                           fsEvents: state.fsEvents,
                                           unifiedLog: state.unifiedLog,
                                           tcc: state.tcc,
-                                          knowledgeC: state.knowledgeC)
+                                          knowledgeC: state.knowledgeC,
+                                          macRecentItems: state.macRecentItems,
+                                          macSecurityEvents: state.macSecurityEvents)
             let results = await analysisEngine.run(on: context)
             state.findings = results
             states[evidence.id] = state

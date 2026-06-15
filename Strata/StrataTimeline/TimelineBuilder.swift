@@ -423,6 +423,34 @@ public nonisolated enum TimelineBuilder {
         return out.sorted { $0.date < $1.date }
     }
 
+    /// Project macOS recent items onto the timeline. `kind` is `.accessed`;
+    /// these stores represent recently opened apps/documents/servers and are
+    /// therefore user-activity evidence. Undated items are dropped.
+    public static func build(from items: [MacRecentItem]) -> [TimelineEvent] {
+        var out: [TimelineEvent] = []
+        out.reserveCapacity(items.count)
+        for item in items {
+            guard let date = item.timestamp else { continue }
+            out.append(TimelineEvent(date: date, kind: .accessed, source: .macRecent,
+                                     fileID: 0, path: item.timelineSummary,
+                                     size: 0, isDeleted: false))
+        }
+        return out.sorted { $0.date < $1.date }
+    }
+
+    /// Project Gatekeeper/XProtect/MRT-style security log events onto the timeline.
+    public static func build(from events: [MacSecurityEvent]) -> [TimelineEvent] {
+        var out: [TimelineEvent] = []
+        out.reserveCapacity(events.count)
+        for event in events {
+            guard let date = event.timestamp else { continue }
+            out.append(TimelineEvent(date: date, kind: .changed, source: .macSecurity,
+                                     fileID: 0, path: event.timelineSummary,
+                                     size: 0, isDeleted: false))
+        }
+        return out.sorted { $0.date < $1.date }
+    }
+
     /// Project auditd events onto the timeline. `kind` is `.changed`; the path
     /// encodes the record type + command/summary. Events without a timestamp
     /// are dropped.
