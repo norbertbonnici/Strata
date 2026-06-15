@@ -146,6 +146,18 @@ struct FileCarverTests {
         #expect(out.first?.offset == 0x1_0000)
     }
 
+    // MARK: - Progress reporting
+
+    @Test func reportsProgressAndFinishesAtTotal() {
+        let buf = pad + jpeg + pad
+        var calls: [(Int, Int)] = []
+        _ = FileCarver.carve(buf) { scanned, total in calls.append((scanned, total)) }
+        #expect(!calls.isEmpty)
+        #expect(calls.last?.0 == buf.count)       // final report reaches 100%
+        #expect(calls.last?.1 == buf.count)
+        #expect(calls.allSatisfy { $0.1 == buf.count })
+    }
+
     // MARK: - File path
 
     @Test func carveFileMapsAndScans() throws {

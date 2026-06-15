@@ -28,18 +28,30 @@ public enum FileCarver {
     private static let pdfMagic: [UInt8] = Array("%PDF-".utf8)
     private static let zipMagic: [UInt8] = [0x50, 0x4B, 0x03, 0x04]
 
+    /// How often `carve`'s progress callback fires (every ~8 MB scanned), so a
+    /// multi-GB image shows a moving bar without flooding the caller.
+    static let progressStep = 8 * 1024 * 1024
+
     /// Carve `data`, reporting offsets relative to `baseOffset` (so a chunked
-    /// caller can report image-absolute positions).
+    /// caller can report image-absolute positions). `progress(scanned, total)` is
+    /// called periodically (and once at the end) so a long scan can show that it's
+    /// still running.
     public static func carve(_ data: Data, baseOffset: Int64 = 0, source: String = "",
-                             maxFileSize: Int = defaultMaxFileSize) -> [CarvedFile] {
+                             maxFileSize: Int = defaultMaxFileSize,
+                             progress: ((_ scanned: Int, _ total: Int) -> Void)? = nil) -> [CarvedFile] {
         var results: [CarvedFile] = []
         let n = data.count
-        guard n >= 3 else { return [] }      // smallest magic we match (gzip/JPEG)
+        guard n >= 3 else { progress?(n, n); return [] }   // smallest magic (gzip/JPEG)
 
         data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
             let b = raw.bindMemory(to: UInt8.self)
             var i = 0
+            var nextReport = 0
             while i < n {
+                if let progress, i >= nextReport {
+                    progress(i, n)
+                    nextReport = i &+ progressStep
+                }
                 var hit: (kind: CarvedFile.Kind, size: Int, exact: Bool)?
                 switch b[i] {
                 case 0x53:                                   // 'S' — SQLite
@@ -85,15 +97,19 @@ public enum FileCarver {
                 }
             }
         }
+        progress?(n, n)
         return results
     }
 
     /// Memory-map an image file and carve it. `.mappedIfSafe` keeps a multi-GB
-    /// image off the heap; the scan pages through it.
+    /// image off the heap; the scan pages through it. `progress(scanned, total)`
+    /// is forwarded so a long carve can report it's still running.
     public static func carveFile(at url: URL, source: String? = nil,
-                                 maxFileSize: Int = defaultMaxFileSize) throws -> [CarvedFile] {
+                                 maxFileSize: Int = defaultMaxFileSize,
+                                 progress: ((_ scanned: Int, _ total: Int) -> Void)? = nil) throws -> [CarvedFile] {
         let data = try Data(contentsOf: url, options: .mappedIfSafe)
-        return carve(data, source: source ?? url.lastPathComponent, maxFileSize: maxFileSize)
+        return carve(data, source: source ?? url.lastPathComponent,
+                     maxFileSize: maxFileSize, progress: progress)
     }
 
     // MARK: - Signature matching

@@ -1731,16 +1731,25 @@ final class AppModel: ObservableObject {
         guard let bundleURL = currentCaseBundleURL else { return }
         errorMessage = nil
         isWorking = true
-        defer { isWorking = false }
+        defer { isWorking = false; progress = nil }
         var hostsTouched = 0
         for evidence in evidenceList where evidence.kind == .apfs {
             guard var state = states[evidence.id],
                   let raw = evidence.apfsRawURL,
                   FileManager.default.fileExists(atPath: raw.path) else { continue }
-            statusMessage = "Carving \(evidence.displayName) (raw signature scan)…"
+            let name = evidence.displayName
+            statusMessage = "Carving \(name) (raw signature scan)…"
+            // A full-image scan can take minutes; stream a determinate progress
+            // bar (MB scanned) so the UI clearly shows it's working, not hung.
+            progress = ProgressInfo(current: 0, total: 0, label: "Carving \(name)")
             let source = raw.lastPathComponent
             let carved: [CarvedFile] = await Task.detached(priority: .userInitiated) {
-                (try? FileCarver.carveFile(at: raw, source: source)) ?? []
+                (try? FileCarver.carveFile(at: raw, source: source) { scanned, total in
+                    Task { @MainActor in
+                        self.progress = ProgressInfo(current: scanned >> 20, total: total >> 20,
+                                                     label: "Carving \(name)")
+                    }
+                }) ?? []
             }.value
             state.carvedFiles = carved
             states[evidence.id] = state
