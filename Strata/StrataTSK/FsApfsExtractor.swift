@@ -12,15 +12,20 @@ public actor FsApfsExtractor {
     /// The raw image (the source itself for a raw/dd image, or the `ewfexport`
     /// scratch conversion of an E01).
     private let rawURL: URL
+    /// A FileVault secret applied to every extraction, used when a per-call
+    /// `password`/`recovery` isn't supplied (the common case).
+    private let credential: FileVaultCredential?
 
-    public init(environment: TSKEnvironment, rawURL: URL) {
+    public init(environment: TSKEnvironment, rawURL: URL, credential: FileVaultCredential? = nil) {
         self.environment = environment
         self.rawURL = rawURL
+        self.credential = credential
     }
 
     /// Extract `volumePath` (a volume-relative path, e.g. `/Users/jane/…`) from
     /// the APFS volume at the given 0-based `volumeIndex`, whose container starts
-    /// at `offsetBytes` in the raw image. `password`/`recovery` unlock FileVault.
+    /// at `offsetBytes` in the raw image. `password`/`recovery` unlock FileVault;
+    /// when omitted they fall back to the extractor's stored `credential`.
     public func extract(volumePath: String, volumeIndex: Int64, offsetBytes: Int64,
                         to destination: URL,
                         password: String? = nil, recovery: String? = nil) async throws {
@@ -28,6 +33,8 @@ public actor FsApfsExtractor {
         try? FileManager.default.removeItem(at: destination)
         FileManager.default.createFile(atPath: destination.path, contents: nil)
 
+        let password = password ?? credential?.password
+        let recovery = recovery ?? credential?.recovery
         var args = ["-o", "\(offsetBytes)", "-f", "\(volumeIndex)"]
         if let password { args.append(contentsOf: ["-p", password]) }
         if let recovery { args.append(contentsOf: ["-r", recovery]) }

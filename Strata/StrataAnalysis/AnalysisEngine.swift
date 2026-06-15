@@ -74,5 +74,6 @@ public nonisolated struct AnalysisEngine: Sendable {
         TCCAnalyzer(),
         KnowledgeCAnalyzer(),
         MacSecurityAnalyzer(),
+        MacRecentItemsAnalyzer(),
     ]
 }

@@ -127,6 +127,14 @@ final class AppModel: ObservableObject {
     /// SwiftUI when their bindings transition in the same render pass; one
     /// .sheet(item:) is the safe pattern.
     @Published var activeSheet: ActiveSheet?
+    /// FileVault unlock secrets supplied for encrypted APFS volumes, keyed by
+    /// evidence id. **In-memory only — never persisted** (forensic
+    /// confidentiality); used by the APFS metadata + content-extraction paths.
+    @Published var fileVaultCredentials: [UUID: FileVaultCredential] = [:]
+    /// APFS volumes that came back FileVault-locked at ingest, keyed by evidence
+    /// id, so the UI can prompt for a password and re-ingest. Cleared on a
+    /// successful unlock.
+    @Published private(set) var lockedApfsVolumes: [UUID: [ApfsLockedVolume]] = [:]
     /// IOCs the analyst has loaded for the current case. Persisted to
     /// iocs.json inside the bundle. Empty by default - IOC matching never
     /// runs unless the user has loaded at least one.
@@ -230,6 +238,7 @@ final class AppModel: ObservableObject {
         case export
         case acquisitionEditor(UUID)
         case annotationEditor(AnnotationDraft)
+        case fileVaultUnlock(UUID)
         var id: Int { hashValue }
     }
 
@@ -993,6 +1002,23 @@ final class AppModel: ObservableObject {
         activeSheet = .export
     }
 
+    /// True when any loaded host has a FileVault-locked APFS volume awaiting a
+    /// secret (drives the Tools ▸ Unlock command's enabled state).
+    var hasLockedApfsVolumes: Bool {
+        lockedApfsVolumes.values.contains { !$0.isEmpty }
+    }
+
+    /// Triggered by Tools ▸ Unlock FileVault Volume (and auto-shown after an
+    /// ingest that found locked volumes). Prompts for the active host's secret,
+    /// falling back to the first host that has a locked volume.
+    func requestFileVaultUnlock() {
+        let id = (activeEvidenceID.flatMap { id in
+            (lockedApfsVolumes[id]?.isEmpty == false) ? id : nil
+        }) ?? lockedApfsVolumes.first(where: { !$0.value.isEmpty })?.key
+        guard let id else { return }
+        activeSheet = .fileVaultUnlock(id)
+    }
+
     /// Generate the selected report/export artifacts and write them as one
     /// timestamped set into `folder`. Returns the created export folder on
     /// success (so the sheet can reveal it in Finder), or nil.
@@ -1554,27 +1580,9 @@ final class AppModel: ObservableObject {
                     guard case .ingestionCrashed = tskError else { throw tskError }
                     try? FileManager.default.removeItem(at: dbURL)   // drop the partial DB
                     statusMessage = "The Sleuth Kit can't read this volume (likely APFS) — switching to fsapfsinfo…"
-                    let scratch = hostDir.appendingPathComponent("apfs")
-                    let apfs = FsApfsIngestor(environment: environment)
-                    let result = try await apfs.ingest(
-                        imageAt: evidence.sourceURL,
-                        imageType: TSKImageIngestor.imageType(for: evidence.sourceURL),
-                        scratchDirectory: scratch) { line in
-                            Task { @MainActor in self.statusMessage = line }
-                        }
-                    // Reclassify as an APFS image + record the raw the content
-                    // extractor reads from (the source if raw, else the ewfexport
-                    // scratch). Persist the tree + volumes since there is no
-                    // tsk.db to re-read them from on case open.
-                    evidence.kind = .apfs
-                    evidence.apfsRawURL = result.rawScratchURL ?? evidence.sourceURL
-                    var s = EvidenceState(dbURL: nil)   // no tsk.db on the APFS path
-                    s.files = result.files
-                    s.volumes = result.volumes
-                    s.timeline = TimelineBuilder.build(from: result.files)
-                    state = s
-                    try? CaseStore.writeApfsFiles(result.files, forHostID: evidence.id, in: bundleURL)
-                    try? CaseStore.writeApfsVolumes(result.volumes, forHostID: evidence.id, in: bundleURL)
+                    state = try await performApfsIngest(
+                        for: &evidence, environment: environment, hostDir: hostDir,
+                        bundleURL: bundleURL, credential: fileVaultCredentials[evidence.id])
                 }
 
                 // E01 carries acquisition metadata + acquisition hashes in its
@@ -1598,15 +1606,104 @@ final class AppModel: ObservableObject {
                           evidenceID: evidence.id)
             recordIngestIntegrityEvents(for: evidence)
             self.statusMessage = "Loaded \(state.files.count) files from \(evidence.displayName)."
-            // Offer post-ingest enrichments (currently just IOC matching).
-            // Skip the popup when there's nothing to opt into - prompting
-            // about an empty list is just friction.
-            if !iocs.isEmpty {
+            // An encrypted APFS volume blocks comprehension of the host, so the
+            // FileVault prompt takes priority over the enrichment offer. Skip the
+            // enrichment popup when there's nothing to opt into - prompting about
+            // an empty list is just friction.
+            if let locked = lockedApfsVolumes[evidence.id], !locked.isEmpty {
+                activeSheet = .fileVaultUnlock(evidence.id)
+            } else if !iocs.isEmpty {
                 activeSheet = .enrichment
             }
         } catch {
             self.errorMessage = error.localizedDescription
             self.statusMessage = ""
+        }
+    }
+
+    /// Run (or re-run) the libfsapfs ingest for an APFS image: build the
+    /// `EvidenceState`, reclassify the evidence as `.apfs`, persist the tree +
+    /// volumes (there's no `tsk.db`), and record any FileVault-locked volumes on
+    /// `lockedApfsVolumes`. `credential` unlocks an encrypted volume's metadata.
+    /// Shared by the first-ingest fallback and `unlockFileVault`.
+    private func performApfsIngest(for evidence: inout Evidence,
+                                   environment: TSKEnvironment,
+                                   hostDir: URL, bundleURL: URL,
+                                   credential: FileVaultCredential?) async throws -> EvidenceState {
+        let scratch = hostDir.appendingPathComponent("apfs")
+        // A re-ingest of an already-converted E01 reuses the raw scratch so we
+        // don't run ewfexport again; a first ingest reads the source directly.
+        let imageURL: URL
+        let imageType: String?
+        if evidence.kind == .apfs, let raw = evidence.apfsRawURL,
+           FileManager.default.fileExists(atPath: raw.path) {
+            imageURL = raw
+            imageType = nil                       // already raw
+        } else {
+            imageURL = evidence.sourceURL
+            imageType = TSKImageIngestor.imageType(for: evidence.sourceURL)
+        }
+        let apfs = FsApfsIngestor(environment: environment)
+        let result = try await apfs.ingest(
+            imageAt: imageURL, imageType: imageType, scratchDirectory: scratch,
+            credential: credential) { line in
+                Task { @MainActor in self.statusMessage = line }
+            }
+        // Reclassify as an APFS image + record the raw the content extractor reads
+        // from (the source if raw, else the ewfexport scratch).
+        evidence.kind = .apfs
+        evidence.apfsRawURL = result.rawScratchURL ?? evidence.apfsRawURL ?? evidence.sourceURL
+        var s = EvidenceState(dbURL: nil)         // no tsk.db on the APFS path
+        s.files = result.files
+        s.volumes = result.volumes
+        s.timeline = TimelineBuilder.build(from: result.files)
+        try? CaseStore.writeApfsFiles(result.files, forHostID: evidence.id, in: bundleURL)
+        try? CaseStore.writeApfsVolumes(result.volumes, forHostID: evidence.id, in: bundleURL)
+        lockedApfsVolumes[evidence.id] = result.lockedVolumes.isEmpty ? nil : result.lockedVolumes
+        return s
+    }
+
+    /// Supply a FileVault secret for an encrypted APFS host and re-ingest so its
+    /// Data-volume artifacts become readable, then re-run the macOS / browser /
+    /// unified-log parsers. The secret is held in memory only (never persisted).
+    func unlockFileVault(evidenceID: UUID, password: String?, recovery: String?) async {
+        guard let bundleURL = currentCaseBundleURL,
+              var evidence = evidenceList.first(where: { $0.id == evidenceID }) else { return }
+        let credential = FileVaultCredential(password: password, recovery: recovery)
+        guard credential.hasSecret else { return }
+        fileVaultCredentials[evidenceID] = credential
+        errorMessage = nil
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let environment = try TSKEnvironment.discover()
+            let hostDir = CaseStore.hostDirectory(forHostID: evidenceID, in: bundleURL)
+            statusMessage = "Unlocking FileVault volume for \(evidence.displayName)…"
+            var state = try await performApfsIngest(
+                for: &evidence, environment: environment, hostDir: hostDir,
+                bundleURL: bundleURL, credential: credential)
+            state.osFamilies = OSFamily.detect(volumes: state.volumes, files: state.files)
+            // The kind / apfsRawURL may have changed; replace the host record too.
+            if let idx = evidenceList.firstIndex(where: { $0.id == evidenceID }) {
+                evidenceList[idx] = evidence
+            }
+            states[evidenceID] = state
+            saveHosts()
+            appendCustody(.analysed,
+                          detail: "Unlocked FileVault volume and re-ingested \(evidence.displayName)",
+                          evidenceID: evidenceID)
+            if let locked = lockedApfsVolumes[evidenceID], !locked.isEmpty {
+                statusMessage = "Some volumes are still locked — verify the password / recovery key."
+            } else {
+                statusMessage = "Unlocked \(state.files.count) files from \(evidence.displayName). Re-running analysis…"
+                await parseMac()
+                await parseBrowserHistory()
+                await parseUnifiedLog()
+                statusMessage = "Unlocked and analysed \(evidence.displayName)."
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+            statusMessage = ""
         }
     }
 
@@ -2560,7 +2657,8 @@ final class AppModel: ObservableObject {
                     scratch = dir
                     if isAPFS {
                         apfsExtractor = FsApfsExtractor(environment: tskEnv,
-                                                        rawURL: evidence.apfsRawURL ?? evidence.sourceURL)
+                                                        rawURL: evidence.apfsRawURL ?? evidence.sourceURL,
+                                                        credential: fileVaultCredentials[evidence.id])
                     } else {
                         guard let dbURL = state.dbURL else { continue }
                         database = try TSKDatabase(path: dbURL)
@@ -3479,7 +3577,8 @@ final class AppModel: ObservableObject {
                     scratch = dir
                     if isAPFS {
                         apfsExtractor = FsApfsExtractor(environment: tskEnv,
-                                                        rawURL: evidence.apfsRawURL ?? evidence.sourceURL)
+                                                        rawURL: evidence.apfsRawURL ?? evidence.sourceURL,
+                                                        credential: fileVaultCredentials[evidence.id])
                     } else {
                         guard let dbURL = state.dbURL else { continue }
                         database = try TSKDatabase(path: dbURL)
@@ -3774,7 +3873,8 @@ final class AppModel: ObservableObject {
                     scratch = dir
                     if isAPFS {
                         apfsExtractor = FsApfsExtractor(environment: tskEnv,
-                                                        rawURL: evidence.apfsRawURL ?? evidence.sourceURL)
+                                                        rawURL: evidence.apfsRawURL ?? evidence.sourceURL,
+                                                        credential: fileVaultCredentials[evidence.id])
                     } else {
                         guard let dbURL = state.dbURL else { continue }
                         database = try TSKDatabase(path: dbURL)

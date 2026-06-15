@@ -170,6 +170,12 @@ struct ContentView: View {
                 #else
                 EmptyView()
                 #endif
+            case .fileVaultUnlock(let id):
+                #if os(macOS)
+                FileVaultUnlockSheet(evidenceID: id).environmentObject(model)
+                #else
+                EmptyView()
+                #endif
             }
         }
     }

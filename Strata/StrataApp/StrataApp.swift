@@ -82,6 +82,9 @@ private struct ToolsCommands: Commands {
             }
             .disabled(model.currentCase == nil || model.iocs.isEmpty || model.isWorking)
 
+            Button("Unlock FileVault Volume...") { model.requestFileVaultUnlock() }
+                .disabled(!model.hasLockedApfsVolumes || model.isWorking)
+
             Divider()
 
             Button("Export...") { model.requestExport() }

@@ -24,6 +24,7 @@ builds can backfill newly added data.
    - Parse `.sfl`, `.sfl2`, `.sfl3`, and related plist stores.
    - Cache as `macrecentitems.json`.
    - Add timeline rows for dated recent apps, documents, servers, hosts, volumes, and favorites.
+   - Status: **done.** Parser, `macrecentitems.json`, macOS view, and timeline rows shipped earlier; `MacRecentItemsAnalyzer` (registered in `AnalysisEngine.defaultAnalyzers`) now consumes `AnalysisContext.macRecentItems` and emits findings: recent remote-server connections (medium, T1021/.002/.004/.005 by scheme; high on a raw-IP target) and recent items in staging paths or with risky script/installer extensions (medium, T1204.002). Covered by `StrataTests/MacRecentItemsAnalyzerTests.swift`.
 
 2. Safari
    - Parse `History.db`, download metadata, and session/tab state where available.
@@ -41,6 +42,24 @@ builds can backfill newly added data.
 
 5. Network / Device Context
    - Known Wi-Fi networks, DHCP leases, Bluetooth devices, USB/iOS pairings, and Time Machine destinations.
+
+## Detection & Access Improvements
+
+- **Unified Log detection breadth.** `UnifiedLogAnalyzer` was expanded beyond the
+  original sudo / osascript / SSH-accepted checks with three more high-precision
+  rules: SSH failed-login bursts (medium, escalating to high brute force ≥5,
+  T1110.001), Screen Sharing / VNC authentication succeeded (high, T1021.001),
+  and local account creation via `sysadminctl` / `dscl` (high, T1136.001).
+  Covered by `StrataTests/UnifiedLogAnalyzerTests.swift`.
+- **FileVault-encrypted Data volume access.** `fsapfsinfo` (metadata) and
+  `fsapfscat` (content) already accept `-p`/`-r`; the ingest path now threads a
+  `FileVaultCredential` through both. An encrypted volume that comes back empty
+  is reported as a locked volume (`ApfsLockedVolume`) instead of aborting the
+  ingest; `AppModel` then prompts via `FileVaultUnlockSheet` (auto-shown after
+  ingest, or Tools ▸ Unlock FileVault Volume), stores the secret **in memory
+  only — never persisted**, re-ingests, and re-runs the macOS / browser /
+  unified-log parsers. *Logic is structurally complete and builds on both
+  platforms; not yet validated against a real FileVault image.*
 
 ## Guardrails
 
