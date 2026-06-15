@@ -513,34 +513,143 @@ final class AppModel: ObservableObject {
             // Source filter work without re-parsing on every case open.
             if !state.events.isEmpty {
                 timeline.append(contentsOf: TimelineBuilder.build(from: state.events))
-                timeline.sort { $0.date < $1.date }
             }
-            state.timeline = timeline
-            state.registryValues = (try? CaseStore.readRegistry(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.prefetch = (try? CaseStore.readPrefetch(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.amcache = (try? CaseStore.readAmcache(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.shimcache = (try? CaseStore.readShimcache(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.timeline = timeline   // one final sort happens after all splices
+            // Every remaining cached collection is an independent file read +
+            // JSON decode (CaseStore.jsonDecoder is a fresh instance per call, so
+            // this is thread-safe), so fan them out across cores — each job writes
+            // its own local, joined by the concurrentPerform barrier, no locking.
+            // The file listing + events above stay on this thread.
+            let id = evidence.id
+            var registry: [RegistryValue] = []
+            var prefetch: [PrefetchEntry] = []
+            var amcache: [AmcacheEntry] = []
+            var shimcache: [ShimcacheEntry] = []
+            var lnk: [LnkEntry] = []
+            var jumpList: [JumpListEntry] = []
+            var usn: [UsnRecord] = []
+            var recycleBin: [RecycleBinEntry] = []
+            var srum: [SrumEntry] = []
+            var browserHistory: [BrowserHistoryEntry] = []
+            var mft: [MftEntry] = []
+            var wmi: [WmiPersistenceEntry] = []
+            var launchItems: [LaunchItemEntry] = []
+            var quarantine: [QuarantineEvent] = []
+            var macPersistence: [MacPersistenceItem] = []
+            var fsEvents: [FSEventRecord] = []
+            var unifiedLog: [UnifiedLogEntry] = []
+            var tcc: [TCCAccess] = []
+            var knowledgeC: [KnowledgeEntry] = []
+            var macRecentItems: [MacRecentItem] = []
+            var macSecurityEvents: [MacSecurityEvent] = []
+            var carvedFiles: [CarvedFile] = []
+            var macInfo: MacHostInfo?
+            var authLog: [AuthLogEntry] = []
+            var logins: [UtmpRecord] = []
+            var shellHistory: [ShellHistoryEntry] = []
+            var linuxPersistence: [LinuxPersistenceEntry] = []
+            var linuxInfo: LinuxHostInfo?
+            var linuxAccess: LinuxAccessInfo?
+            var webAccess: [WebAccessLogEntry] = []
+            var packages: [PackageEvent] = []
+            var journald: [JournaldEntry] = []
+            var audit: [AuditEvent] = []
+            var syslog: [SyslogEntry] = []
+            var lastlog: [LastlogEntry] = []
+            var findings: [Finding] = []
+            var iocMatches: [IOCMatch] = []
+            let jobs: [() -> Void] = [
+                { registry = (try? CaseStore.readRegistry(forHostID: id, in: bundleURL)) ?? [] },
+                { prefetch = (try? CaseStore.readPrefetch(forHostID: id, in: bundleURL)) ?? [] },
+                { amcache = (try? CaseStore.readAmcache(forHostID: id, in: bundleURL)) ?? [] },
+                { shimcache = (try? CaseStore.readShimcache(forHostID: id, in: bundleURL)) ?? [] },
+                { lnk = (try? CaseStore.readLnk(forHostID: id, in: bundleURL)) ?? [] },
+                { jumpList = (try? CaseStore.readJumpList(forHostID: id, in: bundleURL)) ?? [] },
+                { usn = (try? CaseStore.readUsn(forHostID: id, in: bundleURL)) ?? [] },
+                { recycleBin = (try? CaseStore.readRecycleBin(forHostID: id, in: bundleURL)) ?? [] },
+                { srum = (try? CaseStore.readSrum(forHostID: id, in: bundleURL)) ?? [] },
+                { browserHistory = (try? CaseStore.readBrowserHistory(forHostID: id, in: bundleURL)) ?? [] },
+                { mft = (try? CaseStore.readMft(forHostID: id, in: bundleURL)) ?? [] },
+                { wmi = (try? CaseStore.readWmi(forHostID: id, in: bundleURL)) ?? [] },
+                { launchItems = (try? CaseStore.readLaunchItems(forHostID: id, in: bundleURL)) ?? [] },
+                { quarantine = (try? CaseStore.readQuarantine(forHostID: id, in: bundleURL)) ?? [] },
+                { macPersistence = (try? CaseStore.readMacPersistence(forHostID: id, in: bundleURL)) ?? [] },
+                { fsEvents = (try? CaseStore.readFSEvents(forHostID: id, in: bundleURL)) ?? [] },
+                { unifiedLog = (try? CaseStore.readUnifiedLog(forHostID: id, in: bundleURL)) ?? [] },
+                { tcc = (try? CaseStore.readTCC(forHostID: id, in: bundleURL)) ?? [] },
+                { knowledgeC = (try? CaseStore.readKnowledgeC(forHostID: id, in: bundleURL)) ?? [] },
+                { macRecentItems = (try? CaseStore.readMacRecentItems(forHostID: id, in: bundleURL)) ?? [] },
+                { macSecurityEvents = (try? CaseStore.readMacSecurityEvents(forHostID: id, in: bundleURL)) ?? [] },
+                { carvedFiles = (try? CaseStore.readCarved(forHostID: id, in: bundleURL)) ?? [] },
+                { macInfo = try? CaseStore.readMacInfo(forHostID: id, in: bundleURL) },
+                { authLog = (try? CaseStore.readAuthLog(forHostID: id, in: bundleURL)) ?? [] },
+                { logins = (try? CaseStore.readLogins(forHostID: id, in: bundleURL)) ?? [] },
+                { shellHistory = (try? CaseStore.readShellHistory(forHostID: id, in: bundleURL)) ?? [] },
+                { linuxPersistence = (try? CaseStore.readLinuxPersistence(forHostID: id, in: bundleURL)) ?? [] },
+                { linuxInfo = try? CaseStore.readLinuxInfo(forHostID: id, in: bundleURL) },
+                { linuxAccess = try? CaseStore.readLinuxAccess(forHostID: id, in: bundleURL) },
+                { webAccess = (try? CaseStore.readWebAccess(forHostID: id, in: bundleURL)) ?? [] },
+                { packages = (try? CaseStore.readPackages(forHostID: id, in: bundleURL)) ?? [] },
+                { journald = (try? CaseStore.readJournald(forHostID: id, in: bundleURL)) ?? [] },
+                { audit = (try? CaseStore.readAudit(forHostID: id, in: bundleURL)) ?? [] },
+                { syslog = (try? CaseStore.readSyslog(forHostID: id, in: bundleURL)) ?? [] },
+                { lastlog = (try? CaseStore.readLastlog(forHostID: id, in: bundleURL)) ?? [] },
+                { findings = (try? CaseStore.readFindings(forHostID: id, in: bundleURL)) ?? [] },
+                { iocMatches = (try? CaseStore.readIOCMatches(forHostID: id, in: bundleURL)) ?? [] },
+            ]
+            DispatchQueue.concurrentPerform(iterations: jobs.count) { jobs[$0]() }
+
+            state.registryValues = registry
+            state.prefetch = prefetch
             // Backfill the registry-derived artifacts: a case whose registry was
             // parsed before Amcache/Shimcache existed (or before they were
             // persisted) has registry values but no amcache/shimcache JSON. Both
-            // reconstruct purely from the loaded registry values, so regenerate
-            // them here rather than forcing a re-parse. (Amcache still needs a
-            // forced re-parse on pre-feature cases whose registry.json never
-            // captured Amcache.hve - there are simply no AMCACHE values to map.)
-            if state.amcache.isEmpty {
-                state.amcache = AmcacheEntry.reconstruct(from: state.registryValues)
-            }
-            if state.shimcache.isEmpty {
-                state.shimcache = ShimcacheParser.fromRegistry(state.registryValues)
-            }
-            state.lnk = (try? CaseStore.readLnk(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.jumpList = (try? CaseStore.readJumpList(forHostID: evidence.id, in: bundleURL)) ?? []
-            // Fold the registry/prefetch/LNK/JumpList-derived timestamps back
-            // into the timeline (mirrors the evtx splice): registry key writes,
-            // prefetch runs, shimcache/amcache presence, LNK target MACs, and
-            // JumpList accesses. One sort at the end covers the lot. The
-            // registry slice is macOS-only, like the FS MACB timeline - a big
-            // SOFTWARE hive expands to a phone-hostile row count.
+            // reconstruct purely from the loaded registry values. (Amcache still
+            // needs a forced re-parse on pre-feature cases whose registry.json
+            // never captured Amcache.hve - there are no AMCACHE values to map.)
+            state.amcache = amcache.isEmpty ? AmcacheEntry.reconstruct(from: registry) : amcache
+            state.shimcache = shimcache.isEmpty ? ShimcacheParser.fromRegistry(registry) : shimcache
+            state.lnk = lnk
+            state.jumpList = jumpList
+            state.usn = usn
+            state.recycleBin = recycleBin
+            state.srum = srum
+            state.browserHistory = browserHistory
+            state.mft = mft
+            state.wmi = wmi
+            state.launchItems = launchItems
+            state.quarantine = quarantine
+            state.macPersistence = macPersistence
+            state.fsEvents = fsEvents
+            state.unifiedLog = unifiedLog
+            state.tcc = tcc
+            state.knowledgeC = knowledgeC
+            state.macRecentItems = macRecentItems
+            state.macSecurityEvents = macSecurityEvents
+            state.carvedFiles = carvedFiles
+            state.macInfo = macInfo
+            state.authLog = authLog
+            state.logins = logins
+            state.shellHistory = shellHistory
+            state.linuxPersistence = linuxPersistence
+            state.linuxInfo = linuxInfo
+            state.linuxAccess = linuxAccess
+            state.webAccess = webAccess
+            state.packages = packages
+            state.journald = journald
+            state.audit = audit
+            state.syslog = syslog
+            state.lastlog = lastlog
+            state.findings = findings
+            state.iocMatches = iocMatches
+
+            // Splice every timestamped source onto the timeline (which already
+            // holds the FS-MACB + evtx rows), then sort once instead of after each
+            // group. Gating mirrors the parsers: the registry slice is macOS-only
+            // (a big hive is phone-hostile), and the $MFT $SI MACB is loose-folder
+            // only (an image's TSK FS source already carries it). recycleBin / wmi
+            // / carved / launch items / quarantine / persistence / fsEvents have no
+            // timestamps, so they aren't spliced.
             #if os(macOS)
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.registryValues))
             #endif
@@ -549,87 +658,28 @@ final class AppModel: ObservableObject {
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.shimcache))
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.lnk))
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.jumpList))
-            state.timeline.sort { $0.date < $1.date }
-            state.usn = (try? CaseStore.readUsn(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.recycleBin = (try? CaseStore.readRecycleBin(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.launchItems = (try? CaseStore.readLaunchItems(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.quarantine = (try? CaseStore.readQuarantine(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.macPersistence = (try? CaseStore.readMacPersistence(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.fsEvents = (try? CaseStore.readFSEvents(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.unifiedLog = (try? CaseStore.readUnifiedLog(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.tcc = (try? CaseStore.readTCC(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.knowledgeC = (try? CaseStore.readKnowledgeC(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.macRecentItems = (try? CaseStore.readMacRecentItems(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.macSecurityEvents = (try? CaseStore.readMacSecurityEvents(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.carvedFiles = (try? CaseStore.readCarved(forHostID: evidence.id, in: bundleURL)) ?? []
-            if !state.unifiedLog.isEmpty || !state.tcc.isEmpty || !state.knowledgeC.isEmpty
-                || !state.macRecentItems.isEmpty || !state.macSecurityEvents.isEmpty {
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.unifiedLog))
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.tcc))
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.knowledgeC))
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.macRecentItems))
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.macSecurityEvents))
-                state.timeline.sort { $0.date < $1.date }
-            }
-            state.macInfo = try? CaseStore.readMacInfo(forHostID: evidence.id, in: bundleURL)
-            // Fold USN journal rows back into the timeline so the Source filter
-            // works without re-parsing on every case open (mirrors the evtx splice).
-            if !state.usn.isEmpty {
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.usn))
-                state.timeline.sort { $0.date < $1.date }
-            }
-            state.srum = (try? CaseStore.readSrum(forHostID: evidence.id, in: bundleURL)) ?? []
-            // Fold SRUM rows back into the timeline so the Source filter works
-            // without re-parsing on every case open (mirrors the USN splice).
-            if !state.srum.isEmpty {
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.srum))
-                state.timeline.sort { $0.date < $1.date }
-            }
-            state.browserHistory = (try? CaseStore.readBrowserHistory(forHostID: evidence.id, in: bundleURL)) ?? []
-            // Fold browser-history rows back into the timeline (mirrors the SRUM splice).
-            if !state.browserHistory.isEmpty {
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.browserHistory))
-                state.timeline.sort { $0.date < $1.date }
-            }
-            state.mft = (try? CaseStore.readMft(forHostID: evidence.id, in: bundleURL)) ?? []
-            // Fold $MFT $SI MACB onto the timeline only for loose folders (an
-            // image's FS source already carries those TSK times); mirrors parseMft.
-            if !state.mft.isEmpty, evidence.kind == .kapeLooseFolder {
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.usn))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.srum))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.browserHistory))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.unifiedLog))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.tcc))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.knowledgeC))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.macRecentItems))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.macSecurityEvents))
+            if evidence.kind == .kapeLooseFolder {
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: state.mft))
-                state.timeline.sort { $0.date < $1.date }
             }
-            state.wmi = (try? CaseStore.readWmi(forHostID: evidence.id, in: bundleURL)) ?? []
-            // Linux artifacts: rehydrate + splice the timestamped ones onto the
-            // timeline (mirrors the evtx splice). Cheap on Windows hosts (all
-            // empty). One sort covers the three.
-            state.authLog = (try? CaseStore.readAuthLog(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.logins = (try? CaseStore.readLogins(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.shellHistory = (try? CaseStore.readShellHistory(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.linuxPersistence = (try? CaseStore.readLinuxPersistence(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.linuxInfo = try? CaseStore.readLinuxInfo(forHostID: evidence.id, in: bundleURL)
-            state.linuxAccess = try? CaseStore.readLinuxAccess(forHostID: evidence.id, in: bundleURL)
-            state.webAccess = (try? CaseStore.readWebAccess(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.packages = (try? CaseStore.readPackages(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.journald = (try? CaseStore.readJournald(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.audit = (try? CaseStore.readAudit(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.syslog = (try? CaseStore.readSyslog(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.lastlog = (try? CaseStore.readLastlog(forHostID: evidence.id, in: bundleURL)) ?? []
-            if !state.authLog.isEmpty || !state.logins.isEmpty || !state.shellHistory.isEmpty
-                || !state.webAccess.isEmpty || !state.packages.isEmpty || !state.journald.isEmpty
-                || !state.audit.isEmpty || !state.syslog.isEmpty || !state.lastlog.isEmpty {
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.authLog))
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.logins))
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.shellHistory))
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.webAccess))
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.packages))
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.journald))
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.audit))
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.syslog))
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.lastlog))
-                state.timeline.sort { $0.date < $1.date }
-            }
-            state.findings = (try? CaseStore.readFindings(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.iocMatches = (try? CaseStore.readIOCMatches(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.authLog))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.logins))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.shellHistory))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.webAccess))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.packages))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.journald))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.audit))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.syslog))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.lastlog))
+            state.timeline.sort { $0.date < $1.date }
+
             state.osFamilies = OSFamily.detect(volumes: state.volumes, files: state.files)
             return .loaded(state)
         } catch {
