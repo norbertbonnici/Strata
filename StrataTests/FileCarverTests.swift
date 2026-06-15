@@ -208,6 +208,14 @@ struct FileCarverTests {
         #expect(calls.allSatisfy { $0.1 == buf.count })
     }
 
+    // MARK: - CPU topology
+
+    @Test func performanceCoreCountIsSane() {
+        let p = CPUInfo.performanceCoreCount
+        #expect(p >= 1)
+        #expect(p <= ProcessInfo.processInfo.activeProcessorCount)
+    }
+
     // MARK: - File path
 
     @Test func carveFileMapsAndScans() throws {

@@ -40,18 +40,19 @@ public enum FileCarver {
     /// called periodically (and once at the end) so a long scan can show that it's
     /// still running.
     ///
-    /// **Parallel.** The scan is split into one start-position range per core and
-    /// run with `DispatchQueue.concurrentPerform`. Each worker *owns* only the
-    /// magic offsets in its range (so no offset is detected twice) but reads the
-    /// whole buffer when matching/sizing, so a signature straddling a chunk edge
-    /// is still recovered. A final `mergeNested` pass drops carves nested inside a
-    /// kept exact carve's body, making the parallel result identical to a
-    /// single-threaded scan (which skips those bodies inline).
+    /// **Parallel.** The scan is split into one start-position range per
+    /// **performance core** (`CPUInfo.performanceCoreCount`, not the E-cores) and
+    /// run with `DispatchQueue.concurrentPerform` at `.userInitiated` QoS — macOS
+    /// has no hard core-affinity API, so that's how the work is biased onto the
+    /// P-cores. Each worker *owns* only the magic offsets in its range (so no
+    /// offset is detected twice) but reads the whole buffer when matching/sizing,
+    /// so a signature straddling a chunk edge is still recovered. A final
+    /// `mergeNested` pass drops carves nested inside a kept exact carve's body,
+    /// making the parallel result identical to a single-threaded scan.
     public static func carve(_ data: Data, baseOffset: Int64 = 0, source: String = "",
                              maxFileSize: Int = defaultMaxFileSize,
                              progress: ((_ scanned: Int, _ total: Int) -> Void)? = nil) -> [CarvedFile] {
-        let cores = max(1, ProcessInfo.processInfo.activeProcessorCount)
-        let chunks = data.count < minParallelSize ? 1 : cores
+        let chunks = data.count < minParallelSize ? 1 : CPUInfo.performanceCoreCount
         return carve(data, baseOffset: baseOffset, source: source, maxFileSize: maxFileSize,
                      chunks: chunks, progress: progress)
     }
@@ -72,21 +73,27 @@ public enum FileCarver {
         var all: [CarvedFile] = []
         var scannedTotal = 0
 
-        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
-            let b = raw.bindMemory(to: UInt8.self)
-            let report: (Int) -> Void = { delta in
-                lock.lock(); scannedTotal += delta; let s = scannedTotal; lock.unlock()
-                progress?(s, n)
-            }
-            DispatchQueue.concurrentPerform(iterations: chunks) { c in
-                let start = c * chunkSize
-                guard start < n else { return }
-                let end = min(start + chunkSize, n)
-                let local = scanRange(b, from: start, to: end, n: n, baseOffset: baseOffset,
-                                      source: source, maxFileSize: maxFileSize,
-                                      report: progress == nil ? nil : report)
-                guard !local.isEmpty else { return }
-                lock.lock(); all.append(contentsOf: local); lock.unlock()
+        // Run the fan-out at .userInitiated QoS so the scheduler keeps it on the
+        // performance cores (the closest macOS gets to pinning — there's no hard
+        // affinity API). When the caller is already userInitiated (the carve
+        // task), this is a no-op; for a lower-QoS caller it raises the work.
+        DispatchQueue.global(qos: .userInitiated).sync {
+            data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+                let b = raw.bindMemory(to: UInt8.self)
+                let report: (Int) -> Void = { delta in
+                    lock.lock(); scannedTotal += delta; let s = scannedTotal; lock.unlock()
+                    progress?(s, n)
+                }
+                DispatchQueue.concurrentPerform(iterations: chunks) { c in
+                    let start = c * chunkSize
+                    guard start < n else { return }
+                    let end = min(start + chunkSize, n)
+                    let local = scanRange(b, from: start, to: end, n: n, baseOffset: baseOffset,
+                                          source: source, maxFileSize: maxFileSize,
+                                          report: progress == nil ? nil : report)
+                    guard !local.isEmpty else { return }
+                    lock.lock(); all.append(contentsOf: local); lock.unlock()
+                }
             }
         }
         progress?(n, n)
