@@ -73,5 +73,6 @@ public nonisolated struct AnalysisEngine: Sendable {
         UnifiedLogAnalyzer(),
         TCCAnalyzer(),
         KnowledgeCAnalyzer(),
+        MacSecurityAnalyzer(),
     ]
 }

@@ -33,7 +33,7 @@ builds can backfill newly added data.
 3. Gatekeeper / XProtect / MRT
    - Parse assessment, malware-removal, and security-tool logs/reports.
    - Add detections for blocked/quarantined malware, repeated policy failures, and suspicious allow decisions.
-   - Status: durable Gatekeeper/syspolicyd, XProtect, XProtect Remediator, MRT, and relevant `install.log` rows now parse into `macsecurity.json`, appear in a macOS Security tab, and splice dated rows into the timeline. Detection rules are still pending.
+   - Status: **done.** Durable Gatekeeper/syspolicyd, XProtect, XProtect Remediator, MRT, and relevant `install.log` rows parse into `macsecurity.json`, appear in a macOS Security tab, and splice dated rows into the timeline. `MacSecurityAnalyzer` (registered in `AnalysisEngine.defaultAnalyzers`) now consumes `AnalysisContext.macSecurityEvents` and emits findings: XProtect/MRT/XPR malware detections & remediations (high, T1204.002), trust override after a block — allow-after-block (high, T1553.001), security control disabled e.g. `spctl --master-disable` (high, T1562.001), and Gatekeeper/policy blocks of untrusted binaries (medium, escalating to high on repeated failures of the same binary, T1553.001). Covered by `StrataTests/MacSecurityAnalyzerTests.swift`.
 
 4. Login / Background Items
    - Parse modern background-task-management and login-item stores.
