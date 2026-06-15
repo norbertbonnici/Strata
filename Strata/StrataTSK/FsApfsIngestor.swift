@@ -204,7 +204,7 @@ public actor FsApfsIngestor {
 }
 
 /// Thread-safe stdout accumulator for the readability handler.
-private final class OutputAccumulator: @unchecked Sendable {
+nonisolated private final class OutputAccumulator: @unchecked Sendable {
     private var data = Data()
     private let lock = NSLock()
     func append(_ d: Data) { lock.lock(); data.append(d); lock.unlock() }
