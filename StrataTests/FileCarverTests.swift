@@ -146,6 +146,56 @@ struct FileCarverTests {
         #expect(out.first?.offset == 0x1_0000)
     }
 
+    // MARK: - Parallel carving
+
+    private func proj(_ out: [CarvedFile]) -> [String] {
+        out.map { "\($0.kind.rawValue):\($0.offset):\($0.size):\($0.sizeExact)" }
+    }
+
+    /// A signature straddling a chunk edge, a nested signature inside an exact
+    /// carve's body, and ordinary carves — the multi-chunk scan must produce the
+    /// exact same result as a single-chunk scan.
+    @Test func parallelMatchesSerial() {
+        var bytes = [UInt8](repeating: 0x41, count: 1000)   // 'A' triggers nothing
+        func put(_ d: Data, at: Int) { for (k, byte) in d.enumerated() { bytes[at + k] = byte } }
+        put(png, at: 90)                                     // fully inside chunk 0
+        put(jpeg, at: 248)                                   // straddles the 250-byte edge
+        put(sqliteDB(pageSize: 512, pageCount: 1), at: 300)  // body 300..812 crosses edges
+        put(png, at: 600)                                    // nested inside the SQLite body
+        let buf = Data(bytes)
+
+        let serial = FileCarver.carve(buf, chunks: 1)
+        let parallel = FileCarver.carve(buf, chunks: 7)
+        #expect(proj(serial) == proj(parallel))
+        #expect(proj(serial) == ["png:90:20:true", "jpeg:248:10:true", "sqlite:300:512:true"])
+    }
+
+    @Test func mergeNestedDropsCarvesInsideExactBodies() {
+        func f(_ kind: CarvedFile.Kind, _ off: Int64, _ size: Int64, _ exact: Bool) -> CarvedFile {
+            CarvedFile(kind: kind, offset: off, size: size, sizeExact: exact, source: "x")
+        }
+        let merged = FileCarver.mergeNested([
+            f(.sqlite, 100, 200, true),   // body 100..300
+            f(.png, 150, 20, true),       // nested → dropped
+            f(.gzip, 250, 50, false),     // nested → dropped
+            f(.jpeg, 300, 10, true),      // exactly at the body end → kept
+            f(.pdf, 50, 10, true),        // before → kept
+        ])
+        #expect(merged.map(\.offset) == [50, 100, 300])
+    }
+
+    @Test func inexactCarveDoesNotShieldFollowingCarves() {
+        func f(_ kind: CarvedFile.Kind, _ off: Int64, _ size: Int64, _ exact: Bool) -> CarvedFile {
+            CarvedFile(kind: kind, offset: off, size: size, sizeExact: exact, source: "x")
+        }
+        // A capped (inexact) carve must not drop carves that fall within its guess.
+        let merged = FileCarver.mergeNested([
+            f(.gzip, 0, 8_000_000, false),
+            f(.png, 100, 20, true),
+        ])
+        #expect(merged.count == 2)
+    }
+
     // MARK: - Progress reporting
 
     @Test func reportsProgressAndFinishesAtTotal() {

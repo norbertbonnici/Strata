@@ -32,73 +32,143 @@ public enum FileCarver {
     /// multi-GB image shows a moving bar without flooding the caller.
     static let progressStep = 8 * 1024 * 1024
 
+    /// Below this image size threading isn't worth the overhead — scan on one core.
+    static let minParallelSize = 16 * 1024 * 1024
+
     /// Carve `data`, reporting offsets relative to `baseOffset` (so a chunked
     /// caller can report image-absolute positions). `progress(scanned, total)` is
     /// called periodically (and once at the end) so a long scan can show that it's
     /// still running.
+    ///
+    /// **Parallel.** The scan is split into one start-position range per core and
+    /// run with `DispatchQueue.concurrentPerform`. Each worker *owns* only the
+    /// magic offsets in its range (so no offset is detected twice) but reads the
+    /// whole buffer when matching/sizing, so a signature straddling a chunk edge
+    /// is still recovered. A final `mergeNested` pass drops carves nested inside a
+    /// kept exact carve's body, making the parallel result identical to a
+    /// single-threaded scan (which skips those bodies inline).
     public static func carve(_ data: Data, baseOffset: Int64 = 0, source: String = "",
                              maxFileSize: Int = defaultMaxFileSize,
                              progress: ((_ scanned: Int, _ total: Int) -> Void)? = nil) -> [CarvedFile] {
-        var results: [CarvedFile] = []
+        let cores = max(1, ProcessInfo.processInfo.activeProcessorCount)
+        let chunks = data.count < minParallelSize ? 1 : cores
+        return carve(data, baseOffset: baseOffset, source: source, maxFileSize: maxFileSize,
+                     chunks: chunks, progress: progress)
+    }
+
+    /// Carve with an explicit chunk count (the public `carve` derives it from the
+    /// core count + image size). Exposed so tests can force the multi-chunk path
+    /// on a small buffer and assert it matches a single-chunk scan.
+    static func carve(_ data: Data, baseOffset: Int64 = 0, source: String = "",
+                      maxFileSize: Int = defaultMaxFileSize, chunks requestedChunks: Int,
+                      progress: ((_ scanned: Int, _ total: Int) -> Void)? = nil) -> [CarvedFile] {
         let n = data.count
         guard n >= 3 else { progress?(n, n); return [] }   // smallest magic (gzip/JPEG)
 
+        let chunks = max(1, min(requestedChunks, n))
+        let chunkSize = (n + chunks - 1) / chunks
+
+        let lock = NSLock()
+        var all: [CarvedFile] = []
+        var scannedTotal = 0
+
         data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
             let b = raw.bindMemory(to: UInt8.self)
-            var i = 0
-            var nextReport = 0
-            while i < n {
-                if let progress, i >= nextReport {
-                    progress(i, n)
-                    nextReport = i &+ progressStep
-                }
-                var hit: (kind: CarvedFile.Kind, size: Int, exact: Bool)?
-                switch b[i] {
-                case 0x53:                                   // 'S' — SQLite
-                    if matches(b, i, n, sqliteMagic), let s = sqliteSize(b, i, n, maxFileSize) {
-                        hit = (.sqlite, s.size, s.exact)
-                    }
-                case 0x62:                                   // 'b' — bplist
-                    if matches(b, i, n, bplistMagic) {
-                        hit = (.bplist, min(inexactCap, n - i), false)
-                    }
-                case 0x89:                                   // PNG
-                    if matches(b, i, n, pngMagic) {
-                        let s = pngSize(b, i, n, maxFileSize); hit = (.png, s.size, s.exact)
-                    }
-                case 0xFF:                                   // JPEG (FF D8 FF)
-                    if i + 3 <= n, b[i + 1] == 0xD8, b[i + 2] == 0xFF {
-                        let s = jpegSize(b, i, n, maxFileSize); hit = (.jpeg, s.size, s.exact)
-                    }
-                case 0x25:                                   // '%' — PDF
-                    if matches(b, i, n, pdfMagic) {
-                        let s = pdfSize(b, i, n, maxFileSize); hit = (.pdf, s.size, s.exact)
-                    }
-                case 0x50:                                   // 'P' — ZIP (PK\x03\x04)
-                    if matches(b, i, n, zipMagic) {
-                        let s = zipSize(b, i, n, maxFileSize); hit = (.zip, s.size, s.exact)
-                    }
-                case 0x1F:                                   // gzip (1F 8B 08)
-                    if i + 3 <= n, b[i + 1] == 0x8B, b[i + 2] == 0x08 {
-                        hit = (.gzip, min(inexactCap, n - i), false)
-                    }
-                default:
-                    break
-                }
-                if let hit, hit.size > 0 {
-                    results.append(CarvedFile(kind: hit.kind, offset: baseOffset + Int64(i),
-                                              size: Int64(hit.size), sizeExact: hit.exact,
-                                              source: source))
-                    // Skip an exact carve's body so signatures inside it aren't
-                    // re-emitted; for an inexact/capped guess, keep scanning.
-                    i += hit.exact ? max(hit.size, 1) : 1
-                } else {
-                    i += 1
-                }
+            let report: (Int) -> Void = { delta in
+                lock.lock(); scannedTotal += delta; let s = scannedTotal; lock.unlock()
+                progress?(s, n)
+            }
+            DispatchQueue.concurrentPerform(iterations: chunks) { c in
+                let start = c * chunkSize
+                guard start < n else { return }
+                let end = min(start + chunkSize, n)
+                let local = scanRange(b, from: start, to: end, n: n, baseOffset: baseOffset,
+                                      source: source, maxFileSize: maxFileSize,
+                                      report: progress == nil ? nil : report)
+                guard !local.isEmpty else { return }
+                lock.lock(); all.append(contentsOf: local); lock.unlock()
             }
         }
         progress?(n, n)
+        return mergeNested(all)
+    }
+
+    /// Scan the start positions `[from, to)`, matching/sizing against the full
+    /// buffer `b` (length `n`). `report(delta)` is called every ~`progressStep`
+    /// bytes with the bytes advanced since the last report.
+    private static func scanRange(_ b: UnsafeBufferPointer<UInt8>, from: Int, to: Int, n: Int,
+                                  baseOffset: Int64, source: String, maxFileSize: Int,
+                                  report: ((Int) -> Void)?) -> [CarvedFile] {
+        var results: [CarvedFile] = []
+        var i = from
+        var lastReport = from
+        var nextReport = from &+ progressStep
+        while i < to {
+            if let report, i >= nextReport {
+                report(i - lastReport); lastReport = i; nextReport = i &+ progressStep
+            }
+            var hit: (kind: CarvedFile.Kind, size: Int, exact: Bool)?
+            switch b[i] {
+            case 0x53:                                   // 'S' — SQLite
+                if matches(b, i, n, sqliteMagic), let s = sqliteSize(b, i, n, maxFileSize) {
+                    hit = (.sqlite, s.size, s.exact)
+                }
+            case 0x62:                                   // 'b' — bplist
+                if matches(b, i, n, bplistMagic) {
+                    hit = (.bplist, min(inexactCap, n - i), false)
+                }
+            case 0x89:                                   // PNG
+                if matches(b, i, n, pngMagic) {
+                    let s = pngSize(b, i, n, maxFileSize); hit = (.png, s.size, s.exact)
+                }
+            case 0xFF:                                   // JPEG (FF D8 FF)
+                if i + 3 <= n, b[i + 1] == 0xD8, b[i + 2] == 0xFF {
+                    let s = jpegSize(b, i, n, maxFileSize); hit = (.jpeg, s.size, s.exact)
+                }
+            case 0x25:                                   // '%' — PDF
+                if matches(b, i, n, pdfMagic) {
+                    let s = pdfSize(b, i, n, maxFileSize); hit = (.pdf, s.size, s.exact)
+                }
+            case 0x50:                                   // 'P' — ZIP (PK\x03\x04)
+                if matches(b, i, n, zipMagic) {
+                    let s = zipSize(b, i, n, maxFileSize); hit = (.zip, s.size, s.exact)
+                }
+            case 0x1F:                                   // gzip (1F 8B 08)
+                if i + 3 <= n, b[i + 1] == 0x8B, b[i + 2] == 0x08 {
+                    hit = (.gzip, min(inexactCap, n - i), false)
+                }
+            default:
+                break
+            }
+            if let hit, hit.size > 0 {
+                results.append(CarvedFile(kind: hit.kind, offset: baseOffset + Int64(i),
+                                          size: Int64(hit.size), sizeExact: hit.exact,
+                                          source: source))
+                // Skip an exact carve's body so signatures inside it aren't
+                // re-emitted; for an inexact/capped guess, keep scanning. (A carve
+                // may run past `to` into the next chunk — mergeNested dedupes.)
+                i += hit.exact ? max(hit.size, 1) : 1
+            } else {
+                i += 1
+            }
+        }
+        if let report, i > lastReport { report(i - lastReport) }
         return results
+    }
+
+    /// Order the carves by offset and drop any that begin inside a kept *exact*
+    /// carve's body — replicating the single-threaded "skip the body" behaviour
+    /// so parallel + serial scans yield the same set.
+    static func mergeNested(_ carves: [CarvedFile]) -> [CarvedFile] {
+        let sorted = carves.sorted { $0.offset < $1.offset }
+        var out: [CarvedFile] = []
+        var exactEnd: Int64 = .min
+        for c in sorted {
+            if c.offset < exactEnd { continue }
+            out.append(c)
+            if c.sizeExact { exactEnd = max(exactEnd, c.offset + c.size) }
+        }
+        return out
     }
 
     /// Memory-map an image file and carve it. `.mappedIfSafe` keeps a multi-GB

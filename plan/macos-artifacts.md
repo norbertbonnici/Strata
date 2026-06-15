@@ -53,7 +53,8 @@ builds can backfill newly added data.
   FileVault), because it reads raw bytes directly. Recovers SQLite / PNG / JPEG /
   PDF / ZIP with exact sizes (header/footer) and bplist / gzip capped. Opt-in via
   **Tools ▸ Carve Deleted Files** (`AppModel.carveArtifacts()`, runs on each APFS
-  host's raw image off-main); results persist as `carved.json`, surface in a
+  host's raw image off-main and **parallelised across cores** with a determinate
+  progress bar); results persist as `carved.json`, surface in a
   **Carved Files** tab (offset / type / size / source, with Save-recovered-bytes),
   and carry no timestamps so there's no timeline projection. This partially
   mitigates the two deferred large items (APFS unallocated recovery; sealed
