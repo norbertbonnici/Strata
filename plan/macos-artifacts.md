@@ -111,6 +111,26 @@ builds can backfill newly added data.
   a `.kext` (kernel code), **medium** for a user-space System Extension. No
   timeline (no per-item timestamp). Covered by `StrataTests/MacKextTests.swift`.
 
+## User activity / deleted evidence (QuickLook + Trash)
+
+- **done.** A unified `MacActivityItem` (`StrataCore`) collection:
+  - **QuickLook** — `QuickLookParser` (`StrataMac`, GRDB) reads the thumbnail
+    `index.sqlite` (under `…/com.apple.QuickLook.thumbnailcache/` or
+    `~/Library/.../Quicklook/`): each `files` row is a file that was *previewed*
+    (evidence it existed + was viewed, even if since deleted); `last_hit_date`
+    (CFAbsoluteTime) + `hit_count` joined from `thumbnails` as a side lookup
+    (robust to schema drift — the file rows survive even if `thumbnails` differs).
+  - **Trash** — a file-tree filter over `/.Trash` / `/.Trashes` (no extraction);
+    the FileEntry's own changed/modified time is the deletion time.
+  Parsed in `AppModel.parseMac()`, cached as `useractivity.json`, spliced onto the
+  timeline (`TimelineSource.userActivity`, Trash rows marked deleted), surfaced in
+  a **QuickLook & Trash** tab. `MacActivityAnalyzer` flags a trashed payload
+  (risky-extension file in the Trash → T1070.004). Covered by
+  `StrataTests/MacActivityTests.swift`. **Known limits:** macOS Trash keeps no
+  "original location" record (only the in-Trash path); QuickLook `last_hit_date`
+  treated as CFAbsoluteTime (Unix as a fallback by magnitude); validated against
+  synthetic SQLite, not a real index.
+
 ## Recovery
 
 - **Signature carving (deleted / sealed / encrypted recovery).** `FileCarver`

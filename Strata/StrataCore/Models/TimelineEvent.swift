@@ -51,6 +51,7 @@ public enum TimelineSource: String, CaseIterable, Sendable, Codable {
     case messages   = "MSG"
     case mail       = "MAIL"
     case network    = "NET"
+    case userActivity = "ACT"
 
     public nonisolated var label: String {
         switch self {
@@ -83,6 +84,7 @@ public enum TimelineSource: String, CaseIterable, Sendable, Codable {
         case .messages:   return "Messages"
         case .mail:       return "Mail"
         case .network:    return "Network & Devices"
+        case .userActivity: return "QuickLook & Trash"
         }
     }
 }
