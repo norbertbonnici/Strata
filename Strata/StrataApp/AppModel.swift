@@ -424,6 +424,13 @@ final class AppModel: ObservableObject {
             RecentCases.record(bundleURL)
             recentCases = RecentCases.load()
             statusMessage = "Loaded case '\(theCase.name)' (\(hosts.count) host\(hosts.count == 1 ? "" : "s"))."
+            #if os(macOS)
+            // Backfill artifact types an older build never produced (e.g. kexts /
+            // BTM / Messages added after this case was last parsed), so the newest
+            // tabs populate without a manual re-parse. Off the open path; no-op +
+            // cheap when nothing is missing.
+            Task { await self.backfillOnOpen() }
+            #endif
         } catch {
             errorMessage = "Failed to open case: \(error.localizedDescription)"
         }
@@ -2115,6 +2122,15 @@ final class AppModel: ObservableObject {
     /// One-stop button: parse event logs, registry hives, prefetch, and LNK
     /// shortcuts, then run the detection engine over the combined evidence.
     func parseArtifacts() async {
+        await runAllParsers()
+        await runAnalyzers()
+    }
+
+    /// Run every artifact parser once. Each self-gates (a no-op when its buckets
+    /// already hold data / there are no candidate files), so this is cheap on an
+    /// already-parsed case and backfills only what's missing. Shared by
+    /// `parseArtifacts` and the open-time backfill.
+    private func runAllParsers() async {
         await parseEventLogs()
         await parseRegistry()
         await parsePrefetch()
@@ -2130,7 +2146,23 @@ final class AppModel: ObservableObject {
         await parseLinux()
         await parseMac()
         await parseUnifiedLog()
-        await runAnalyzers()
+    }
+
+    /// Called after a case opens: backfill any artifact buckets an older build
+    /// never produced (newly-added artifact types) so an old case shows the newest
+    /// tabs without the analyst knowing to re-run Parse. Each parser self-gates,
+    /// so an up-to-date case only does cheap candidate scans and degrades silently
+    /// when the source media is gone (archived image). Analyzers re-run — *without*
+    /// a custody entry, since this is an automatic refresh, not an examiner action
+    /// — only when a parser actually added data.
+    func backfillOnOpen() async {
+        guard currentCase != nil, !evidenceList.isEmpty, !isWorking else { return }
+        let before = dataVersion
+        await runAllParsers()
+        if dataVersion != before {
+            await runAnalyzers(recordCustody: false)
+        }
+        statusMessage = ""
     }
 
     /// Parse every .evtx in every loaded evidence that doesn't already have
@@ -4944,7 +4976,7 @@ final class AppModel: ObservableObject {
     /// Run analyzers against each evidence's own context, then store the
     /// findings on that evidence. "All" mode unions the per-evidence buckets
     /// via the computed `findings` property.
-    func runAnalyzers() async {
+    func runAnalyzers(recordCustody: Bool = true) async {
         statusMessage = "Running analyzers..."
         var total = 0
         for evidence in evidenceList {
@@ -5032,7 +5064,9 @@ final class AppModel: ObservableObject {
         } else {
             statusMessage = "Surfaced \(total) findings."
         }
-        appendCustody(.analysed,
-                      detail: "Ran detection analyzers across \(evidenceList.count) host\(evidenceList.count == 1 ? "" : "s") → \(total) finding\(total == 1 ? "" : "s").")
+        if recordCustody {
+            appendCustody(.analysed,
+                          detail: "Ran detection analyzers across \(evidenceList.count) host\(evidenceList.count == 1 ? "" : "s") → \(total) finding\(total == 1 ? "" : "s").")
+        }
     }
 }

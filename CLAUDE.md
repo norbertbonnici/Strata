@@ -138,6 +138,17 @@ treat it as one item. The macOS-only ingest code is gated `#if os(macOS)`.
   into one `let` per body and push expensive transforms (tree build, graph build,
   host-profile derive) into `.task(id:)`/`.onChange` → `@State`, NOT compute in
   `body` or via a cancellable detached task (which can leave state empty).
+- **Artifact backfill on case open (macOS).** Each parser self-gates (parses a
+  bucket only when it's empty *and* the file tree has candidates), so opening a
+  case kicks off `AppModel.backfillOnOpen()` in the background: it runs the full
+  parser set (`runAllParsers`) so a case parsed by an **older build picks up
+  newly-added artifact types** (kexts/BTM/Messages/…) without the analyst knowing
+  to re-run Parse. It re-runs analyzers only when a parser actually added data
+  (`dataVersion` changed) and **without** a custody entry (it's an automatic
+  refresh, not an examiner action). Up-to-date cases do only cheap candidate
+  scans; a missing source image degrades to a silent no-op. When you add a new
+  artifact type, wiring it into a self-gating parser is what makes old cases
+  backfill it for free.
 - **macOS cannot be sandboxed / Mac-App-Store'd** — it needs raw disk reads +
   Full Disk Access (a TCC permission, not an entitlement). Therefore **iCloud
   containers, CloudKit, and App Store distribution are off the table** for the
