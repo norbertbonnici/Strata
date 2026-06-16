@@ -55,6 +55,7 @@ public nonisolated enum CaseStore {
     private static let mailFilename = "mail.json"
     private static let networkFilename = "network.json"
     private static let userActivityFilename = "useractivity.json"
+    private static let documentVersionsFilename = "docrevisions.json"
     private static let macSecurityFilename = "macsecurity.json"
     private static let auditFilename      = "audit.json"
     private static let syslogFilename     = "syslog.json"
@@ -666,6 +667,15 @@ public nonisolated enum CaseStore {
     public static func writeUserActivity(_ items: [MacActivityItem], forHostID id: UUID, in bundle: URL) throws {
         try writeArray(items, at: hostDirectory(forHostID: id, in: bundle)
             .appendingPathComponent(userActivityFilename))
+    }
+
+    public static func readDocumentVersions(forHostID id: UUID, in bundle: URL) throws -> [MacDocumentVersion]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(documentVersionsFilename))
+    }
+    public static func writeDocumentVersions(_ items: [MacDocumentVersion], forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(items, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(documentVersionsFilename))
     }
 
     public static func readAudit(forHostID id: UUID, in bundle: URL) throws -> [AuditEvent]? {

@@ -131,6 +131,23 @@ builds can backfill newly added data.
   treated as CFAbsoluteTime (Unix as a fallback by magnitude); validated against
   synthetic SQLite, not a real index.
 
+## Document Versions
+
+- **done.** `DocumentRevisionsParser` (`StrataMac`, GRDB) reads the macOS Versions
+  store (`/.DocumentRevisions-V100/db-V1/db.sqlite`): each `generations` row is a
+  saved version of a document → `MacDocumentVersion` (`StrataCore`) with the
+  original path (resolved from `files` as a side lookup, robust to schema drift),
+  version time, size, and the stored-generation path. This reconstructs a file's
+  **edit timeline** and points at a recoverable prior version, **even for files
+  no longer on disk**. Parsed in `AppModel.parseMac()`, cached as
+  `docrevisions.json`, spliced onto the timeline (`TimelineSource.docRevisions`,
+  `.modified`), surfaced in a **Document Versions** tab. Context-only (a recovery
+  artifact, no detection rule — like the host-info artifacts). Covered by
+  `StrataTests/DocumentRevisionsTests.swift`. **Known limits:** `generation_add_time`
+  treated as Unix seconds (CFAbsoluteTime fallback by magnitude); recovering the
+  version *content* (the generation blobs) is a follow-up; validated against
+  synthetic SQLite.
+
 ## Recovery
 
 - **Signature carving (deleted / sealed / encrypted recovery).** `FileCarver`
