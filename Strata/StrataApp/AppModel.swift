@@ -62,6 +62,7 @@ nonisolated struct EvidenceState: Sendable {
     var userActivity: [MacActivityItem] = []
     var documentVersions: [MacDocumentVersion] = []
     var notifications: [MacNotification] = []
+    var powerlog: [PowerlogEntry] = []
     // macOS host identity (empty on non-macOS evidence).
     var macInfo: MacHostInfo?
     var findings: [Finding] = []
@@ -566,6 +567,7 @@ final class AppModel: ObservableObject {
             var userActivity: [MacActivityItem] = []
             var documentVersions: [MacDocumentVersion] = []
             var notifications: [MacNotification] = []
+            var powerlog: [PowerlogEntry] = []
             var macInfo: MacHostInfo?
             var authLog: [AuthLogEntry] = []
             var logins: [UtmpRecord] = []
@@ -612,6 +614,7 @@ final class AppModel: ObservableObject {
                 { userActivity = (try? CaseStore.readUserActivity(forHostID: id, in: bundleURL)) ?? [] },
                 { documentVersions = (try? CaseStore.readDocumentVersions(forHostID: id, in: bundleURL)) ?? [] },
                 { notifications = (try? CaseStore.readNotifications(forHostID: id, in: bundleURL)) ?? [] },
+                { powerlog = (try? CaseStore.readPowerlog(forHostID: id, in: bundleURL)) ?? [] },
                 { macInfo = try? CaseStore.readMacInfo(forHostID: id, in: bundleURL) },
                 { authLog = (try? CaseStore.readAuthLog(forHostID: id, in: bundleURL)) ?? [] },
                 { logins = (try? CaseStore.readLogins(forHostID: id, in: bundleURL)) ?? [] },
@@ -666,6 +669,7 @@ final class AppModel: ObservableObject {
             state.userActivity = userActivity
             state.documentVersions = documentVersions
             state.notifications = notifications
+            state.powerlog = powerlog
             state.macInfo = macInfo
             state.authLog = authLog
             state.logins = logins
@@ -706,6 +710,7 @@ final class AppModel: ObservableObject {
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.userActivity))
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.documentVersions))
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.notifications))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.powerlog))
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.unifiedLog))
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.tcc))
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.knowledgeC))
@@ -1276,6 +1281,7 @@ final class AppModel: ObservableObject {
         var userActivity: [MacActivityItem] = []
         var documentVersions: [MacDocumentVersion] = []
         var notifications: [MacNotification] = []
+        var powerlog: [PowerlogEntry] = []
         var iocMatches: [IOCMatch] = []
     }
     private var derivedCache: Derived?
@@ -1361,6 +1367,7 @@ final class AppModel: ObservableObject {
             d.userActivity = s.userActivity
             d.documentVersions = s.documentVersions
             d.notifications = s.notifications
+            d.powerlog = s.powerlog
             d.iocMatches = s.iocMatches
             return d
         }
@@ -1411,6 +1418,7 @@ final class AppModel: ObservableObject {
             d.userActivity.append(contentsOf: s.userActivity)
             d.documentVersions.append(contentsOf: s.documentVersions)
             d.notifications.append(contentsOf: s.notifications)
+            d.powerlog.append(contentsOf: s.powerlog)
             d.iocMatches.append(contentsOf: s.iocMatches)
         }
         d.events.sort { $0.writtenAt < $1.writtenAt }
@@ -1510,6 +1518,7 @@ final class AppModel: ObservableObject {
     var userActivity: [MacActivityItem] { derived().userActivity }
     var documentVersions: [MacDocumentVersion] { derived().documentVersions }
     var notifications: [MacNotification] { derived().notifications }
+    var powerlog: [PowerlogEntry] { derived().powerlog }
     /// Linux host info for the active scope (tiny; not worth caching). In the
     /// combined scope the first host that has one wins.
     var linuxInfo: LinuxHostInfo? {
@@ -1574,6 +1583,7 @@ final class AppModel: ObservableObject {
     var userActivityCount: Int { scopedCount(\.userActivity.count) }
     var documentVersionCount: Int { scopedCount(\.documentVersions.count) }
     var notificationCount: Int { scopedCount(\.notifications.count) }
+    var powerlogCount: Int { scopedCount(\.powerlog.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
     /// True once the Linux log parse has produced *something* in the active
@@ -1628,6 +1638,7 @@ final class AppModel: ObservableObject {
         if userActivityCount > 0 { s.insert(.userActivity) }
         if documentVersionCount > 0 { s.insert(.docRevisions) }
         if notificationCount > 0 { s.insert(.notifications) }
+        if powerlogCount > 0 { s.insert(.powerlog) }
         if srumCount > 0 { s.insert(.srum) }
         if s.isEmpty { s.insert(eventCount > 0 ? .evtx : .filesystem) }
         return s
@@ -4128,6 +4139,15 @@ final class AppModel: ObservableObject {
                 return (lower.contains("usernoted") || lower.contains("notificationcenter")) && lower.contains("/db2/")
             }
         }
+        // Powerlog store (`/private/var/db/powerlog/Library/BatteryLife/CurrentPowerlog.PLSQL`).
+        func powerlogFiles(_ s: EvidenceState) -> [FileEntry] {
+            s.files.filter { entry in
+                guard !entry.isDirectory, entry.size > 0 else { return false }
+                let name = entry.name.lowercased()
+                return name == "currentpowerlog.plsql"
+                    || (name.hasSuffix(".plsql") && entry.fullPath.lowercased().contains("/powerlog/"))
+            }
+        }
         // The owning scope for a macOS db path: "system" unless it lives under a
         // user home, in which case the user's name.
         func macScope(_ path: String) -> String {
@@ -4156,6 +4176,7 @@ final class AppModel: ObservableObject {
                 + (s.userActivity.isEmpty ? quickLookFiles(s).count + trashEntries(s).count : 0)
                 + (s.documentVersions.isEmpty ? docRevisionFiles(s).count : 0)
                 + (s.notifications.isEmpty ? notificationFiles(s).count : 0)
+                + (s.powerlog.isEmpty ? powerlogFiles(s).count : 0)
         }
         guard total > 0 else { statusMessage = "No new macOS artifacts to parse."; return }
         progress = ProgressInfo(current: 0, total: total, label: "Parsing macOS artifacts")
@@ -4181,12 +4202,13 @@ final class AppModel: ObservableObject {
                 let foundTrash = state.userActivity.isEmpty ? trashEntries(state) : []
                 let foundDocRev = state.documentVersions.isEmpty ? docRevisionFiles(state) : []
                 let foundNotif = state.notifications.isEmpty ? notificationFiles(state) : []
+                let foundPowerlog = state.powerlog.isEmpty ? powerlogFiles(state) : []
                 guard !foundPlists.isEmpty || !foundQuar.isEmpty || !foundInfo.isEmpty
                     || !foundPersist.isEmpty || !foundFSE.isEmpty || !foundShell.isEmpty
                     || !foundTCC.isEmpty || !foundKnowledge.isEmpty || !foundRecent.isEmpty
                     || !foundSecurity.isEmpty || !foundKexts.isEmpty || !foundBTM.isEmpty
                     || !foundNetwork.isEmpty || !foundQuickLook.isEmpty || !foundTrash.isEmpty
-                    || !foundDocRev.isEmpty || !foundNotif.isEmpty else { continue }
+                    || !foundDocRev.isEmpty || !foundNotif.isEmpty || !foundPowerlog.isEmpty else { continue }
                 let isLoose = evidence.kind == .kapeLooseFolder
                 let isAPFS = evidence.kind == .apfs
                 var database: TSKDatabase?
@@ -4442,6 +4464,16 @@ final class AppModel: ObservableObject {
                         fileAt: url, sourceFile: entry.fullPath, scope: macScope(entry.fullPath))) ?? [])
                 }
 
+                // Powerlog store (SQLite).
+                var powerlog: [PowerlogEntry] = []
+                for entry in foundPowerlog {
+                    progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    guard let url = await extract(entry) else { continue }
+                    powerlog.append(contentsOf: (try? PowerlogParser.parse(
+                        fileAt: url, sourceFile: entry.fullPath, scope: macScope(entry.fullPath))) ?? [])
+                }
+
                 if !foundPlists.isEmpty { state.launchItems = launch }
                 if !foundQuar.isEmpty { state.quarantine = quar }
                 if !foundPersist.isEmpty { state.macPersistence = persist }
@@ -4456,11 +4488,12 @@ final class AppModel: ObservableObject {
                 if !foundQuickLook.isEmpty || !foundTrash.isEmpty { state.userActivity = userActivity }
                 if !foundDocRev.isEmpty { state.documentVersions = documentVersions }
                 if !foundNotif.isEmpty { state.notifications = notifications }
+                if !foundPowerlog.isEmpty { state.powerlog = powerlog }
                 if !macShell.isEmpty { state.shellHistory.append(contentsOf: macShell) }
                 if !foundInfo.isEmpty { state.macInfo = info.isEmpty ? nil : info }
                 if !tcc.isEmpty || !knowledge.isEmpty || !recentItems.isEmpty || !securityEvents.isEmpty
                     || !network.isEmpty || !userActivity.isEmpty || !documentVersions.isEmpty
-                    || !notifications.isEmpty {
+                    || !notifications.isEmpty || !powerlog.isEmpty {
                     state.timeline.append(contentsOf: TimelineBuilder.build(from: tcc))
                     state.timeline.append(contentsOf: TimelineBuilder.build(from: knowledge))
                     state.timeline.append(contentsOf: TimelineBuilder.build(from: recentItems))
@@ -4469,6 +4502,7 @@ final class AppModel: ObservableObject {
                     state.timeline.append(contentsOf: TimelineBuilder.build(from: userActivity))
                     state.timeline.append(contentsOf: TimelineBuilder.build(from: documentVersions))
                     state.timeline.append(contentsOf: TimelineBuilder.build(from: notifications))
+                    state.timeline.append(contentsOf: TimelineBuilder.build(from: powerlog))
                     state.timeline.sort { $0.date < $1.date }
                 }
                 states[evidence.id] = state
@@ -4514,6 +4548,9 @@ final class AppModel: ObservableObject {
                     }
                     if !foundNotif.isEmpty {
                         try? CaseStore.writeNotifications(notifications, forHostID: evidence.id, in: bundleURL)
+                    }
+                    if !foundPowerlog.isEmpty {
+                        try? CaseStore.writePowerlog(powerlog, forHostID: evidence.id, in: bundleURL)
                     }
                     if !macShell.isEmpty {
                         try? CaseStore.writeShellHistory(state.shellHistory, forHostID: evidence.id, in: bundleURL)
@@ -5375,7 +5412,8 @@ final class AppModel: ObservableObject {
                                           messages: state.messages,
                                           mail: state.mail,
                                           network: state.network,
-                                          userActivity: state.userActivity)
+                                          userActivity: state.userActivity,
+                                          powerlog: state.powerlog)
             let results = await analysisEngine.run(on: context)
             state.findings = results
             states[evidence.id] = state

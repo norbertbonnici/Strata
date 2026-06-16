@@ -140,6 +140,10 @@ struct SidebarItemOSTests {
         #expect(windows.count + linux.count + mac.count + cross.count == SidebarItem.allCases.count)
         #expect(windows.count == 12)   // +recycleBin
         #expect(linux.count == 10)
-        #expect(mac.count == 4)        // launchItems + quarantine + persistence + fsEvents
+        // launchItems, quarantine, persistence, fsEvents, unifiedLog, tcc,
+        // knowledgeC, recentItems, macSecurity, carvedFiles, kexts,
+        // backgroundItems, messages, mail, network, quickLookTrash,
+        // documentVersions, notifications, powerlog.
+        #expect(mac.count == 19)
     }
 }

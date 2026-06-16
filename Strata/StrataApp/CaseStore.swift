@@ -57,6 +57,7 @@ public nonisolated enum CaseStore {
     private static let userActivityFilename = "useractivity.json"
     private static let documentVersionsFilename = "docrevisions.json"
     private static let notificationsFilename = "notifications.json"
+    private static let powerlogFilename = "powerlog.json"
     private static let macSecurityFilename = "macsecurity.json"
     private static let auditFilename      = "audit.json"
     private static let syslogFilename     = "syslog.json"
@@ -686,6 +687,15 @@ public nonisolated enum CaseStore {
     public static func writeNotifications(_ items: [MacNotification], forHostID id: UUID, in bundle: URL) throws {
         try writeArray(items, at: hostDirectory(forHostID: id, in: bundle)
             .appendingPathComponent(notificationsFilename))
+    }
+
+    public static func readPowerlog(forHostID id: UUID, in bundle: URL) throws -> [PowerlogEntry]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(powerlogFilename))
+    }
+    public static func writePowerlog(_ items: [PowerlogEntry], forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(items, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(powerlogFilename))
     }
 
     public static func readAudit(forHostID id: UUID, in bundle: URL) throws -> [AuditEvent]? {

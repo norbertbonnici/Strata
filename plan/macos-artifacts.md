@@ -168,6 +168,44 @@ builds can backfill newly added data.
   lenient but may miss exotic schemas); attachment / image payloads not recovered;
   validated against synthetic SQLite.
 
+## Powerlog (process-execution activity)
+
+- **done.** `PowerlogParser` (`StrataMac`, GRDB) reads the powerd analytics store
+  (`CurrentPowerlog.PLSQL` under `/private/var/db/powerlog/Library/BatteryLife/`)
+  → `PowerlogEntry` (`StrataCore`). Powerlog is one of the few macOS artifacts
+  giving true **process-execution timing with PIDs**, surviving independently of
+  the unified log — it catches headless/background tooling that never comes to
+  the foreground (where KnowledgeC's GUI-focus view is blind). v1 parses the
+  highest-value tables: `PLPROCESSMONITORAGENT_EVENTFORWARD_PROCESSID`
+  (PID→process→bundle), `PLAPPLICATIONAGENT_EVENTFORWARD_APPLIFECYCLE`
+  (launch/exit + EVENT), `…_FRONTMOSTAPP` (active app), and
+  `PLPROCESSNETWORKAGENT_EVENTINTERVAL_USAGEDIFF` (per-process bytes), with
+  `…_EVENTNONE_APPINFO` as a bundle-id→name enrichment lookup.
+- **Timestamps:** Powerlog times are **Unix epoch seconds** (NOT CFAbsoluteTime —
+  the 2001-epoch reflex is wrong here), recorded against a drifting clock and
+  corrected by the signed `system` offset from
+  `PLSTORAGEOPERATOR_EVENTFORWARD_TIMEOFFSET` (latest offset at-or-before the
+  event, APOLLO's `timestamp + system` formula; binary-searched).
+- **Robustness:** Powerlog is a WAL-mode SQLite DB (`.PLSQL` extension), so it
+  copies to scratch with its `-wal`/`-shm` sidecars and opens read-write like the
+  browser/Messages parsers. Table/column names drift across macOS versions, so
+  every table is feature-detected (`tableExists`) and read with `SELECT *` +
+  null-tolerant column reads (the #1 parser risk per the research).
+- Parsed in `AppModel.parseMac()` (self-gating + backfill), cached as
+  `powerlog.json`, spliced onto the timeline (`TimelineSource.powerlog`),
+  surfaced in a **Powerlog** tab (kind filter + detail pane). `PowerlogAnalyzer`
+  ships **with** the artifact (Powerlog is execution evidence, like SRUM/prefetch
+  — KnowledgeC is the precedent): offensive/dual-use tool execution (T1059, high),
+  remote-access/RMM execution (T1219, high — reuses
+  `KnowledgeCAnalyzer.remoteAccessHints`), and osascript AppleScript/JXA (T1059.002,
+  medium), all **aggregated per tool** (one finding per binary, not per launch) to
+  stay low-noise. Covered by `StrataTests/PowerlogTests.swift` (offset math,
+  enrichment, network summing, schema-drift tolerance, the three detections,
+  timeline projection). **Known limits:** archived/rotated `Archives/*.PLSQL.gz`
+  DBs (weeks of extra history) are not yet inflated+parsed (live DB only); each
+  table is capped at the most-recent N rows; validated against synthetic SQLite —
+  real-image end-to-end pending.
+
 ## Recovery
 
 - **Signature carving (deleted / sealed / encrypted recovery).** `FileCarver`

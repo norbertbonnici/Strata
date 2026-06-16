@@ -48,6 +48,7 @@ public nonisolated struct AnalysisContext: Sendable {
     public let mail: [MailMessageEntry]
     public let network: [MacNetworkItem]
     public let userActivity: [MacActivityItem]
+    public let powerlog: [PowerlogEntry]
 
     public init(files: [FileEntry], events: [EventLogRecord],
                 timeline: [TimelineEvent], registryValues: [RegistryValue],
@@ -71,7 +72,8 @@ public nonisolated struct AnalysisContext: Sendable {
                 macSecurityEvents: [MacSecurityEvent] = [], kexts: [MacKextEntry] = [],
                 backgroundItems: [MacBackgroundItem] = [], messages: [MessageEntry] = [],
                 mail: [MailMessageEntry] = [], network: [MacNetworkItem] = [],
-                userActivity: [MacActivityItem] = []) {
+                userActivity: [MacActivityItem] = [],
+                powerlog: [PowerlogEntry] = []) {
         self.files = files
         self.events = events
         self.timeline = timeline
@@ -114,6 +116,7 @@ public nonisolated struct AnalysisContext: Sendable {
         self.mail = mail
         self.network = network
         self.userActivity = userActivity
+        self.powerlog = powerlog
     }
 }
 
