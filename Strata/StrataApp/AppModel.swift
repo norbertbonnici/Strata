@@ -56,6 +56,7 @@ nonisolated struct EvidenceState: Sendable {
     var carvedFiles: [CarvedFile] = []
     var kexts: [MacKextEntry] = []
     var backgroundItems: [MacBackgroundItem] = []
+    var messages: [MessageEntry] = []
     // macOS host identity (empty on non-macOS evidence).
     var macInfo: MacHostInfo?
     var findings: [Finding] = []
@@ -547,6 +548,7 @@ final class AppModel: ObservableObject {
             var carvedFiles: [CarvedFile] = []
             var kexts: [MacKextEntry] = []
             var backgroundItems: [MacBackgroundItem] = []
+            var messages: [MessageEntry] = []
             var macInfo: MacHostInfo?
             var authLog: [AuthLogEntry] = []
             var logins: [UtmpRecord] = []
@@ -587,6 +589,7 @@ final class AppModel: ObservableObject {
                 { carvedFiles = (try? CaseStore.readCarved(forHostID: id, in: bundleURL)) ?? [] },
                 { kexts = (try? CaseStore.readKexts(forHostID: id, in: bundleURL)) ?? [] },
                 { backgroundItems = (try? CaseStore.readBackgroundItems(forHostID: id, in: bundleURL)) ?? [] },
+                { messages = (try? CaseStore.readMessages(forHostID: id, in: bundleURL)) ?? [] },
                 { macInfo = try? CaseStore.readMacInfo(forHostID: id, in: bundleURL) },
                 { authLog = (try? CaseStore.readAuthLog(forHostID: id, in: bundleURL)) ?? [] },
                 { logins = (try? CaseStore.readLogins(forHostID: id, in: bundleURL)) ?? [] },
@@ -635,6 +638,7 @@ final class AppModel: ObservableObject {
             state.carvedFiles = carvedFiles
             state.kexts = kexts
             state.backgroundItems = backgroundItems
+            state.messages = messages
             state.macInfo = macInfo
             state.authLog = authLog
             state.logins = logins
@@ -669,6 +673,7 @@ final class AppModel: ObservableObject {
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.usn))
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.srum))
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.browserHistory))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.messages))
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.unifiedLog))
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.tcc))
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.knowledgeC))
@@ -1233,6 +1238,7 @@ final class AppModel: ObservableObject {
         var carvedFiles: [CarvedFile] = []
         var kexts: [MacKextEntry] = []
         var backgroundItems: [MacBackgroundItem] = []
+        var messages: [MessageEntry] = []
         var iocMatches: [IOCMatch] = []
     }
     private var derivedCache: Derived?
@@ -1312,6 +1318,7 @@ final class AppModel: ObservableObject {
             d.carvedFiles = s.carvedFiles
             d.kexts = s.kexts
             d.backgroundItems = s.backgroundItems
+            d.messages = s.messages
             d.iocMatches = s.iocMatches
             return d
         }
@@ -1356,6 +1363,7 @@ final class AppModel: ObservableObject {
             d.carvedFiles.append(contentsOf: s.carvedFiles)
             d.kexts.append(contentsOf: s.kexts)
             d.backgroundItems.append(contentsOf: s.backgroundItems)
+            d.messages.append(contentsOf: s.messages)
             d.iocMatches.append(contentsOf: s.iocMatches)
         }
         d.events.sort { $0.writtenAt < $1.writtenAt }
@@ -1449,6 +1457,7 @@ final class AppModel: ObservableObject {
     var carvedFiles: [CarvedFile] { derived().carvedFiles }
     var kexts: [MacKextEntry] { derived().kexts }
     var backgroundItems: [MacBackgroundItem] { derived().backgroundItems }
+    var messages: [MessageEntry] { derived().messages }
     /// Linux host info for the active scope (tiny; not worth caching). In the
     /// combined scope the first host that has one wins.
     var linuxInfo: LinuxHostInfo? {
@@ -1507,6 +1516,7 @@ final class AppModel: ObservableObject {
     var carvedFileCount: Int { scopedCount(\.carvedFiles.count) }
     var kextCount: Int { scopedCount(\.kexts.count) }
     var backgroundItemCount: Int { scopedCount(\.backgroundItems.count) }
+    var messageCount: Int { scopedCount(\.messages.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
     /// True once the Linux log parse has produced *something* in the active
@@ -1555,6 +1565,7 @@ final class AppModel: ObservableObject {
         // Windows bounded execution / usage.
         if prefetchCount > 0 { s.insert(.prefetch) }
         if browserHistoryCount > 0 { s.insert(.browser) }
+        if messageCount > 0 { s.insert(.messages) }
         if srumCount > 0 { s.insert(.srum) }
         if s.isEmpty { s.insert(eventCount > 0 ? .evtx : .filesystem) }
         return s
@@ -1780,6 +1791,7 @@ final class AppModel: ObservableObject {
                 statusMessage = "Unlocked \(state.files.count) files from \(evidence.displayName). Re-running analysis…"
                 await parseMac()
                 await parseBrowserHistory()
+                await parseMessages()
                 await parseUnifiedLog()
                 statusMessage = "Unlocked and analysed \(evidence.displayName)."
             }
@@ -2112,6 +2124,7 @@ final class AppModel: ObservableObject {
         await parseRecycleBin()
         await parseSrum()
         await parseBrowserHistory()
+        await parseMessages()
         await parseMft()
         await parseWmi()
         await parseLinux()
@@ -2907,6 +2920,142 @@ final class AppModel: ObservableObject {
                 // (common on Linux servers with no browser installed) - expected.
                 statusMessage = "No browser history stores found."
             }
+        } catch {
+            self.errorMessage = error.localizedDescription
+            self.statusMessage = ""
+        }
+    }
+
+    // MARK: - Messages parsing
+
+    /// Parse the macOS Messages database (`chat.db`) for every loaded evidence
+    /// that doesn't already have results. `chat.db` is SQLite/WAL like browser
+    /// history, so this mirrors `parseBrowserHistory`: extract the DB (+ `-wal`/
+    /// `-shm` sidecars) via the loose / icat / `fsapfscat` path, parse off-main
+    /// with `MessagesParser`, splice onto the timeline, and persist.
+    func parseMessages() async {
+        guard !evidenceList.isEmpty else { return }
+        errorMessage = nil
+        isWorking = true
+        defer { isWorking = false; progress = nil }
+
+        func candidates(_ state: EvidenceState) -> [FileEntry] {
+            state.files.filter {
+                guard !$0.isDirectory, $0.size > 0, $0.name.lowercased() == "chat.db" else { return false }
+                // Gate on the canonical Messages directory so an unrelated app's
+                // chat.db (caches / app bundles) isn't extracted + probed.
+                return $0.fullPath.lowercased().contains("/library/messages/")
+            }
+        }
+        func macScope(_ path: String) -> String {
+            let comps = path.split(separator: "/").map(String.init)
+            if let i = comps.firstIndex(where: { $0.lowercased() == "users" }), i + 1 < comps.count { return comps[i + 1] }
+            return "system"
+        }
+
+        let totalCandidates = evidenceList.reduce(0) { acc, e in
+            guard let s = states[e.id], s.messages.isEmpty else { return acc }
+            return acc + candidates(s).count
+        }
+        guard totalCandidates > 0 else { statusMessage = "No new Messages database to parse."; return }
+        progress = ProgressInfo(current: 0, total: totalCandidates, label: "Parsing Messages")
+        var completed = 0
+
+        do {
+            let tskEnv = try TSKEnvironment.discover()
+            for evidence in evidenceList {
+                guard var state = states[evidence.id], state.messages.isEmpty else { continue }
+                let found = candidates(state)
+                guard !found.isEmpty else { continue }
+
+                let isLoose = evidence.kind == .kapeLooseFolder
+                let isAPFS = evidence.kind == .apfs
+                var database: TSKDatabase?
+                var extractor: TSKFileExtractor?
+                var apfsExtractor: FsApfsExtractor?
+                var scratch: URL?
+                if !isLoose {
+                    guard let bundleURL = currentCaseBundleURL else { continue }
+                    let dir = CaseStore.messagesScratchDirectory(forHostID: evidence.id, in: bundleURL)
+                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    scratch = dir
+                    if isAPFS {
+                        apfsExtractor = FsApfsExtractor(environment: tskEnv,
+                                                        rawURL: evidence.apfsRawURL ?? evidence.sourceURL,
+                                                        credential: fileVaultCredentials[evidence.id])
+                    } else {
+                        guard let dbURL = state.dbURL else { continue }
+                        database = try TSKDatabase(path: dbURL)
+                        extractor = TSKFileExtractor(environment: tskEnv, imageURL: evidence.sourceURL,
+                                                     imageType: TSKImageIngestor.imageType(for: evidence.sourceURL))
+                    }
+                }
+
+                var collected: [MessageEntry] = []
+                for entry in found {
+                    progress = ProgressInfo(current: completed, total: totalCandidates,
+                                            label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    let fileURL: URL
+                    if isLoose {
+                        guard let disk = entry.diskURL,
+                              FileManager.default.fileExists(atPath: disk.path) else { continue }
+                        fileURL = disk
+                    } else if isAPFS {
+                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name)")
+                        let off = state.volumes.first { $0.id == entry.fsID }?.offsetBytes ?? 0
+                        try? await apfsExtractor!.extract(volumePath: entry.fullPath,
+                                                          volumeIndex: entry.fsID ?? 0, offsetBytes: off, to: outURL)
+                        for suffix in ["-wal", "-shm"] {
+                            guard let side = state.files.first(where: {
+                                !$0.isDirectory && $0.parentPath == entry.parentPath
+                                    && $0.name.caseInsensitiveCompare(entry.name + suffix) == .orderedSame
+                            }) else { continue }
+                            let soff = state.volumes.first { $0.id == side.fsID }?.offsetBytes ?? 0
+                            try? await apfsExtractor!.extract(volumePath: side.fullPath,
+                                                              volumeIndex: side.fsID ?? 0, offsetBytes: soff,
+                                                              to: URL(fileURLWithPath: outURL.path + suffix))
+                        }
+                        fileURL = outURL
+                    } else {
+                        guard let info = try database!.fetchExtractInfo(forFileID: entry.id) else { continue }
+                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name)")
+                        try await extractor!.extract(metaAddr: info.metaAddr,
+                                                     imageOffsetSectors: info.imageOffsetSectors, to: outURL)
+                        for suffix in ["-wal", "-shm"] {
+                            guard let side = state.files.first(where: {
+                                !$0.isDirectory && $0.parentPath == entry.parentPath
+                                    && $0.name.caseInsensitiveCompare(entry.name + suffix) == .orderedSame
+                            }), let sInfo = try? database!.fetchExtractInfo(forFileID: side.id) else { continue }
+                            try? await extractor!.extract(metaAddr: sInfo.metaAddr,
+                                                          imageOffsetSectors: sInfo.imageOffsetSectors,
+                                                          to: URL(fileURLWithPath: outURL.path + suffix))
+                        }
+                        fileURL = outURL
+                    }
+                    let source = entry.fullPath
+                    let scope = macScope(source)
+                    do {
+                        let parsed = try await Task.detached(priority: .userInitiated) {
+                            try MessagesParser.parse(fileAt: fileURL, sourceFile: source, scope: scope)
+                        }.value
+                        collected.append(contentsOf: parsed)
+                    } catch {
+                        statusMessage = "\(evidence.displayName): \(entry.name) failed (\(error.localizedDescription))"
+                    }
+                }
+
+                collected.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+                state.messages = collected
+                state.timeline.removeAll { $0.source == .messages }
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: collected))
+                state.timeline.sort { $0.date < $1.date }
+                states[evidence.id] = state
+                if let bundleURL = currentCaseBundleURL {
+                    try? CaseStore.writeMessages(collected, forHostID: evidence.id, in: bundleURL)
+                }
+            }
+            progress = ProgressInfo(current: completed, total: totalCandidates, label: "Messages parse complete")
         } catch {
             self.errorMessage = error.localizedDescription
             self.statusMessage = ""
@@ -4837,7 +4986,8 @@ final class AppModel: ObservableObject {
                                           macRecentItems: state.macRecentItems,
                                           macSecurityEvents: state.macSecurityEvents,
                                           kexts: state.kexts,
-                                          backgroundItems: state.backgroundItems)
+                                          backgroundItems: state.backgroundItems,
+                                          messages: state.messages)
             let results = await analysisEngine.run(on: context)
             state.findings = results
             states[evidence.id] = state

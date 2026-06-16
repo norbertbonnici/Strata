@@ -54,6 +54,21 @@ builds can backfill newly added data.
 5. Network / Device Context
    - Known Wi-Fi networks, DHCP leases, Bluetooth devices, USB/iOS pairings, and Time Machine destinations.
 
+## Messages
+
+- **done.** `MessagesParser` (`StrataMac`) reads the Messages database
+  (`~/Library/Messages/chat.db`) via GRDB, mirroring the browser-history path
+  (copy-to-scratch + `-wal`/`-shm` sidecars, opened read-write — chat.db is
+  WAL-mode). Modern rows keep the body in `attributedBody` (an
+  NSAttributedString keyed archive) when `text` is NULL, recovered via
+  `StrataCore/BinaryPlist`. `MessageEntry` (`StrataCore`) with the chat.db
+  nanosecond/second CFAbsoluteTime decoder. Own `AppModel.parseMessages()` (in
+  `parseArtifacts` + the post-FileVault re-parse), cached as `messages.json`,
+  spliced onto the timeline (`TimelineSource.messages`), surfaced in a
+  **Messages** tab. `MacMessagesAnalyzer` flags suspicious links — T1566.002
+  (received / spearphishing link) vs T1204.001 (sent). Covered by
+  `StrataTests/MessagesTests.swift`. **Mail is not yet parsed.**
+
 ## Kernel & System Extensions
 
 - **done.** `MacKextParser` (`StrataMac`) inventories kernel extensions (each

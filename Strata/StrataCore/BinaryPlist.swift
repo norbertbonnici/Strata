@@ -130,6 +130,9 @@ public enum BinaryPlist {
         guard lo == 0x0F, off + 1 < b.count else { return (lo, off + 1) }
         let intMarker = b[off + 1]
         let n = 1 << Int(intMarker & 0x0F)
+        // The extended length spans n bytes at off+2; bail on a truncated buffer
+        // rather than reading a partial (corrupted) count.
+        guard off + 2 + n <= b.count else { return (lo, off + 1) }
         return (Int(readBE(b, off + 2, n)), off + 2 + n)
     }
 }

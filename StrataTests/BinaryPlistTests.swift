@@ -52,4 +52,15 @@ struct BinaryPlistTests {
         #expect(BinaryPlist.parse(Data("not a plist".utf8)) == nil)
         #expect(BinaryPlist.parse(Data()) == nil)
     }
+
+    @Test func toleratesTruncatedArchiveWithoutCrashing() {
+        // A long string forces the extended-length path; truncating the buffer
+        // must not read past the end (the sizeAndStart bounds guard) or crash.
+        let full = try! PropertyListSerialization.data(
+            fromPropertyList: ["s": String(repeating: "x", count: 400)], format: .binary, options: 0)
+        for cut in [8, 20, 40, full.count / 2] where cut < full.count {
+            _ = BinaryPlist.parse(full.prefix(full.count - cut))   // must not trap
+        }
+        #expect(Bool(true))
+    }
 }

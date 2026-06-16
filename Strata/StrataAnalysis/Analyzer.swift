@@ -44,6 +44,7 @@ public nonisolated struct AnalysisContext: Sendable {
     public let macSecurityEvents: [MacSecurityEvent]
     public let kexts: [MacKextEntry]
     public let backgroundItems: [MacBackgroundItem]
+    public let messages: [MessageEntry]
 
     public init(files: [FileEntry], events: [EventLogRecord],
                 timeline: [TimelineEvent], registryValues: [RegistryValue],
@@ -65,7 +66,7 @@ public nonisolated struct AnalysisContext: Sendable {
                 unifiedLog: [UnifiedLogEntry] = [], tcc: [TCCAccess] = [],
                 knowledgeC: [KnowledgeEntry] = [], macRecentItems: [MacRecentItem] = [],
                 macSecurityEvents: [MacSecurityEvent] = [], kexts: [MacKextEntry] = [],
-                backgroundItems: [MacBackgroundItem] = []) {
+                backgroundItems: [MacBackgroundItem] = [], messages: [MessageEntry] = []) {
         self.files = files
         self.events = events
         self.timeline = timeline
@@ -104,6 +105,7 @@ public nonisolated struct AnalysisContext: Sendable {
         self.macSecurityEvents = macSecurityEvents
         self.kexts = kexts
         self.backgroundItems = backgroundItems
+        self.messages = messages
     }
 }
 
