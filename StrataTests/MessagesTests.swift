@@ -68,6 +68,35 @@ struct MessagesTests {
         #expect(g2?.text == "secret body text")   // recovered from attributedBody
     }
 
+    @Test func recoversMessagesWhenLookupTablesAbsent() throws {
+        // Only the `message` table — no handle / chat / chat_message_join. The
+        // previous single-LEFT-JOIN query threw on this and silently returned
+        // nothing ("progress but nothing loads"); the message rows must still
+        // come back (handle / chatName just resolve to nil).
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chat-\(UUID().uuidString).db")
+        do {
+            let q = try DatabaseQueue(path: url.path)
+            try q.write { db in
+                try db.execute(sql: """
+                    CREATE TABLE message (ROWID INTEGER PRIMARY KEY, guid TEXT, text TEXT, service TEXT,
+                        handle_id INTEGER, date INTEGER, is_from_me INTEGER, cache_has_attachments INTEGER)
+                    """)
+                try db.execute(sql: """
+                    INSERT INTO message (ROWID, guid, text, service, handle_id, date, is_from_me, cache_has_attachments)
+                    VALUES (1, 'g1', 'hello world', 'iMessage', 5, ?, 0, 0)
+                    """, arguments: [d1])
+            }
+        }   // queue released → file safe to copy
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let msgs = try MessagesParser.parse(fileAt: url, sourceFile: "/Users/x/Library/Messages/chat.db", scope: "x")
+        #expect(msgs.count == 1)
+        #expect(msgs[0].text == "hello world")
+        #expect(msgs[0].handle == nil)
+        #expect(msgs[0].chatName == nil)
+    }
+
     @Test func rejectsNonChatDB() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("not-\(UUID().uuidString).db")
         try Data("not a database".utf8).write(to: url)

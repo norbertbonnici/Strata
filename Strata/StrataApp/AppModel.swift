@@ -3005,6 +3005,10 @@ final class AppModel: ObservableObject {
         guard totalCandidates > 0 else { statusMessage = "No new Messages database to parse."; return }
         progress = ProgressInfo(current: 0, total: totalCandidates, label: "Parsing Messages")
         var completed = 0
+        // Distinguish "chat.db found but couldn't be extracted to a readable DB"
+        // (source/volume unavailable) from "valid DB, 0 messages recovered".
+        var realStoresSeen = 0
+        var totalCollected = 0
 
         do {
             let tskEnv = try TSKEnvironment.discover()
@@ -3078,6 +3082,10 @@ final class AppModel: ObservableObject {
                         }
                         fileURL = outURL
                     }
+                    // A valid SQLite header means extraction produced a real DB;
+                    // its absence means the bytes never came across (missing source
+                    // image / sealed or locked APFS volume), not "no messages".
+                    if BrowserHistoryParser.isSQLiteDatabase(at: fileURL) { realStoresSeen += 1 }
                     let source = entry.fullPath
                     let scope = macScope(source)
                     do {
@@ -3091,6 +3099,7 @@ final class AppModel: ObservableObject {
                 }
 
                 collected.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+                totalCollected += collected.count
                 state.messages = collected
                 state.timeline.removeAll { $0.source == .messages }
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: collected))
@@ -3101,6 +3110,16 @@ final class AppModel: ObservableObject {
                 }
             }
             progress = ProgressInfo(current: completed, total: totalCandidates, label: "Messages parse complete")
+            if totalCollected > 0 {
+                statusMessage = "Parsed \(totalCollected) message\(totalCollected == 1 ? "" : "s")."
+            } else if realStoresSeen == 0 {
+                errorMessage = "Found chat.db but couldn't read it as a database — confirm the source "
+                    + "image / APFS volume is available (a sealed System or locked FileVault volume "
+                    + "returns no bytes)."
+            } else {
+                statusMessage = "chat.db parsed but no messages recovered — the database is empty, or its "
+                    + "messages are in an uncheckpointed -wal that wasn't captured in the image."
+            }
         } catch {
             self.errorMessage = error.localizedDescription
             self.statusMessage = ""
@@ -3141,6 +3160,8 @@ final class AppModel: ObservableObject {
         guard totalCandidates > 0 else { statusMessage = "No new Mail to parse."; return }
         progress = ProgressInfo(current: 0, total: totalCandidates, label: "Parsing Mail")
         var completed = 0
+        var realStoresSeen = 0
+        var totalCollected = 0
 
         do {
             let tskEnv = try TSKEnvironment.discover()
@@ -3214,6 +3235,7 @@ final class AppModel: ObservableObject {
                         }
                         fileURL = outURL
                     }
+                    if BrowserHistoryParser.isSQLiteDatabase(at: fileURL) { realStoresSeen += 1 }
                     let source = entry.fullPath
                     let scope = macScope(source)
                     do {
@@ -3227,6 +3249,7 @@ final class AppModel: ObservableObject {
                 }
 
                 collected.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+                totalCollected += collected.count
                 state.mail = collected
                 state.timeline.removeAll { $0.source == .mail }
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: collected))
@@ -3237,6 +3260,15 @@ final class AppModel: ObservableObject {
                 }
             }
             progress = ProgressInfo(current: completed, total: totalCandidates, label: "Mail parse complete")
+            if totalCollected > 0 {
+                statusMessage = "Parsed \(totalCollected) mail message\(totalCollected == 1 ? "" : "s")."
+            } else if realStoresSeen == 0 {
+                errorMessage = "Found the Mail Envelope Index but couldn't read it as a database — "
+                    + "confirm the source image / APFS volume is available."
+            } else {
+                statusMessage = "Mail Envelope Index parsed but no messages recovered (empty index "
+                    + "or an unrecognised schema)."
+            }
         } catch {
             self.errorMessage = error.localizedDescription
             self.statusMessage = ""

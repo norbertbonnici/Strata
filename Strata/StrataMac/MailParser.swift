@@ -52,16 +52,31 @@ public nonisolated struct MailParser: Sendable {
         return try queue.read { db in
             guard try db.tableExists("messages") else { return [] }
 
-            // Recipients (to + cc) aggregated per message, so the main query stays
-            // one row per message.
+            // Resolve the lookup tables as side dictionaries rather than joining
+            // them into the main query — so a renamed/absent lookup table can't
+            // make the whole query throw and silently return zero messages. The
+            // message rows depend only on the `messages` table.
+            func lookup(_ table: String, key: String, value: String) -> [Int64: String] {
+                guard (try? db.tableExists(table)) == true else { return [:] }
+                var out: [Int64: String] = [:]
+                for r in (try? Row.fetchAll(db, sql: "SELECT ROWID AS rid, \(key) AS k, \(value) AS v FROM \(table)")) ?? [] {
+                    if let rid: Int64 = r["rid"], let v: String = r["v"], !v.isEmpty { out[rid] = v }
+                }
+                return out
+            }
+            let subjectByID = lookup("subjects", key: "ROWID", value: "subject")
+            let addressByID = lookup("addresses", key: "ROWID", value: "address")
+            let commentByID = lookup("addresses", key: "ROWID", value: "comment")
+            let mailboxByID = lookup("mailboxes", key: "ROWID", value: "url")
+
+            // Recipients (to + cc) aggregated per message.
             var recipientsByMsg: [Int64: String] = [:]
             if (try? db.tableExists("recipients")) == true, (try? db.tableExists("addresses")) == true {
-                let rrows = (try? Row.fetchAll(db, sql: """
+                for r in (try? Row.fetchAll(db, sql: """
                     SELECT r.message_key AS mk, GROUP_CONCAT(a.address, ', ') AS addrs
                     FROM recipients r LEFT JOIN addresses a ON a.ROWID = r.address_id
                     GROUP BY r.message_key
-                    """)) ?? []
-                for r in rrows {
+                    """)) ?? [] {
                     if let mk: Int64 = r["mk"], let addrs: String = r["addrs"], !addrs.isEmpty {
                         recipientsByMsg[mk] = addrs
                     }
@@ -69,26 +84,22 @@ public nonisolated struct MailParser: Sendable {
             }
 
             let rows = (try? Row.fetchAll(db, sql: """
-                SELECT m.ROWID AS rowid, m.date_sent AS date_sent, m.date_received AS date_received,
-                       s.subject AS subject, sa.address AS sender_addr, sa.comment AS sender_name,
-                       mb.url AS mailbox
-                FROM messages m
-                LEFT JOIN subjects s ON s.ROWID = m.subject
-                LEFT JOIN addresses sa ON sa.ROWID = m.sender
-                LEFT JOIN mailboxes mb ON mb.ROWID = m.mailbox
-                ORDER BY m.date_received DESC
-                LIMIT \(max(0, limit))
+                SELECT *, ROWID AS strata_rowid FROM messages ORDER BY date_received DESC LIMIT \(max(0, limit))
                 """)) ?? []
 
             return rows.map { r in
-                MailMessageEntry(
-                    subject: nonEmpty(r["subject"]),
-                    sender: nonEmpty(r["sender_addr"]),
-                    senderDisplay: nonEmpty(r["sender_name"]),
-                    recipients: recipientsByMsg[r["rowid"] ?? 0],
+                let rowid: Int64 = r["strata_rowid"] ?? 0
+                let subjectID: Int64? = r["subject"]
+                let senderID: Int64? = r["sender"]
+                let mailboxID: Int64? = r["mailbox"]
+                return MailMessageEntry(
+                    subject: subjectID.flatMap { subjectByID[$0] },
+                    sender: senderID.flatMap { addressByID[$0] },
+                    senderDisplay: senderID.flatMap { commentByID[$0] },
+                    recipients: recipientsByMsg[rowid],
                     dateSent: MailMessageEntry.mailTime(r["date_sent"]),
                     dateReceived: MailMessageEntry.mailTime(r["date_received"]),
-                    mailbox: nonEmpty(r["mailbox"]),
+                    mailbox: mailboxID.flatMap { mailboxByID[$0] },
                     scope: scope, sourceFile: sourceFile)
             }
         }

@@ -53,39 +53,51 @@ public nonisolated struct MessagesParser: Sendable {
         let queue = try DatabaseQueue(path: copy.path)
         return try queue.read { db in
             guard try db.tableExists("message") else { return [] }
-            // SELECT m.* so an older schema missing a column (e.g. attributedBody)
-            // doesn't throw — absent columns read as nil. The handle + chat name
-            // come from the standard joins.
+
+            // Resolve the handle (phone/email) + group-chat name as *side lookups*,
+            // not joins, so a schema quirk in `handle` / `chat` / `chat_message_join`
+            // can't make the whole query throw and silently return nothing — the
+            // message rows depend only on the `message` table.
+            var handleByID: [Int64: String] = [:]
+            if (try? db.tableExists("handle")) == true {
+                for r in (try? Row.fetchAll(db, sql: "SELECT ROWID AS rid, id AS hid FROM handle")) ?? [] {
+                    if let rid: Int64 = r["rid"], let hid: String = r["hid"], !hid.isEmpty { handleByID[rid] = hid }
+                }
+            }
+            var chatByMsg: [Int64: String] = [:]
+            if (try? db.tableExists("chat_message_join")) == true, (try? db.tableExists("chat")) == true {
+                for r in (try? Row.fetchAll(db, sql: """
+                    SELECT cmj.message_id AS mid, c.display_name AS cname
+                    FROM chat_message_join cmj LEFT JOIN chat c ON c.ROWID = cmj.chat_id
+                    """)) ?? [] {
+                    if let mid: Int64 = r["mid"], let cname: String = r["cname"], !cname.isEmpty,
+                       chatByMsg[mid] == nil { chatByMsg[mid] = cname }
+                }
+            }
+
+            // SELECT * so an older schema missing a column reads as nil rather than
+            // throwing; the explicit ROWID alias survives `SELECT *` either way.
             let rows = (try? Row.fetchAll(db, sql: """
-                SELECT m.*, h.id AS strata_handle, c.display_name AS strata_chat
-                FROM message m
-                LEFT JOIN handle h ON h.ROWID = m.handle_id
-                LEFT JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
-                LEFT JOIN chat c ON c.ROWID = cmj.chat_id
-                ORDER BY m.date DESC
-                LIMIT \(max(0, limit))
+                SELECT *, ROWID AS strata_rowid FROM message ORDER BY date DESC LIMIT \(max(0, limit))
                 """)) ?? []
 
             var out: [MessageEntry] = []
-            var seen = Set<String>()
+            out.reserveCapacity(rows.count)
             for r in rows {
-                let guid: String? = r["guid"]
-                // A message in several chats yields duplicate join rows — dedupe.
-                if let g = guid, !seen.insert(g).inserted { continue }
                 var text: String? = nonEmpty(r["text"])
                 if text == nil, let body: Data = r["attributedBody"] {
                     text = attributedBodyText(body)
                 }
-                let hasAttach = (r["cache_has_attachments"] as Int64?).map { $0 != 0 } ?? false
+                let handleID: Int64? = r["handle_id"]
                 out.append(MessageEntry(
-                    guid: guid,
+                    guid: r["guid"],
                     service: nonEmpty(r["service"]),
-                    handle: nonEmpty(r["strata_handle"]),
+                    handle: handleID.flatMap { handleByID[$0] },
                     isFromMe: (r["is_from_me"] as Int64?).map { $0 != 0 } ?? false,
                     text: text,
                     timestamp: MessageEntry.appleTime(r["date"]),
-                    hasAttachment: hasAttach,
-                    chatName: nonEmpty(r["strata_chat"]),
+                    hasAttachment: (r["cache_has_attachments"] as Int64?).map { $0 != 0 } ?? false,
+                    chatName: chatByMsg[r["strata_rowid"] ?? 0],
                     scope: scope, sourceFile: sourceFile))
             }
             return out
