@@ -148,6 +148,26 @@ builds can backfill newly added data.
   version *content* (the generation blobs) is a follow-up; validated against
   synthetic SQLite.
 
+## Notification Center
+
+- **done.** `NotificationParser` (`StrataMac`, GRDB) reads the Notification Center
+  store (`db2/db` under `…/group.com.apple.usernoted/` or the legacy
+  `…/com.apple.notificationcenter/`): each `record` row is a delivered
+  notification → `MacNotification` (`StrataCore`) with the emitting app's bundle
+  id (resolved from the `app` table as a side lookup, robust to schema drift),
+  delivered date (`CFAbsoluteTime`, Unix fallback by magnitude), and the title /
+  body recovered from the per-record `data` bplist via `BinaryPlist` (searching
+  the `titl` / `body` / `mesg` / `subt` keys across layouts). Forensic value:
+  corroborates app activity (what notified, and when) and can preserve message
+  previews, 2FA codes, or phishing / social-engineering content. Parsed in
+  `AppModel.parseMac()`, cached as `notifications.json`, spliced onto the timeline
+  (`TimelineSource.notifications`, `.changed`), surfaced in a **Notifications**
+  tab. Context-only (no detection rule — like the other content-recovery
+  artifacts). Covered by `StrataTests/MacNotificationTests.swift`. **Known
+  limits:** the `data` bplist layout varies by macOS version (key search is
+  lenient but may miss exotic schemas); attachment / image payloads not recovered;
+  validated against synthetic SQLite.
+
 ## Recovery
 
 - **Signature carving (deleted / sealed / encrypted recovery).** `FileCarver`
