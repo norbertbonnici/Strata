@@ -67,7 +67,19 @@ builds can backfill newly added data.
   spliced onto the timeline (`TimelineSource.messages`), surfaced in a
   **Messages** tab. `MacMessagesAnalyzer` flags suspicious links — T1566.002
   (received / spearphishing link) vs T1204.001 (sent). Covered by
-  `StrataTests/MessagesTests.swift`. **Mail is not yet parsed.**
+  `StrataTests/MessagesTests.swift`.
+- **Mail — done.** `MailParser` (`StrataMac`) reads the Mail `Envelope Index`
+  SQLite DB (`~/Library/Mail/V*/MailData/Envelope Index`) via GRDB (same
+  copy-to-scratch + WAL path), joining `messages` → `subjects`/`addresses`/
+  `mailboxes` for sender/subject/mailbox and aggregating `recipients`.
+  `MailMessageEntry` (`StrataCore`, Unix-epoch dates). `AppModel.parseMail()`
+  (in `runAllParsers` + post-FileVault), cached as `mail.json`, spliced onto the
+  timeline (`TimelineSource.mail`), surfaced in a **Mail** tab. `MacMailAnalyzer`
+  conservatively flags inbound mail with a raw-IP sender or a suspicious link in
+  the subject (T1566.002). Covered by `StrataTests/MailTests.swift`. **Known
+  limits:** message bodies + attachments (`.emlx`) aren't parsed; validated
+  against the modern Envelope Index schema (Mail V5+) — older layouts degrade to
+  an empty result.
 
 ## Kernel & System Extensions
 

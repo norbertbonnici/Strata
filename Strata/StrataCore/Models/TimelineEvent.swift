@@ -49,6 +49,7 @@ public enum TimelineSource: String, CaseIterable, Sendable, Codable {
     case macRecent  = "MREC"
     case macSecurity = "MSEC"
     case messages   = "MSG"
+    case mail       = "MAIL"
 
     public nonisolated var label: String {
         switch self {
@@ -79,6 +80,7 @@ public enum TimelineSource: String, CaseIterable, Sendable, Codable {
         case .macRecent:  return "macOS Recent Items"
         case .macSecurity: return "macOS Security"
         case .messages:   return "Messages"
+        case .mail:       return "Mail"
         }
     }
 }

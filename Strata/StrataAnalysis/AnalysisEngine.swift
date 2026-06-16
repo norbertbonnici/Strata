@@ -78,5 +78,6 @@ public nonisolated struct AnalysisEngine: Sendable {
         MacKextAnalyzer(),
         MacBackgroundItemAnalyzer(),
         MacMessagesAnalyzer(),
+        MacMailAnalyzer(),
     ]
 }

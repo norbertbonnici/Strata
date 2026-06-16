@@ -52,6 +52,7 @@ public nonisolated enum CaseStore {
     private static let kextsFilename = "kexts.json"
     private static let backgroundItemsFilename = "backgrounditems.json"
     private static let messagesFilename = "messages.json"
+    private static let mailFilename = "mail.json"
     private static let macSecurityFilename = "macsecurity.json"
     private static let auditFilename      = "audit.json"
     private static let syslogFilename     = "syslog.json"
@@ -633,6 +634,18 @@ public nonisolated enum CaseStore {
     }
     public static func messagesScratchDirectory(forHostID id: UUID, in bundle: URL) -> URL {
         hostDirectory(forHostID: id, in: bundle).appendingPathComponent("messages", isDirectory: true)
+    }
+
+    public static func readMail(forHostID id: UUID, in bundle: URL) throws -> [MailMessageEntry]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(mailFilename))
+    }
+    public static func writeMail(_ mail: [MailMessageEntry], forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(mail, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(mailFilename))
+    }
+    public static func mailScratchDirectory(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle).appendingPathComponent("mail", isDirectory: true)
     }
 
     public static func readAudit(forHostID id: UUID, in bundle: URL) throws -> [AuditEvent]? {
