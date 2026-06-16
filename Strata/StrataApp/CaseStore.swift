@@ -50,6 +50,7 @@ public nonisolated enum CaseStore {
     private static let macRecentItemsFilename = "macrecentitems.json"
     private static let carvedFilename = "carved.json"
     private static let kextsFilename = "kexts.json"
+    private static let backgroundItemsFilename = "backgrounditems.json"
     private static let macSecurityFilename = "macsecurity.json"
     private static let auditFilename      = "audit.json"
     private static let syslogFilename     = "syslog.json"
@@ -610,6 +611,15 @@ public nonisolated enum CaseStore {
     public static func writeKexts(_ kexts: [MacKextEntry], forHostID id: UUID, in bundle: URL) throws {
         try writeArray(kexts, at: hostDirectory(forHostID: id, in: bundle)
             .appendingPathComponent(kextsFilename))
+    }
+
+    public static func readBackgroundItems(forHostID id: UUID, in bundle: URL) throws -> [MacBackgroundItem]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(backgroundItemsFilename))
+    }
+    public static func writeBackgroundItems(_ items: [MacBackgroundItem], forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(items, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(backgroundItemsFilename))
     }
 
     public static func readAudit(forHostID id: UUID, in bundle: URL) throws -> [AuditEvent]? {

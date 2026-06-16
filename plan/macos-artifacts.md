@@ -39,6 +39,17 @@ builds can backfill newly added data.
 4. Login / Background Items
    - Parse modern background-task-management and login-item stores.
    - Keep this separate from launchd so persistence views can distinguish user-approved background items from daemon plists.
+   - Status: **done.** `BTMParser` (`StrataMac`) decodes the `*.btm` Background Task
+     Management store. The `.btm` is an NSKeyedArchiver graph, so `StrataCore/
+     BinaryPlist` (a pure, UID-aware `bplist00` reader) decodes it and the parser
+     walks the object table leniently by ivar name → `MacBackgroundItem` (name /
+     executable / bundle id / developer / team / type / disposition). Discovered/
+     parsed in `AppModel.parseMac()`, cached as `backgrounditems.json`, surfaced in
+     a **Background Items** tab (third-party-only filter). `MacBackgroundItemAnalyzer`
+     flags non-Apple items — T1547.015, **high** when the executable is in a staging
+     path. No timeline (no per-item timestamp). Covered by `StrataTests/BTMTests.swift`
+     + `BinaryPlistTests.swift`. **Lenient/heuristic** (Apple-private classes vary by
+     release); validate field recovery against a real `.btm`.
 
 5. Network / Device Context
    - Known Wi-Fi networks, DHCP leases, Bluetooth devices, USB/iOS pairings, and Time Machine destinations.

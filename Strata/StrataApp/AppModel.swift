@@ -55,6 +55,7 @@ nonisolated struct EvidenceState: Sendable {
     // Files recovered by raw-image signature carving (no filesystem, no times).
     var carvedFiles: [CarvedFile] = []
     var kexts: [MacKextEntry] = []
+    var backgroundItems: [MacBackgroundItem] = []
     // macOS host identity (empty on non-macOS evidence).
     var macInfo: MacHostInfo?
     var findings: [Finding] = []
@@ -545,6 +546,7 @@ final class AppModel: ObservableObject {
             var macSecurityEvents: [MacSecurityEvent] = []
             var carvedFiles: [CarvedFile] = []
             var kexts: [MacKextEntry] = []
+            var backgroundItems: [MacBackgroundItem] = []
             var macInfo: MacHostInfo?
             var authLog: [AuthLogEntry] = []
             var logins: [UtmpRecord] = []
@@ -584,6 +586,7 @@ final class AppModel: ObservableObject {
                 { macSecurityEvents = (try? CaseStore.readMacSecurityEvents(forHostID: id, in: bundleURL)) ?? [] },
                 { carvedFiles = (try? CaseStore.readCarved(forHostID: id, in: bundleURL)) ?? [] },
                 { kexts = (try? CaseStore.readKexts(forHostID: id, in: bundleURL)) ?? [] },
+                { backgroundItems = (try? CaseStore.readBackgroundItems(forHostID: id, in: bundleURL)) ?? [] },
                 { macInfo = try? CaseStore.readMacInfo(forHostID: id, in: bundleURL) },
                 { authLog = (try? CaseStore.readAuthLog(forHostID: id, in: bundleURL)) ?? [] },
                 { logins = (try? CaseStore.readLogins(forHostID: id, in: bundleURL)) ?? [] },
@@ -631,6 +634,7 @@ final class AppModel: ObservableObject {
             state.macSecurityEvents = macSecurityEvents
             state.carvedFiles = carvedFiles
             state.kexts = kexts
+            state.backgroundItems = backgroundItems
             state.macInfo = macInfo
             state.authLog = authLog
             state.logins = logins
@@ -1228,6 +1232,7 @@ final class AppModel: ObservableObject {
         var macSecurityEvents: [MacSecurityEvent] = []
         var carvedFiles: [CarvedFile] = []
         var kexts: [MacKextEntry] = []
+        var backgroundItems: [MacBackgroundItem] = []
         var iocMatches: [IOCMatch] = []
     }
     private var derivedCache: Derived?
@@ -1306,6 +1311,7 @@ final class AppModel: ObservableObject {
             d.macSecurityEvents = s.macSecurityEvents
             d.carvedFiles = s.carvedFiles
             d.kexts = s.kexts
+            d.backgroundItems = s.backgroundItems
             d.iocMatches = s.iocMatches
             return d
         }
@@ -1349,6 +1355,7 @@ final class AppModel: ObservableObject {
             d.macSecurityEvents.append(contentsOf: s.macSecurityEvents)
             d.carvedFiles.append(contentsOf: s.carvedFiles)
             d.kexts.append(contentsOf: s.kexts)
+            d.backgroundItems.append(contentsOf: s.backgroundItems)
             d.iocMatches.append(contentsOf: s.iocMatches)
         }
         d.events.sort { $0.writtenAt < $1.writtenAt }
@@ -1441,6 +1448,7 @@ final class AppModel: ObservableObject {
     var macSecurityEvents: [MacSecurityEvent] { derived().macSecurityEvents }
     var carvedFiles: [CarvedFile] { derived().carvedFiles }
     var kexts: [MacKextEntry] { derived().kexts }
+    var backgroundItems: [MacBackgroundItem] { derived().backgroundItems }
     /// Linux host info for the active scope (tiny; not worth caching). In the
     /// combined scope the first host that has one wins.
     var linuxInfo: LinuxHostInfo? {
@@ -1498,6 +1506,7 @@ final class AppModel: ObservableObject {
     var macSecurityEventCount: Int { scopedCount(\.macSecurityEvents.count) }
     var carvedFileCount: Int { scopedCount(\.carvedFiles.count) }
     var kextCount: Int { scopedCount(\.kexts.count) }
+    var backgroundItemCount: Int { scopedCount(\.backgroundItems.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
     /// True once the Linux log parse has produced *something* in the active
@@ -3661,6 +3670,13 @@ final class AppModel: ObservableObject {
                     && (lower.contains("/library/extensions/") || lower.contains("/system/library/extensions/"))
             }
         }
+        // Background Task Management store (login items / agents / daemons).
+        func btmFiles(_ s: EvidenceState) -> [FileEntry] {
+            s.files.filter { entry in
+                guard !entry.isDirectory, entry.size > 0 else { return false }
+                return entry.name.lowercased().hasSuffix(".btm")
+            }
+        }
         // The owning scope for a macOS db path: "system" unless it lives under a
         // user home, in which case the user's name.
         func macScope(_ path: String) -> String {
@@ -3684,6 +3700,7 @@ final class AppModel: ObservableObject {
                 + (s.macRecentItems.isEmpty ? recentItemFiles(s).count : 0)
                 + (s.macSecurityEvents.isEmpty ? securityEventFiles(s).count : 0)
                 + (s.kexts.isEmpty ? kextFiles(s).count : 0)
+                + (s.backgroundItems.isEmpty ? btmFiles(s).count : 0)
         }
         guard total > 0 else { statusMessage = "No new macOS artifacts to parse."; return }
         progress = ProgressInfo(current: 0, total: total, label: "Parsing macOS artifacts")
@@ -3703,10 +3720,11 @@ final class AppModel: ObservableObject {
                 let foundRecent = state.macRecentItems.isEmpty ? recentItemFiles(state) : []
                 let foundSecurity = state.macSecurityEvents.isEmpty ? securityEventFiles(state) : []
                 let foundKexts = state.kexts.isEmpty ? kextFiles(state) : []
+                let foundBTM = state.backgroundItems.isEmpty ? btmFiles(state) : []
                 guard !foundPlists.isEmpty || !foundQuar.isEmpty || !foundInfo.isEmpty
                     || !foundPersist.isEmpty || !foundFSE.isEmpty || !foundShell.isEmpty
                     || !foundTCC.isEmpty || !foundKnowledge.isEmpty || !foundRecent.isEmpty
-                    || !foundSecurity.isEmpty || !foundKexts.isEmpty else { continue }
+                    || !foundSecurity.isEmpty || !foundKexts.isEmpty || !foundBTM.isEmpty else { continue }
                 let isLoose = evidence.kind == .kapeLooseFolder
                 let isAPFS = evidence.kind == .apfs
                 var database: TSKDatabase?
@@ -3901,6 +3919,17 @@ final class AppModel: ObservableObject {
                 }
                 kexts.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
 
+                // Background Task Management (login items / agents / daemons).
+                var backgroundItems: [MacBackgroundItem] = []
+                for entry in foundBTM {
+                    progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    guard let url = await extract(entry), let data = try? Data(contentsOf: url) else { continue }
+                    backgroundItems.append(contentsOf: BTMParser.parse(
+                        data: data, sourceFile: entry.fullPath, scope: macScope(entry.fullPath)))
+                }
+                backgroundItems.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+
                 if !foundPlists.isEmpty { state.launchItems = launch }
                 if !foundQuar.isEmpty { state.quarantine = quar }
                 if !foundPersist.isEmpty { state.macPersistence = persist }
@@ -3910,6 +3939,7 @@ final class AppModel: ObservableObject {
                 if !foundRecent.isEmpty { state.macRecentItems = recentItems }
                 if !foundSecurity.isEmpty { state.macSecurityEvents = securityEvents }
                 if !foundKexts.isEmpty { state.kexts = kexts }
+                if !foundBTM.isEmpty { state.backgroundItems = backgroundItems }
                 if !macShell.isEmpty { state.shellHistory.append(contentsOf: macShell) }
                 if !foundInfo.isEmpty { state.macInfo = info.isEmpty ? nil : info }
                 if !tcc.isEmpty || !knowledge.isEmpty || !recentItems.isEmpty || !securityEvents.isEmpty {
@@ -3947,6 +3977,9 @@ final class AppModel: ObservableObject {
                     }
                     if !foundKexts.isEmpty {
                         try? CaseStore.writeKexts(kexts, forHostID: evidence.id, in: bundleURL)
+                    }
+                    if !foundBTM.isEmpty {
+                        try? CaseStore.writeBackgroundItems(backgroundItems, forHostID: evidence.id, in: bundleURL)
                     }
                     if !macShell.isEmpty {
                         try? CaseStore.writeShellHistory(state.shellHistory, forHostID: evidence.id, in: bundleURL)
@@ -4803,7 +4836,8 @@ final class AppModel: ObservableObject {
                                           knowledgeC: state.knowledgeC,
                                           macRecentItems: state.macRecentItems,
                                           macSecurityEvents: state.macSecurityEvents,
-                                          kexts: state.kexts)
+                                          kexts: state.kexts,
+                                          backgroundItems: state.backgroundItems)
             let results = await analysisEngine.run(on: context)
             state.findings = results
             states[evidence.id] = state
