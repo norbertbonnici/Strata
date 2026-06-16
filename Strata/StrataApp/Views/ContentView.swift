@@ -43,6 +43,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case backgroundItems = "Background Items"
     case messages = "Messages"
     case mail = "Mail"
+    case network = "Network & Devices"
     case lateral = "Lateral"
     case killChain = "Kill Chain"
     case iocs = "IOCs"
@@ -95,6 +96,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .backgroundItems: return "person.badge.clock"
         case .messages: return "message"
         case .mail: return "envelope"
+        case .network: return "wifi"
         case .lateral:   return "point.3.connected.trianglepath.dotted"
         case .killChain: return "link"
         case .iocs:      return "scope"
@@ -117,7 +119,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .linuxLogs, .shellHistory, .linuxPersistence, .linuxAccess, .webLogs,
              .packages, .journald, .audit, .syslog, .lastlog:
             return .linux
-        case .launchItems, .quarantine, .macPersistence, .fsEvents, .unifiedLog, .tcc, .knowledgeC, .macRecentItems, .macSecurity, .carvedFiles, .kexts, .backgroundItems, .messages, .mail:
+        case .launchItems, .quarantine, .macPersistence, .fsEvents, .unifiedLog, .tcc, .knowledgeC, .macRecentItems, .macSecurity, .carvedFiles, .kexts, .backgroundItems, .messages, .mail, .network:
             return .macos
         case .overview, .search, .evidence, .timeline, .browser, .lateral,
              .killChain, .iocs, .annotations, .designUI, .activity, .custody:
@@ -265,6 +267,7 @@ struct ContentView: View {
                 case .backgroundItems: MacBackgroundItemsView()
                 case .messages: MessagesView()
                 case .mail: MailView()
+                case .network: MacNetworkView()
                 case .lateral:   LateralMovementView()
                 case .killChain: KillChainView()
                 case .iocs:      IOCView()

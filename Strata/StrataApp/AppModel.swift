@@ -58,6 +58,7 @@ nonisolated struct EvidenceState: Sendable {
     var backgroundItems: [MacBackgroundItem] = []
     var messages: [MessageEntry] = []
     var mail: [MailMessageEntry] = []
+    var network: [MacNetworkItem] = []
     // macOS host identity (empty on non-macOS evidence).
     var macInfo: MacHostInfo?
     var findings: [Finding] = []
@@ -558,6 +559,7 @@ final class AppModel: ObservableObject {
             var backgroundItems: [MacBackgroundItem] = []
             var messages: [MessageEntry] = []
             var mail: [MailMessageEntry] = []
+            var network: [MacNetworkItem] = []
             var macInfo: MacHostInfo?
             var authLog: [AuthLogEntry] = []
             var logins: [UtmpRecord] = []
@@ -600,6 +602,7 @@ final class AppModel: ObservableObject {
                 { backgroundItems = (try? CaseStore.readBackgroundItems(forHostID: id, in: bundleURL)) ?? [] },
                 { messages = (try? CaseStore.readMessages(forHostID: id, in: bundleURL)) ?? [] },
                 { mail = (try? CaseStore.readMail(forHostID: id, in: bundleURL)) ?? [] },
+                { network = (try? CaseStore.readNetwork(forHostID: id, in: bundleURL)) ?? [] },
                 { macInfo = try? CaseStore.readMacInfo(forHostID: id, in: bundleURL) },
                 { authLog = (try? CaseStore.readAuthLog(forHostID: id, in: bundleURL)) ?? [] },
                 { logins = (try? CaseStore.readLogins(forHostID: id, in: bundleURL)) ?? [] },
@@ -650,6 +653,7 @@ final class AppModel: ObservableObject {
             state.backgroundItems = backgroundItems
             state.messages = messages
             state.mail = mail
+            state.network = network
             state.macInfo = macInfo
             state.authLog = authLog
             state.logins = logins
@@ -686,6 +690,7 @@ final class AppModel: ObservableObject {
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.browserHistory))
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.messages))
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.mail))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.network))
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.unifiedLog))
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.tcc))
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.knowledgeC))
@@ -1252,6 +1257,7 @@ final class AppModel: ObservableObject {
         var backgroundItems: [MacBackgroundItem] = []
         var messages: [MessageEntry] = []
         var mail: [MailMessageEntry] = []
+        var network: [MacNetworkItem] = []
         var iocMatches: [IOCMatch] = []
     }
     private var derivedCache: Derived?
@@ -1333,6 +1339,7 @@ final class AppModel: ObservableObject {
             d.backgroundItems = s.backgroundItems
             d.messages = s.messages
             d.mail = s.mail
+            d.network = s.network
             d.iocMatches = s.iocMatches
             return d
         }
@@ -1379,6 +1386,7 @@ final class AppModel: ObservableObject {
             d.backgroundItems.append(contentsOf: s.backgroundItems)
             d.messages.append(contentsOf: s.messages)
             d.mail.append(contentsOf: s.mail)
+            d.network.append(contentsOf: s.network)
             d.iocMatches.append(contentsOf: s.iocMatches)
         }
         d.events.sort { $0.writtenAt < $1.writtenAt }
@@ -1474,6 +1482,7 @@ final class AppModel: ObservableObject {
     var backgroundItems: [MacBackgroundItem] { derived().backgroundItems }
     var messages: [MessageEntry] { derived().messages }
     var mail: [MailMessageEntry] { derived().mail }
+    var network: [MacNetworkItem] { derived().network }
     /// Linux host info for the active scope (tiny; not worth caching). In the
     /// combined scope the first host that has one wins.
     var linuxInfo: LinuxHostInfo? {
@@ -1534,6 +1543,7 @@ final class AppModel: ObservableObject {
     var backgroundItemCount: Int { scopedCount(\.backgroundItems.count) }
     var messageCount: Int { scopedCount(\.messages.count) }
     var mailCount: Int { scopedCount(\.mail.count) }
+    var networkCount: Int { scopedCount(\.network.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
     /// True once the Linux log parse has produced *something* in the active
@@ -1584,6 +1594,7 @@ final class AppModel: ObservableObject {
         if browserHistoryCount > 0 { s.insert(.browser) }
         if messageCount > 0 { s.insert(.messages) }
         if mailCount > 0 { s.insert(.mail) }
+        if networkCount > 0 { s.insert(.network) }
         if srumCount > 0 { s.insert(.srum) }
         if s.isEmpty { s.insert(eventCount > 0 ? .evtx : .filesystem) }
         return s
@@ -4039,6 +4050,20 @@ final class AppModel: ObservableObject {
                 return entry.name.lowercased().hasSuffix(".btm")
             }
         }
+        // Network / device context plists: Wi-Fi known networks, DHCP leases,
+        // Bluetooth, Time Machine, and lockdown (iOS) pairing records.
+        func networkFiles(_ s: EvidenceState) -> [FileEntry] {
+            s.files.filter { entry in
+                guard !entry.isDirectory, entry.size > 0 else { return false }
+                let lower = entry.fullPath.lowercased()
+                let name = entry.name.lowercased()
+                if name == "com.apple.airport.preferences.plist" || name == "com.apple.wifi.known-networks.plist"
+                    || name == "com.apple.bluetooth.plist" || name == "com.apple.timemachine.plist" { return true }
+                if lower.contains("/dhcpclient/leases/") { return true }
+                if lower.contains("/var/db/lockdown/") && name.hasSuffix(".plist") { return true }
+                return false
+            }
+        }
         // The owning scope for a macOS db path: "system" unless it lives under a
         // user home, in which case the user's name.
         func macScope(_ path: String) -> String {
@@ -4063,6 +4088,7 @@ final class AppModel: ObservableObject {
                 + (s.macSecurityEvents.isEmpty ? securityEventFiles(s).count : 0)
                 + (s.kexts.isEmpty ? kextFiles(s).count : 0)
                 + (s.backgroundItems.isEmpty ? btmFiles(s).count : 0)
+                + (s.network.isEmpty ? networkFiles(s).count : 0)
         }
         guard total > 0 else { statusMessage = "No new macOS artifacts to parse."; return }
         progress = ProgressInfo(current: 0, total: total, label: "Parsing macOS artifacts")
@@ -4083,10 +4109,12 @@ final class AppModel: ObservableObject {
                 let foundSecurity = state.macSecurityEvents.isEmpty ? securityEventFiles(state) : []
                 let foundKexts = state.kexts.isEmpty ? kextFiles(state) : []
                 let foundBTM = state.backgroundItems.isEmpty ? btmFiles(state) : []
+                let foundNetwork = state.network.isEmpty ? networkFiles(state) : []
                 guard !foundPlists.isEmpty || !foundQuar.isEmpty || !foundInfo.isEmpty
                     || !foundPersist.isEmpty || !foundFSE.isEmpty || !foundShell.isEmpty
                     || !foundTCC.isEmpty || !foundKnowledge.isEmpty || !foundRecent.isEmpty
-                    || !foundSecurity.isEmpty || !foundKexts.isEmpty || !foundBTM.isEmpty else { continue }
+                    || !foundSecurity.isEmpty || !foundKexts.isEmpty || !foundBTM.isEmpty
+                    || !foundNetwork.isEmpty else { continue }
                 let isLoose = evidence.kind == .kapeLooseFolder
                 let isAPFS = evidence.kind == .apfs
                 var database: TSKDatabase?
@@ -4292,6 +4320,16 @@ final class AppModel: ObservableObject {
                 }
                 backgroundItems.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
 
+                // Network / device context (Wi-Fi / DHCP / Bluetooth / Time Machine / pairings).
+                var network: [MacNetworkItem] = []
+                for entry in foundNetwork {
+                    progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    guard let url = await extract(entry), let data = try? Data(contentsOf: url) else { continue }
+                    network.append(contentsOf: MacNetworkParser.parse(
+                        data: data, sourceFile: entry.fullPath, scope: macScope(entry.fullPath)))
+                }
+
                 if !foundPlists.isEmpty { state.launchItems = launch }
                 if !foundQuar.isEmpty { state.quarantine = quar }
                 if !foundPersist.isEmpty { state.macPersistence = persist }
@@ -4302,13 +4340,16 @@ final class AppModel: ObservableObject {
                 if !foundSecurity.isEmpty { state.macSecurityEvents = securityEvents }
                 if !foundKexts.isEmpty { state.kexts = kexts }
                 if !foundBTM.isEmpty { state.backgroundItems = backgroundItems }
+                if !foundNetwork.isEmpty { state.network = network }
                 if !macShell.isEmpty { state.shellHistory.append(contentsOf: macShell) }
                 if !foundInfo.isEmpty { state.macInfo = info.isEmpty ? nil : info }
-                if !tcc.isEmpty || !knowledge.isEmpty || !recentItems.isEmpty || !securityEvents.isEmpty {
+                if !tcc.isEmpty || !knowledge.isEmpty || !recentItems.isEmpty || !securityEvents.isEmpty
+                    || !network.isEmpty {
                     state.timeline.append(contentsOf: TimelineBuilder.build(from: tcc))
                     state.timeline.append(contentsOf: TimelineBuilder.build(from: knowledge))
                     state.timeline.append(contentsOf: TimelineBuilder.build(from: recentItems))
                     state.timeline.append(contentsOf: TimelineBuilder.build(from: securityEvents))
+                    state.timeline.append(contentsOf: TimelineBuilder.build(from: network))
                     state.timeline.sort { $0.date < $1.date }
                 }
                 states[evidence.id] = state
@@ -4342,6 +4383,9 @@ final class AppModel: ObservableObject {
                     }
                     if !foundBTM.isEmpty {
                         try? CaseStore.writeBackgroundItems(backgroundItems, forHostID: evidence.id, in: bundleURL)
+                    }
+                    if !foundNetwork.isEmpty {
+                        try? CaseStore.writeNetwork(network, forHostID: evidence.id, in: bundleURL)
                     }
                     if !macShell.isEmpty {
                         try? CaseStore.writeShellHistory(state.shellHistory, forHostID: evidence.id, in: bundleURL)
@@ -5201,7 +5245,8 @@ final class AppModel: ObservableObject {
                                           kexts: state.kexts,
                                           backgroundItems: state.backgroundItems,
                                           messages: state.messages,
-                                          mail: state.mail)
+                                          mail: state.mail,
+                                          network: state.network)
             let results = await analysisEngine.run(on: context)
             state.findings = results
             states[evidence.id] = state

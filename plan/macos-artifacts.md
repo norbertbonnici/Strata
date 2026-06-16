@@ -53,6 +53,24 @@ builds can backfill newly added data.
 
 5. Network / Device Context
    - Known Wi-Fi networks, DHCP leases, Bluetooth devices, USB/iOS pairings, and Time Machine destinations.
+   - **done.** `MacNetworkParser` (`StrataMac`) — one lenient parser over the
+     network/device plists → `MacNetworkItem` (`StrataCore`, a unified
+     kind/name/identifier/timestamp/detail model): known Wi-Fi networks (legacy
+     `com.apple.airport.preferences.plist` `KnownNetworks` + modern
+     `com.apple.wifi.known-networks.plist`), DHCP leases
+     (`/private/var/db/dhcpclient/leases/*`), Bluetooth `DeviceCache`
+     (`com.apple.Bluetooth.plist`), Time Machine `Destinations`
+     (`com.apple.TimeMachine.plist`), and lockdown iOS pairings
+     (`/var/db/lockdown/<UDID>.plist`). Parsed in `AppModel.parseMac()`, cached as
+     `network.json`, timestamped items spliced onto the timeline
+     (`TimelineSource.network`), surfaced in a **Network & Devices** tab.
+     `MacNetworkAnalyzer` flags a Time Machine backup to a network destination
+     (T1074, high on a raw IP). Covered by `StrataTests/MacNetworkTests.swift`.
+     **Known limits:** plist `<date>` values decode directly, numeric dates are
+     guessed CFAbsoluteTime/Unix by magnitude; USB **mass-storage** attachment
+     history has no clean static plist on macOS (it lives in the unified log) —
+     only iOS device pairings are covered here; validated against synthetic
+     plists, not a real host.
 
 ## Messages
 
