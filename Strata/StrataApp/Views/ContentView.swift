@@ -49,6 +49,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case notifications = "Notifications"
     case powerlog = "Powerlog"
     case macConfig = "Configuration"
+    case installHistory = "Installs"
     case lateral = "Lateral"
     case killChain = "Kill Chain"
     case iocs = "IOCs"
@@ -107,6 +108,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .notifications: return "bell.badge"
         case .powerlog:  return "bolt.batteryblock"
         case .macConfig: return "gearshape.2"
+        case .installHistory: return "app.badge.checkmark"
         case .lateral:   return "point.3.connected.trianglepath.dotted"
         case .killChain: return "link"
         case .iocs:      return "scope"
@@ -129,7 +131,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .linuxLogs, .shellHistory, .linuxPersistence, .linuxAccess, .webLogs,
              .packages, .journald, .audit, .syslog, .lastlog:
             return .linux
-        case .launchItems, .quarantine, .macPersistence, .fsEvents, .unifiedLog, .tcc, .knowledgeC, .macRecentItems, .macSecurity, .carvedFiles, .kexts, .backgroundItems, .messages, .mail, .network, .quickLookTrash, .documentVersions, .notifications, .powerlog, .macConfig:
+        case .launchItems, .quarantine, .macPersistence, .fsEvents, .unifiedLog, .tcc, .knowledgeC, .macRecentItems, .macSecurity, .carvedFiles, .kexts, .backgroundItems, .messages, .mail, .network, .quickLookTrash, .documentVersions, .notifications, .powerlog, .macConfig, .installHistory:
             return .macos
         case .overview, .search, .evidence, .timeline, .browser, .lateral,
              .killChain, .iocs, .annotations, .designUI, .activity, .custody:
@@ -283,6 +285,7 @@ struct ContentView: View {
                 case .notifications: MacNotificationsView()
                 case .powerlog: PowerlogView()
                 case .macConfig: MacConfigView()
+                case .installHistory: MacInstallHistoryView()
                 case .lateral:   LateralMovementView()
                 case .killChain: KillChainView()
                 case .iocs:      IOCView()

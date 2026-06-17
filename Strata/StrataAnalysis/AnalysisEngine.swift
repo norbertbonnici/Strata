@@ -83,5 +83,6 @@ public nonisolated struct AnalysisEngine: Sendable {
         MacActivityAnalyzer(),
         PowerlogAnalyzer(),
         MacConfigAnalyzer(),
+        MacInstallAnalyzer(),
     ]
 }

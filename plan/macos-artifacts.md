@@ -248,6 +248,42 @@ builds can backfill newly added data.
   FileVault on/off (derive from the APFS encryption flag, not a pref plist) and
   SIP (NVRAM, not on disk) are out of scope; validated against synthetic plists.
 
+## Software install history
+
+- **done.** `MacInstallHistoryParser` (`StrataMac`, pure, `PropertyListSerialization`)
+  parses the canonical structured install record → `MacInstallEntry`
+  (`StrataCore`): the system install history `/Library/Receipts/InstallHistory.plist`
+  (an **array** of events — displayName / date / displayVersion / processName /
+  packageIdentifiers / contentType) and the PackageKit receipts
+  `/private/var/db/receipts/<id>.plist` (one **dict** each — PackageIdentifier /
+  InstallDate / InstallProcessName / PackageFileName / InstallPrefixPath /
+  PackageVersion). This reconstructs *what* software/OS/profile was installed,
+  *when*, and *by which process* — complementing the verbose `install.log` event
+  stream the MacSecurityParser reads.
+- Install events carry real timestamps, so they **splice the timeline**
+  (`TimelineSource.install`, `.born`) — unlike the static config-posture artifact.
+  Parsed in `AppModel.parseMac()` (self-gating + backfill), cached as
+  `installhistory.json`, surfaced in an **Installs** tab. Ships with
+  `MacInstallAnalyzer` (low-noise, two rules keyed on what the records actually
+  expose): a package whose recorded install *process* is a scripting interpreter
+  / network tool rather than the install daemons (installer / softwareupdated /
+  storedownloadd) — a programmatic install — (T1059, high), and an installed
+  package whose name / bundle id matches a known **offensive tool** (T1588.002) or
+  **RMM / remote-access** product (T1219). Covered by
+  `StrataTests/MacInstallHistoryTests.swift`.
+- **Threat-model lesson (from the adversarial review, verified against real
+  receipts):** install records do **not** capture where a package was *staged
+  from* — `PackageFileName` is a bare basename and `InstallPrefixPath` is the
+  install *destination* (a relative path like `tmp/…`), so a naive "installed from
+  a staging path" rule both misfires and false-positives (legit software installs
+  components under `tmp/`). Package origin/provenance lives in the quarantine
+  store / FSEvents (their own analyzers); the recorded *process* is the install
+  daemon, not the invoking shell. The analyzer is modeled around those realities.
+- **Overlap avoided:** the `install.log` *event stream* + XProtect/MRT stay with
+  MacSecurityParser; this owns the structured install *record*. **Known limits:**
+  receipt `.bom` bills-of-materials aren't parsed (just the `.plist` receipts);
+  validated against synthetic plists.
+
 ## Recovery
 
 - **Signature carving (deleted / sealed / encrypted recovery).** `FileCarver`

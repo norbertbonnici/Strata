@@ -64,6 +64,7 @@ nonisolated struct EvidenceState: Sendable {
     var notifications: [MacNotification] = []
     var powerlog: [PowerlogEntry] = []
     var macConfig: [MacConfigSetting] = []
+    var installHistory: [MacInstallEntry] = []
     // macOS host identity (empty on non-macOS evidence).
     var macInfo: MacHostInfo?
     var findings: [Finding] = []
@@ -570,6 +571,7 @@ final class AppModel: ObservableObject {
             var notifications: [MacNotification] = []
             var powerlog: [PowerlogEntry] = []
             var macConfig: [MacConfigSetting] = []
+            var installHistory: [MacInstallEntry] = []
             var macInfo: MacHostInfo?
             var authLog: [AuthLogEntry] = []
             var logins: [UtmpRecord] = []
@@ -618,6 +620,7 @@ final class AppModel: ObservableObject {
                 { notifications = (try? CaseStore.readNotifications(forHostID: id, in: bundleURL)) ?? [] },
                 { powerlog = (try? CaseStore.readPowerlog(forHostID: id, in: bundleURL)) ?? [] },
                 { macConfig = (try? CaseStore.readMacConfig(forHostID: id, in: bundleURL)) ?? [] },
+                { installHistory = (try? CaseStore.readInstallHistory(forHostID: id, in: bundleURL)) ?? [] },
                 { macInfo = try? CaseStore.readMacInfo(forHostID: id, in: bundleURL) },
                 { authLog = (try? CaseStore.readAuthLog(forHostID: id, in: bundleURL)) ?? [] },
                 { logins = (try? CaseStore.readLogins(forHostID: id, in: bundleURL)) ?? [] },
@@ -674,6 +677,7 @@ final class AppModel: ObservableObject {
             state.notifications = notifications
             state.powerlog = powerlog
             state.macConfig = macConfig
+            state.installHistory = installHistory
             state.macInfo = macInfo
             state.authLog = authLog
             state.logins = logins
@@ -715,6 +719,7 @@ final class AppModel: ObservableObject {
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.documentVersions))
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.notifications))
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.powerlog))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.installHistory))
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.unifiedLog))
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.tcc))
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.knowledgeC))
@@ -1287,6 +1292,7 @@ final class AppModel: ObservableObject {
         var notifications: [MacNotification] = []
         var powerlog: [PowerlogEntry] = []
         var macConfig: [MacConfigSetting] = []
+        var installHistory: [MacInstallEntry] = []
         var iocMatches: [IOCMatch] = []
     }
     private var derivedCache: Derived?
@@ -1374,6 +1380,7 @@ final class AppModel: ObservableObject {
             d.notifications = s.notifications
             d.powerlog = s.powerlog
             d.macConfig = s.macConfig
+            d.installHistory = s.installHistory
             d.iocMatches = s.iocMatches
             return d
         }
@@ -1426,6 +1433,7 @@ final class AppModel: ObservableObject {
             d.notifications.append(contentsOf: s.notifications)
             d.powerlog.append(contentsOf: s.powerlog)
             d.macConfig.append(contentsOf: s.macConfig)
+            d.installHistory.append(contentsOf: s.installHistory)
             d.iocMatches.append(contentsOf: s.iocMatches)
         }
         d.events.sort { $0.writtenAt < $1.writtenAt }
@@ -1527,6 +1535,7 @@ final class AppModel: ObservableObject {
     var notifications: [MacNotification] { derived().notifications }
     var powerlog: [PowerlogEntry] { derived().powerlog }
     var macConfig: [MacConfigSetting] { derived().macConfig }
+    var installHistory: [MacInstallEntry] { derived().installHistory }
     /// Linux host info for the active scope (tiny; not worth caching). In the
     /// combined scope the first host that has one wins.
     var linuxInfo: LinuxHostInfo? {
@@ -1593,6 +1602,7 @@ final class AppModel: ObservableObject {
     var notificationCount: Int { scopedCount(\.notifications.count) }
     var powerlogCount: Int { scopedCount(\.powerlog.count) }
     var macConfigCount: Int { scopedCount(\.macConfig.count) }
+    var installHistoryCount: Int { scopedCount(\.installHistory.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
     /// True once the Linux log parse has produced *something* in the active
@@ -1648,6 +1658,7 @@ final class AppModel: ObservableObject {
         if documentVersionCount > 0 { s.insert(.docRevisions) }
         if notificationCount > 0 { s.insert(.notifications) }
         if powerlogCount > 0 { s.insert(.powerlog) }
+        if installHistoryCount > 0 { s.insert(.install) }
         if srumCount > 0 { s.insert(.srum) }
         if s.isEmpty { s.insert(eventCount > 0 ? .evtx : .filesystem) }
         return s
@@ -4182,6 +4193,16 @@ final class AppModel: ObservableObject {
                 }
             }
         }
+        // Software install history — InstallHistory.plist + PackageKit receipts.
+        func installFiles(_ s: EvidenceState) -> [FileEntry] {
+            s.files.filter { entry in
+                guard !entry.isDirectory, entry.size > 0 else { return false }
+                let lower = entry.fullPath.lowercased()
+                let name = entry.name.lowercased()
+                if name == "installhistory.plist" { return true }
+                return name.hasSuffix(".plist") && lower.contains("/db/receipts/")
+            }
+        }
         // The owning scope for a macOS db path: "system" unless it lives under a
         // user home, in which case the user's name.
         func macScope(_ path: String) -> String {
@@ -4212,6 +4233,7 @@ final class AppModel: ObservableObject {
                 + (s.notifications.isEmpty ? notificationFiles(s).count : 0)
                 + (s.powerlog.isEmpty ? powerlogFiles(s).count : 0)
                 + (s.macConfig.isEmpty ? configFiles(s).count : 0)
+                + (s.installHistory.isEmpty ? installFiles(s).count : 0)
         }
         guard total > 0 else { statusMessage = "No new macOS artifacts to parse."; return }
         progress = ProgressInfo(current: 0, total: total, label: "Parsing macOS artifacts")
@@ -4239,13 +4261,14 @@ final class AppModel: ObservableObject {
                 let foundNotif = state.notifications.isEmpty ? notificationFiles(state) : []
                 let foundPowerlog = state.powerlog.isEmpty ? powerlogFiles(state) : []
                 let foundConfig = state.macConfig.isEmpty ? configFiles(state) : []
+                let foundInstall = state.installHistory.isEmpty ? installFiles(state) : []
                 guard !foundPlists.isEmpty || !foundQuar.isEmpty || !foundInfo.isEmpty
                     || !foundPersist.isEmpty || !foundFSE.isEmpty || !foundShell.isEmpty
                     || !foundTCC.isEmpty || !foundKnowledge.isEmpty || !foundRecent.isEmpty
                     || !foundSecurity.isEmpty || !foundKexts.isEmpty || !foundBTM.isEmpty
                     || !foundNetwork.isEmpty || !foundQuickLook.isEmpty || !foundTrash.isEmpty
                     || !foundDocRev.isEmpty || !foundNotif.isEmpty || !foundPowerlog.isEmpty
-                    || !foundConfig.isEmpty else { continue }
+                    || !foundConfig.isEmpty || !foundInstall.isEmpty else { continue }
                 let isLoose = evidence.kind == .kapeLooseFolder
                 let isAPFS = evidence.kind == .apfs
                 var database: TSKDatabase?
@@ -4521,6 +4544,16 @@ final class AppModel: ObservableObject {
                         data, sourceFile: entry.fullPath, scope: macScope(entry.fullPath)))
                 }
 
+                // Software install history (pure parser).
+                var installHistory: [MacInstallEntry] = []
+                for entry in foundInstall {
+                    progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    guard let url = await extract(entry), let data = try? Data(contentsOf: url) else { continue }
+                    installHistory.append(contentsOf: MacInstallHistoryParser.parse(
+                        data, sourceFile: entry.fullPath, scope: macScope(entry.fullPath)))
+                }
+
                 if !foundPlists.isEmpty { state.launchItems = launch }
                 if !foundQuar.isEmpty { state.quarantine = quar }
                 if !foundPersist.isEmpty { state.macPersistence = persist }
@@ -4537,11 +4570,12 @@ final class AppModel: ObservableObject {
                 if !foundNotif.isEmpty { state.notifications = notifications }
                 if !foundPowerlog.isEmpty { state.powerlog = powerlog }
                 if !foundConfig.isEmpty { state.macConfig = macConfig }
+                if !foundInstall.isEmpty { state.installHistory = installHistory }
                 if !macShell.isEmpty { state.shellHistory.append(contentsOf: macShell) }
                 if !foundInfo.isEmpty { state.macInfo = info.isEmpty ? nil : info }
                 if !tcc.isEmpty || !knowledge.isEmpty || !recentItems.isEmpty || !securityEvents.isEmpty
                     || !network.isEmpty || !userActivity.isEmpty || !documentVersions.isEmpty
-                    || !notifications.isEmpty || !powerlog.isEmpty {
+                    || !notifications.isEmpty || !powerlog.isEmpty || !installHistory.isEmpty {
                     state.timeline.append(contentsOf: TimelineBuilder.build(from: tcc))
                     state.timeline.append(contentsOf: TimelineBuilder.build(from: knowledge))
                     state.timeline.append(contentsOf: TimelineBuilder.build(from: recentItems))
@@ -4551,6 +4585,7 @@ final class AppModel: ObservableObject {
                     state.timeline.append(contentsOf: TimelineBuilder.build(from: documentVersions))
                     state.timeline.append(contentsOf: TimelineBuilder.build(from: notifications))
                     state.timeline.append(contentsOf: TimelineBuilder.build(from: powerlog))
+                    state.timeline.append(contentsOf: TimelineBuilder.build(from: installHistory))
                     state.timeline.sort { $0.date < $1.date }
                 }
                 states[evidence.id] = state
@@ -4602,6 +4637,9 @@ final class AppModel: ObservableObject {
                     }
                     if !foundConfig.isEmpty {
                         try? CaseStore.writeMacConfig(macConfig, forHostID: evidence.id, in: bundleURL)
+                    }
+                    if !foundInstall.isEmpty {
+                        try? CaseStore.writeInstallHistory(installHistory, forHostID: evidence.id, in: bundleURL)
                     }
                     if !macShell.isEmpty {
                         try? CaseStore.writeShellHistory(state.shellHistory, forHostID: evidence.id, in: bundleURL)
@@ -5465,7 +5503,8 @@ final class AppModel: ObservableObject {
                                           network: state.network,
                                           userActivity: state.userActivity,
                                           powerlog: state.powerlog,
-                                          config: state.macConfig)
+                                          config: state.macConfig,
+                                          installHistory: state.installHistory)
             let results = await analysisEngine.run(on: context)
             state.findings = results
             states[evidence.id] = state
