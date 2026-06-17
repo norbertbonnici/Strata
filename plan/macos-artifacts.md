@@ -206,6 +206,48 @@ builds can backfill newly added data.
   table is capped at the most-recent N rows; validated against synthetic SQLite —
   real-image end-to-end pending.
 
+## System Preferences / configuration posture
+
+- **done.** `MacConfigParser` (`StrataMac`, pure, `PropertyListSerialization`)
+  parses the curated set of **security-posture** preference files no other parser
+  reads → `MacConfigSetting` (`StrataCore`). This is the static *capability* half
+  (what's configured) complementing the event artifacts (unified log / auth) that
+  show a control was *used*. Domains: firewall (`com.apple.alf`:
+  globalstate/loggingenabled/stealthenabled/firewallunload), screen-lock
+  (`com.apple.screensaver` askForPassword/Delay — per-user, ByHost-aware),
+  software-update (`com.apple.SoftwareUpdate`/`commerce`:
+  CriticalUpdateInstall/ConfigDataInstall/…), Gatekeeper master switch
+  (`/var/db/SystemPolicy-prefs.plist` `enabled`), **remote services** from the
+  launchd `…/com.apple.xpc.launchd/disabled.plist` overrides, login-window
+  (autoLoginUser/GuestEnabled/HiddenUsersList), and ARD
+  (`com.apple.RemoteManagement` ARD_AllLocalUsers).
+- **The inverted-boolean trap (the #1 correctness risk):** in `disabled.plist`
+  the Bool is the *disabled* flag, so `value == false` means the service is
+  **ENABLED** (an override un-disabled it), `true` = off, and an **absent** label
+  = bundled default (off for the remote services). The parser flags only
+  *present-and-false* labels; it also handles the pre-10.10 nested
+  `overrides.plist` (`label → {Disabled: Bool}`).
+- **Undetermined ≠ insecure:** for keys whose secure default is implicit and only
+  written when disabled (screensaver, several update keys), an **absent key emits
+  nothing** rather than a false "disabled" finding.
+- **Credentials by presence only:** `/etc/kcpassword` (auto-login password) and
+  `com.apple.VNCSettings.txt` (VNC control password) are reported as *present*
+  (T1078 / T1021.005) — their recoverable plaintext is **deliberately never
+  decoded into the case** (forensic-confidentiality rule).
+- Static config, so **no timeline splice** (like WMI/FSEvents/Carved). Ships with
+  `MacConfigAnalyzer`: one finding per flagged setting — weakened defenses
+  (T1562.001/.004), enabled remote services (T1021.001/.002/.004/.005),
+  auto-login/guest (T1078), hidden accounts (T1564.002). The per-setting
+  risk/ATT&CK lives in the parser; the analyzer is the thin, testable projection.
+  Parsed in `AppModel.parseMac()` (self-gating + backfill), cached as
+  `macconfig.json`, surfaced in a **Configuration** tab (flagged-only filter,
+  risk-highlighted). Covered by `StrataTests/MacConfigTests.swift`. **Overlap
+  avoided:** Gatekeeper *events* (MacSecurityParser), login/logout *hooks* +
+  config profiles (MacPersistenceParser), launchd job inventory
+  (LaunchItemParser), host identity (MacHostInfoParser). **Known limits:**
+  FileVault on/off (derive from the APFS encryption flag, not a pref plist) and
+  SIP (NVRAM, not on disk) are out of scope; validated against synthetic plists.
+
 ## Recovery
 
 - **Signature carving (deleted / sealed / encrypted recovery).** `FileCarver`

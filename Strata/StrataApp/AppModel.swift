@@ -63,6 +63,7 @@ nonisolated struct EvidenceState: Sendable {
     var documentVersions: [MacDocumentVersion] = []
     var notifications: [MacNotification] = []
     var powerlog: [PowerlogEntry] = []
+    var macConfig: [MacConfigSetting] = []
     // macOS host identity (empty on non-macOS evidence).
     var macInfo: MacHostInfo?
     var findings: [Finding] = []
@@ -568,6 +569,7 @@ final class AppModel: ObservableObject {
             var documentVersions: [MacDocumentVersion] = []
             var notifications: [MacNotification] = []
             var powerlog: [PowerlogEntry] = []
+            var macConfig: [MacConfigSetting] = []
             var macInfo: MacHostInfo?
             var authLog: [AuthLogEntry] = []
             var logins: [UtmpRecord] = []
@@ -615,6 +617,7 @@ final class AppModel: ObservableObject {
                 { documentVersions = (try? CaseStore.readDocumentVersions(forHostID: id, in: bundleURL)) ?? [] },
                 { notifications = (try? CaseStore.readNotifications(forHostID: id, in: bundleURL)) ?? [] },
                 { powerlog = (try? CaseStore.readPowerlog(forHostID: id, in: bundleURL)) ?? [] },
+                { macConfig = (try? CaseStore.readMacConfig(forHostID: id, in: bundleURL)) ?? [] },
                 { macInfo = try? CaseStore.readMacInfo(forHostID: id, in: bundleURL) },
                 { authLog = (try? CaseStore.readAuthLog(forHostID: id, in: bundleURL)) ?? [] },
                 { logins = (try? CaseStore.readLogins(forHostID: id, in: bundleURL)) ?? [] },
@@ -670,6 +673,7 @@ final class AppModel: ObservableObject {
             state.documentVersions = documentVersions
             state.notifications = notifications
             state.powerlog = powerlog
+            state.macConfig = macConfig
             state.macInfo = macInfo
             state.authLog = authLog
             state.logins = logins
@@ -1282,6 +1286,7 @@ final class AppModel: ObservableObject {
         var documentVersions: [MacDocumentVersion] = []
         var notifications: [MacNotification] = []
         var powerlog: [PowerlogEntry] = []
+        var macConfig: [MacConfigSetting] = []
         var iocMatches: [IOCMatch] = []
     }
     private var derivedCache: Derived?
@@ -1368,6 +1373,7 @@ final class AppModel: ObservableObject {
             d.documentVersions = s.documentVersions
             d.notifications = s.notifications
             d.powerlog = s.powerlog
+            d.macConfig = s.macConfig
             d.iocMatches = s.iocMatches
             return d
         }
@@ -1419,6 +1425,7 @@ final class AppModel: ObservableObject {
             d.documentVersions.append(contentsOf: s.documentVersions)
             d.notifications.append(contentsOf: s.notifications)
             d.powerlog.append(contentsOf: s.powerlog)
+            d.macConfig.append(contentsOf: s.macConfig)
             d.iocMatches.append(contentsOf: s.iocMatches)
         }
         d.events.sort { $0.writtenAt < $1.writtenAt }
@@ -1519,6 +1526,7 @@ final class AppModel: ObservableObject {
     var documentVersions: [MacDocumentVersion] { derived().documentVersions }
     var notifications: [MacNotification] { derived().notifications }
     var powerlog: [PowerlogEntry] { derived().powerlog }
+    var macConfig: [MacConfigSetting] { derived().macConfig }
     /// Linux host info for the active scope (tiny; not worth caching). In the
     /// combined scope the first host that has one wins.
     var linuxInfo: LinuxHostInfo? {
@@ -1584,6 +1592,7 @@ final class AppModel: ObservableObject {
     var documentVersionCount: Int { scopedCount(\.documentVersions.count) }
     var notificationCount: Int { scopedCount(\.notifications.count) }
     var powerlogCount: Int { scopedCount(\.powerlog.count) }
+    var macConfigCount: Int { scopedCount(\.macConfig.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
     /// True once the Linux log parse has produced *something* in the active
@@ -4148,6 +4157,31 @@ final class AppModel: ObservableObject {
                     || (name.hasSuffix(".plsql") && entry.fullPath.lowercased().contains("/powerlog/"))
             }
         }
+        // System-configuration / security-posture files (curated set; the
+        // MacConfigParser dispatches on the path). System-scoped loginwindow only
+        // (per-user copies hold UI prefs, not the security keys).
+        func configFiles(_ s: EvidenceState) -> [FileEntry] {
+            s.files.filter { entry in
+                guard !entry.isDirectory else { return false }
+                let lower = entry.fullPath.lowercased()
+                let name = entry.name.lowercased()
+                if name == "kcpassword" { return true }
+                if name == "com.apple.vncsettings.txt" { return true }
+                if name == "systempolicy-prefs.plist" { return true }
+                if lower.contains("com.apple.xpc.launchd/disabled") && name.hasSuffix(".plist") { return true }
+                if name == "overrides.plist" && lower.contains("launchd") { return true }   // pre-10.10 legacy
+                guard lower.contains("/library/preferences/") else { return false }
+                switch name {
+                case "com.apple.alf.plist", "com.apple.softwareupdate.plist",
+                     "com.apple.commerce.plist", "com.apple.remotemanagement.plist":
+                    return true
+                case "com.apple.loginwindow.plist":
+                    return !lower.contains("/users/")   // system copy only
+                default:
+                    return name.hasPrefix("com.apple.screensaver")   // per-user (plain + ByHost)
+                }
+            }
+        }
         // The owning scope for a macOS db path: "system" unless it lives under a
         // user home, in which case the user's name.
         func macScope(_ path: String) -> String {
@@ -4177,6 +4211,7 @@ final class AppModel: ObservableObject {
                 + (s.documentVersions.isEmpty ? docRevisionFiles(s).count : 0)
                 + (s.notifications.isEmpty ? notificationFiles(s).count : 0)
                 + (s.powerlog.isEmpty ? powerlogFiles(s).count : 0)
+                + (s.macConfig.isEmpty ? configFiles(s).count : 0)
         }
         guard total > 0 else { statusMessage = "No new macOS artifacts to parse."; return }
         progress = ProgressInfo(current: 0, total: total, label: "Parsing macOS artifacts")
@@ -4203,12 +4238,14 @@ final class AppModel: ObservableObject {
                 let foundDocRev = state.documentVersions.isEmpty ? docRevisionFiles(state) : []
                 let foundNotif = state.notifications.isEmpty ? notificationFiles(state) : []
                 let foundPowerlog = state.powerlog.isEmpty ? powerlogFiles(state) : []
+                let foundConfig = state.macConfig.isEmpty ? configFiles(state) : []
                 guard !foundPlists.isEmpty || !foundQuar.isEmpty || !foundInfo.isEmpty
                     || !foundPersist.isEmpty || !foundFSE.isEmpty || !foundShell.isEmpty
                     || !foundTCC.isEmpty || !foundKnowledge.isEmpty || !foundRecent.isEmpty
                     || !foundSecurity.isEmpty || !foundKexts.isEmpty || !foundBTM.isEmpty
                     || !foundNetwork.isEmpty || !foundQuickLook.isEmpty || !foundTrash.isEmpty
-                    || !foundDocRev.isEmpty || !foundNotif.isEmpty || !foundPowerlog.isEmpty else { continue }
+                    || !foundDocRev.isEmpty || !foundNotif.isEmpty || !foundPowerlog.isEmpty
+                    || !foundConfig.isEmpty else { continue }
                 let isLoose = evidence.kind == .kapeLooseFolder
                 let isAPFS = evidence.kind == .apfs
                 var database: TSKDatabase?
@@ -4474,6 +4511,16 @@ final class AppModel: ObservableObject {
                         fileAt: url, sourceFile: entry.fullPath, scope: macScope(entry.fullPath))) ?? [])
                 }
 
+                // System-configuration / security-posture plists (pure parser).
+                var macConfig: [MacConfigSetting] = []
+                for entry in foundConfig {
+                    progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    guard let url = await extract(entry), let data = try? Data(contentsOf: url) else { continue }
+                    macConfig.append(contentsOf: MacConfigParser.parse(
+                        data, sourceFile: entry.fullPath, scope: macScope(entry.fullPath)))
+                }
+
                 if !foundPlists.isEmpty { state.launchItems = launch }
                 if !foundQuar.isEmpty { state.quarantine = quar }
                 if !foundPersist.isEmpty { state.macPersistence = persist }
@@ -4489,6 +4536,7 @@ final class AppModel: ObservableObject {
                 if !foundDocRev.isEmpty { state.documentVersions = documentVersions }
                 if !foundNotif.isEmpty { state.notifications = notifications }
                 if !foundPowerlog.isEmpty { state.powerlog = powerlog }
+                if !foundConfig.isEmpty { state.macConfig = macConfig }
                 if !macShell.isEmpty { state.shellHistory.append(contentsOf: macShell) }
                 if !foundInfo.isEmpty { state.macInfo = info.isEmpty ? nil : info }
                 if !tcc.isEmpty || !knowledge.isEmpty || !recentItems.isEmpty || !securityEvents.isEmpty
@@ -4551,6 +4599,9 @@ final class AppModel: ObservableObject {
                     }
                     if !foundPowerlog.isEmpty {
                         try? CaseStore.writePowerlog(powerlog, forHostID: evidence.id, in: bundleURL)
+                    }
+                    if !foundConfig.isEmpty {
+                        try? CaseStore.writeMacConfig(macConfig, forHostID: evidence.id, in: bundleURL)
                     }
                     if !macShell.isEmpty {
                         try? CaseStore.writeShellHistory(state.shellHistory, forHostID: evidence.id, in: bundleURL)
@@ -5413,7 +5464,8 @@ final class AppModel: ObservableObject {
                                           mail: state.mail,
                                           network: state.network,
                                           userActivity: state.userActivity,
-                                          powerlog: state.powerlog)
+                                          powerlog: state.powerlog,
+                                          config: state.macConfig)
             let results = await analysisEngine.run(on: context)
             state.findings = results
             states[evidence.id] = state

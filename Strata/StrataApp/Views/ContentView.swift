@@ -48,6 +48,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case documentVersions = "Document Versions"
     case notifications = "Notifications"
     case powerlog = "Powerlog"
+    case macConfig = "Configuration"
     case lateral = "Lateral"
     case killChain = "Kill Chain"
     case iocs = "IOCs"
@@ -105,6 +106,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .documentVersions: return "doc.on.doc"
         case .notifications: return "bell.badge"
         case .powerlog:  return "bolt.batteryblock"
+        case .macConfig: return "gearshape.2"
         case .lateral:   return "point.3.connected.trianglepath.dotted"
         case .killChain: return "link"
         case .iocs:      return "scope"
@@ -127,7 +129,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .linuxLogs, .shellHistory, .linuxPersistence, .linuxAccess, .webLogs,
              .packages, .journald, .audit, .syslog, .lastlog:
             return .linux
-        case .launchItems, .quarantine, .macPersistence, .fsEvents, .unifiedLog, .tcc, .knowledgeC, .macRecentItems, .macSecurity, .carvedFiles, .kexts, .backgroundItems, .messages, .mail, .network, .quickLookTrash, .documentVersions, .notifications, .powerlog:
+        case .launchItems, .quarantine, .macPersistence, .fsEvents, .unifiedLog, .tcc, .knowledgeC, .macRecentItems, .macSecurity, .carvedFiles, .kexts, .backgroundItems, .messages, .mail, .network, .quickLookTrash, .documentVersions, .notifications, .powerlog, .macConfig:
             return .macos
         case .overview, .search, .evidence, .timeline, .browser, .lateral,
              .killChain, .iocs, .annotations, .designUI, .activity, .custody:
@@ -280,6 +282,7 @@ struct ContentView: View {
                 case .documentVersions: MacDocumentRevisionsView()
                 case .notifications: MacNotificationsView()
                 case .powerlog: PowerlogView()
+                case .macConfig: MacConfigView()
                 case .lateral:   LateralMovementView()
                 case .killChain: KillChainView()
                 case .iocs:      IOCView()
