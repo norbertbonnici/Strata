@@ -143,7 +143,8 @@ struct SidebarItemOSTests {
         // launchItems, quarantine, persistence, fsEvents, unifiedLog, tcc,
         // knowledgeC, recentItems, macSecurity, carvedFiles, kexts,
         // backgroundItems, messages, mail, network, quickLookTrash,
-        // documentVersions, notifications, powerlog, macConfig, installHistory.
-        #expect(mac.count == 21)
+        // documentVersions, notifications, powerlog, macConfig, installHistory,
+        // whereFroms.
+        #expect(mac.count == 22)
     }
 }

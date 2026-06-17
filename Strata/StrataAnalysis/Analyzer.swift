@@ -51,6 +51,7 @@ public nonisolated struct AnalysisContext: Sendable {
     public let powerlog: [PowerlogEntry]
     public let config: [MacConfigSetting]
     public let installHistory: [MacInstallEntry]
+    public let whereFroms: [MacWhereFrom]
 
     public init(files: [FileEntry], events: [EventLogRecord],
                 timeline: [TimelineEvent], registryValues: [RegistryValue],
@@ -77,7 +78,8 @@ public nonisolated struct AnalysisContext: Sendable {
                 userActivity: [MacActivityItem] = [],
                 powerlog: [PowerlogEntry] = [],
                 config: [MacConfigSetting] = [],
-                installHistory: [MacInstallEntry] = []) {
+                installHistory: [MacInstallEntry] = [],
+                whereFroms: [MacWhereFrom] = []) {
         self.files = files
         self.events = events
         self.timeline = timeline
@@ -123,6 +125,7 @@ public nonisolated struct AnalysisContext: Sendable {
         self.powerlog = powerlog
         self.config = config
         self.installHistory = installHistory
+        self.whereFroms = whereFroms
     }
 }
 

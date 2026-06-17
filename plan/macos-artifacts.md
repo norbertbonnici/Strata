@@ -284,6 +284,37 @@ builds can backfill newly added data.
   receipt `.bom` bills-of-materials aren't parsed (just the `.plist` receipts);
   validated against synthetic plists.
 
+## Download provenance (WhereFroms xattrs)
+
+- **done (engine + artifact; real-image validation pending).** Recovers the
+  `com.apple.metadata:kMDItemWhereFroms` extended attribute Spotlight writes on
+  downloaded files — a bplist array of `[download URL, referrer]` → `MacWhereFrom`
+  (`StrataCore`). This is *where a file came from*, and it **survives even when
+  the `com.apple.quarantine` flag was stripped**, complementing the quarantine
+  store.
+- **The fsapfscat C change (the previously-deferred blocker):** `scripts/fsapfscat.c`
+  gained a `-x <name>` mode that dumps a file's named extended attribute via
+  libfsapfs (`libfsapfs_file_entry_get_extended_attribute_by_utf8_name` +
+  `..._extended_attribute_get_size`/`read_buffer`); exit code 3 = attribute
+  absent. `FsApfsExtractor.extract(attribute:)` shells it out; `build-tsk.sh` now
+  rebuilds fsapfscat when the source changes. **APFS only** — loose KAPE
+  collections strip xattrs, and the TSK path doesn't surface them.
+- `WhereFromsParser` (`StrataCore`, pure) decodes the xattr bytes via `BinaryPlist`.
+  In `AppModel.parseMac()`, the xattr is fetched for download-likely candidate
+  files (Downloads/Desktop + installer/archive/script extensions under `/Users`),
+  **capped at 2000 per host** to bound the one-xattr-read-per-file cost. Cached as
+  `wherefroms.json`, surfaced in a **Download Origins** tab; no timeline splice
+  (the xattr carries no timestamp). `MacWhereFromsAnalyzer` flags a download from
+  a **raw IP** (T1105, high) or a **paste / anon-share / tunnel** host (T1102,
+  medium).
+- **Validation:** the pure decoder, host parsing, and analyzer are unit-tested
+  (`StrataTests/WhereFromsTests.swift`). The `fsapfscat -x` C path and the
+  per-file extraction **cannot be built/run in CI** (needs the vendored libyal
+  toolchain) — they require a `scripts/build-tsk.sh` rebuild and a test against a
+  **real APFS image** to confirm libfsapfs surfaces inline xattrs correctly.
+  **Known limits:** APFS-only; capped candidate set; inline-vs-stream xattr
+  read assumed handled by libfsapfs's `read_buffer` (verify on real evidence).
+
 ## Recovery
 
 - **Signature carving (deleted / sealed / encrypted recovery).** `FileCarver`

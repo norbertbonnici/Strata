@@ -65,6 +65,7 @@ nonisolated struct EvidenceState: Sendable {
     var powerlog: [PowerlogEntry] = []
     var macConfig: [MacConfigSetting] = []
     var installHistory: [MacInstallEntry] = []
+    var whereFroms: [MacWhereFrom] = []
     // macOS host identity (empty on non-macOS evidence).
     var macInfo: MacHostInfo?
     var findings: [Finding] = []
@@ -572,6 +573,7 @@ final class AppModel: ObservableObject {
             var powerlog: [PowerlogEntry] = []
             var macConfig: [MacConfigSetting] = []
             var installHistory: [MacInstallEntry] = []
+            var whereFroms: [MacWhereFrom] = []
             var macInfo: MacHostInfo?
             var authLog: [AuthLogEntry] = []
             var logins: [UtmpRecord] = []
@@ -621,6 +623,7 @@ final class AppModel: ObservableObject {
                 { powerlog = (try? CaseStore.readPowerlog(forHostID: id, in: bundleURL)) ?? [] },
                 { macConfig = (try? CaseStore.readMacConfig(forHostID: id, in: bundleURL)) ?? [] },
                 { installHistory = (try? CaseStore.readInstallHistory(forHostID: id, in: bundleURL)) ?? [] },
+                { whereFroms = (try? CaseStore.readWhereFroms(forHostID: id, in: bundleURL)) ?? [] },
                 { macInfo = try? CaseStore.readMacInfo(forHostID: id, in: bundleURL) },
                 { authLog = (try? CaseStore.readAuthLog(forHostID: id, in: bundleURL)) ?? [] },
                 { logins = (try? CaseStore.readLogins(forHostID: id, in: bundleURL)) ?? [] },
@@ -678,6 +681,7 @@ final class AppModel: ObservableObject {
             state.powerlog = powerlog
             state.macConfig = macConfig
             state.installHistory = installHistory
+            state.whereFroms = whereFroms
             state.macInfo = macInfo
             state.authLog = authLog
             state.logins = logins
@@ -1293,6 +1297,7 @@ final class AppModel: ObservableObject {
         var powerlog: [PowerlogEntry] = []
         var macConfig: [MacConfigSetting] = []
         var installHistory: [MacInstallEntry] = []
+        var whereFroms: [MacWhereFrom] = []
         var iocMatches: [IOCMatch] = []
     }
     private var derivedCache: Derived?
@@ -1381,6 +1386,7 @@ final class AppModel: ObservableObject {
             d.powerlog = s.powerlog
             d.macConfig = s.macConfig
             d.installHistory = s.installHistory
+            d.whereFroms = s.whereFroms
             d.iocMatches = s.iocMatches
             return d
         }
@@ -1434,6 +1440,7 @@ final class AppModel: ObservableObject {
             d.powerlog.append(contentsOf: s.powerlog)
             d.macConfig.append(contentsOf: s.macConfig)
             d.installHistory.append(contentsOf: s.installHistory)
+            d.whereFroms.append(contentsOf: s.whereFroms)
             d.iocMatches.append(contentsOf: s.iocMatches)
         }
         d.events.sort { $0.writtenAt < $1.writtenAt }
@@ -1536,6 +1543,7 @@ final class AppModel: ObservableObject {
     var powerlog: [PowerlogEntry] { derived().powerlog }
     var macConfig: [MacConfigSetting] { derived().macConfig }
     var installHistory: [MacInstallEntry] { derived().installHistory }
+    var whereFroms: [MacWhereFrom] { derived().whereFroms }
     /// Linux host info for the active scope (tiny; not worth caching). In the
     /// combined scope the first host that has one wins.
     var linuxInfo: LinuxHostInfo? {
@@ -1603,6 +1611,7 @@ final class AppModel: ObservableObject {
     var powerlogCount: Int { scopedCount(\.powerlog.count) }
     var macConfigCount: Int { scopedCount(\.macConfig.count) }
     var installHistoryCount: Int { scopedCount(\.installHistory.count) }
+    var whereFromsCount: Int { scopedCount(\.whereFroms.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
     /// True once the Linux log parse has produced *something* in the active
@@ -4203,6 +4212,36 @@ final class AppModel: ObservableObject {
                 return name.hasSuffix(".plist") && lower.contains("/db/receipts/")
             }
         }
+        // WhereFroms candidates — download-likely files whose kMDItemWhereFroms
+        // xattr is worth fetching (Downloads/Desktop + installer/archive/script
+        // extensions under /Users; plus .app/.appex *bundles* in Downloads/Desktop,
+        // which are directories carrying the xattr on the bundle root). Capped to
+        // bound the per-file xattr reads; Downloads/Desktop are kept first so the
+        // retained set under the cap is the highest-value.
+        let whereFromCap = 2000
+        let whereFromExts: Set<String> = [
+            "dmg", "pkg", "zip", "command", "sh", "scpt", "jxa", "jar",
+            "iso", "gz", "tgz", "tar", "7z", "rar", "bin", "mobileconfig",
+        ]
+        func whereFromCandidates(_ s: EvidenceState) -> [FileEntry] {
+            let matched = s.files.filter { entry in
+                let lower = entry.fullPath.lowercased()
+                let ext = (entry.name as NSString).pathExtension.lowercased()
+                let isBundle = entry.isDirectory && (ext == "app" || ext == "appex")
+                guard isBundle || (!entry.isDirectory && entry.size > 0) else { return false }
+                guard lower.contains("/users/") else { return false }
+                if lower.contains("/downloads/") || lower.contains("/desktop/") { return true }
+                return !entry.isDirectory && whereFromExts.contains(ext)
+            }
+            // Prioritise Downloads/Desktop so truncation keeps the best candidates.
+            return matched.sorted { a, b in
+                func rank(_ e: FileEntry) -> Int {
+                    let l = e.fullPath.lowercased()
+                    return (l.contains("/downloads/") || l.contains("/desktop/")) ? 0 : 1
+                }
+                return rank(a) < rank(b)
+            }
+        }
         // The owning scope for a macOS db path: "system" unless it lives under a
         // user home, in which case the user's name.
         func macScope(_ path: String) -> String {
@@ -4234,10 +4273,12 @@ final class AppModel: ObservableObject {
                 + (s.powerlog.isEmpty ? powerlogFiles(s).count : 0)
                 + (s.macConfig.isEmpty ? configFiles(s).count : 0)
                 + (s.installHistory.isEmpty ? installFiles(s).count : 0)
+                + (e.kind == .apfs && s.whereFroms.isEmpty ? min(whereFromCandidates(s).count, whereFromCap) : 0)
         }
         guard total > 0 else { statusMessage = "No new macOS artifacts to parse."; return }
         progress = ProgressInfo(current: 0, total: total, label: "Parsing macOS artifacts")
         var completed = 0
+        var whereFromTruncations: [String] = []
         do {
             let tskEnv = try TSKEnvironment.discover()
             for evidence in evidenceList {
@@ -4262,13 +4303,19 @@ final class AppModel: ObservableObject {
                 let foundPowerlog = state.powerlog.isEmpty ? powerlogFiles(state) : []
                 let foundConfig = state.macConfig.isEmpty ? configFiles(state) : []
                 let foundInstall = state.installHistory.isEmpty ? installFiles(state) : []
+                let allWhereFromCands = (evidence.kind == .apfs && state.whereFroms.isEmpty)
+                    ? whereFromCandidates(state) : []
+                let foundWhereFrom = Array(allWhereFromCands.prefix(whereFromCap))
+                if allWhereFromCands.count > whereFromCap {
+                    whereFromTruncations.append("\(evidence.displayName): \(whereFromCap) of \(allWhereFromCands.count)")
+                }
                 guard !foundPlists.isEmpty || !foundQuar.isEmpty || !foundInfo.isEmpty
                     || !foundPersist.isEmpty || !foundFSE.isEmpty || !foundShell.isEmpty
                     || !foundTCC.isEmpty || !foundKnowledge.isEmpty || !foundRecent.isEmpty
                     || !foundSecurity.isEmpty || !foundKexts.isEmpty || !foundBTM.isEmpty
                     || !foundNetwork.isEmpty || !foundQuickLook.isEmpty || !foundTrash.isEmpty
                     || !foundDocRev.isEmpty || !foundNotif.isEmpty || !foundPowerlog.isEmpty
-                    || !foundConfig.isEmpty || !foundInstall.isEmpty else { continue }
+                    || !foundConfig.isEmpty || !foundInstall.isEmpty || !foundWhereFrom.isEmpty else { continue }
                 let isLoose = evidence.kind == .kapeLooseFolder
                 let isAPFS = evidence.kind == .apfs
                 var database: TSKDatabase?
@@ -4310,6 +4357,19 @@ final class AppModel: ObservableObject {
                     try? await extractor!.extract(metaAddr: info.metaAddr,
                                                   imageOffsetSectors: info.imageOffsetSectors, to: outURL)
                     return outURL
+                }
+                // Extract a named extended attribute's bytes (APFS only — loose
+                // collections strip xattrs and the TSK path doesn't surface them).
+                func extractAttribute(_ entry: FileEntry, _ attribute: String) async -> Data? {
+                    guard isAPFS, let apfsExtractor else { return nil }
+                    let outURL = scratch!.appendingPathComponent("xattr-\(entry.id)")
+                    let off = state.volumes.first { $0.id == entry.fsID }?.offsetBytes ?? 0
+                    try? await apfsExtractor.extract(volumePath: entry.fullPath,
+                                                     volumeIndex: entry.fsID ?? 0,
+                                                     offsetBytes: off, to: outURL, attribute: attribute)
+                    defer { try? FileManager.default.removeItem(at: outURL) }
+                    guard let data = try? Data(contentsOf: outURL), !data.isEmpty else { return nil }
+                    return data
                 }
                 var launch: [LaunchItemEntry] = []
                 var quar: [QuarantineEvent] = []
@@ -4554,6 +4614,18 @@ final class AppModel: ObservableObject {
                         data, sourceFile: entry.fullPath, scope: macScope(entry.fullPath)))
                 }
 
+                // Download provenance — kMDItemWhereFroms xattrs (APFS only; one
+                // xattr read per candidate file, capped above).
+                var whereFroms: [MacWhereFrom] = []
+                for entry in foundWhereFrom {
+                    progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    guard let data = await extractAttribute(entry, "com.apple.metadata:kMDItemWhereFroms") else { continue }
+                    if let wf = WhereFromsParser.parse(data, path: entry.fullPath, scope: macScope(entry.fullPath)) {
+                        whereFroms.append(wf)
+                    }
+                }
+
                 if !foundPlists.isEmpty { state.launchItems = launch }
                 if !foundQuar.isEmpty { state.quarantine = quar }
                 if !foundPersist.isEmpty { state.macPersistence = persist }
@@ -4571,6 +4643,7 @@ final class AppModel: ObservableObject {
                 if !foundPowerlog.isEmpty { state.powerlog = powerlog }
                 if !foundConfig.isEmpty { state.macConfig = macConfig }
                 if !foundInstall.isEmpty { state.installHistory = installHistory }
+                if !foundWhereFrom.isEmpty { state.whereFroms = whereFroms }
                 if !macShell.isEmpty { state.shellHistory.append(contentsOf: macShell) }
                 if !foundInfo.isEmpty { state.macInfo = info.isEmpty ? nil : info }
                 if !tcc.isEmpty || !knowledge.isEmpty || !recentItems.isEmpty || !securityEvents.isEmpty
@@ -4641,6 +4714,9 @@ final class AppModel: ObservableObject {
                     if !foundInstall.isEmpty {
                         try? CaseStore.writeInstallHistory(installHistory, forHostID: evidence.id, in: bundleURL)
                     }
+                    if !foundWhereFrom.isEmpty {
+                        try? CaseStore.writeWhereFroms(whereFroms, forHostID: evidence.id, in: bundleURL)
+                    }
                     if !macShell.isEmpty {
                         try? CaseStore.writeShellHistory(state.shellHistory, forHostID: evidence.id, in: bundleURL)
                     }
@@ -4650,6 +4726,9 @@ final class AppModel: ObservableObject {
                 }
             }
             progress = ProgressInfo(current: completed, total: total, label: "macOS artifact parse complete")
+            if !whereFromTruncations.isEmpty {
+                statusMessage = "WhereFroms coverage truncated to \(whereFromTruncations.joined(separator: ", ")) download-likely files."
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -5504,7 +5583,8 @@ final class AppModel: ObservableObject {
                                           userActivity: state.userActivity,
                                           powerlog: state.powerlog,
                                           config: state.macConfig,
-                                          installHistory: state.installHistory)
+                                          installHistory: state.installHistory,
+                                          whereFroms: state.whereFroms)
             let results = await analysisEngine.run(on: context)
             state.findings = results
             states[evidence.id] = state

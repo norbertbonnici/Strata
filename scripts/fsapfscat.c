@@ -8,7 +8,12 @@
  * equivalent of TSK's `icat`.
  *
  *   fsapfscat -o <byte offset> -f <0-based volume index>
- *             [-p <password>] [-r <recovery password>] <raw_image> <volume_path>
+ *             [-p <password>] [-r <recovery password>]
+ *             [-x <extended attribute name>] <raw_image> <volume_path>
+ *
+ * With -x, the named extended attribute's bytes are written to stdout instead of
+ * the file's data stream (used to recover the `com.apple.metadata:kMDItemWhereFroms`
+ * download-provenance xattr). Exit code 3 means the attribute is not present.
  *
  * Built statically against the vendored libfsapfs by scripts/build-tsk.sh.
  */
@@ -55,21 +60,23 @@ int main(int argc, char *argv[])
 	int volume_index    = 0;
 	const char *password = NULL;
 	const char *recovery = NULL;
+	const char *xattr_name = NULL;
 	int option;
 
-	while ((option = getopt(argc, argv, "o:f:p:r:")) != -1) {
+	while ((option = getopt(argc, argv, "o:f:p:r:x:")) != -1) {
 		switch (option) {
 			case 'o': offset       = strtoll(optarg, NULL, 10); break;
 			case 'f': volume_index = (int) strtol(optarg, NULL, 10); break;
 			case 'p': password     = optarg; break;
 			case 'r': recovery     = optarg; break;
+			case 'x': xattr_name   = optarg; break;
 			default:
-				fprintf(stderr, "Usage: fsapfscat -o offset -f index [-p pw] [-r rk] image path\n");
+				fprintf(stderr, "Usage: fsapfscat -o offset -f index [-p pw] [-r rk] [-x attr] image path\n");
 				return 1;
 		}
 	}
 	if (argc - optind != 2) {
-		fprintf(stderr, "Usage: fsapfscat -o offset -f index [-p pw] [-r rk] image path\n");
+		fprintf(stderr, "Usage: fsapfscat -o offset -f index [-p pw] [-r rk] [-x attr] image path\n");
 		return 1;
 	}
 	const char *image_path  = argv[optind];
@@ -114,22 +121,58 @@ int main(int argc, char *argv[])
 	if (result != 1)
 		fail("unable to resolve file path", error);
 
-	size64_t file_size = 0;
-	if (libfsapfs_file_entry_get_size(file_entry, &file_size, &error) != 1)
-		fail("unable to get file size", error);
-
 	uint8_t buffer[65536];
-	size64_t remaining = file_size;
-	while (remaining > 0) {
-		size_t want = (remaining < sizeof(buffer)) ? (size_t) remaining : sizeof(buffer);
-		ssize_t got = libfsapfs_file_entry_read_buffer(file_entry, buffer, want, &error);
-		if (got < 0)
-			fail("read error", error);
-		if (got == 0)
-			break;
-		if (fwrite(buffer, 1, (size_t) got, stdout) != (size_t) got)
-			fail("write error", NULL);
-		remaining -= (size64_t) got;
+
+	if (xattr_name != NULL) {
+		/* Dump the named extended attribute's bytes instead of the file data.
+		 * get_by_utf8_name returns 0 when the attribute isn't present. */
+		libfsapfs_extended_attribute_t *xattr = NULL;
+		int xr = libfsapfs_file_entry_get_extended_attribute_by_utf8_name(
+		    file_entry, (const uint8_t *) xattr_name, strlen(xattr_name), &xattr, &error);
+		if (xr == 0) {
+			libfsapfs_file_entry_free(&file_entry, NULL);
+			libfsapfs_volume_free(&volume, NULL);
+			libfsapfs_container_free(&container, NULL);
+			libbfio_handle_free(&file_io_handle, NULL);
+			return 3;   /* attribute not present */
+		}
+		if (xr != 1)
+			fail("unable to get extended attribute", error);
+
+		size64_t xattr_size = 0;
+		if (libfsapfs_extended_attribute_get_size(xattr, &xattr_size, &error) != 1)
+			fail("unable to get attribute size", error);
+
+		size64_t remaining = xattr_size;
+		while (remaining > 0) {
+			size_t want = (remaining < sizeof(buffer)) ? (size_t) remaining : sizeof(buffer);
+			ssize_t got = libfsapfs_extended_attribute_read_buffer(xattr, buffer, want, &error);
+			if (got < 0)
+				fail("attribute read error", error);
+			if (got == 0)
+				break;
+			if (fwrite(buffer, 1, (size_t) got, stdout) != (size_t) got)
+				fail("write error", NULL);
+			remaining -= (size64_t) got;
+		}
+		libfsapfs_extended_attribute_free(&xattr, NULL);
+	} else {
+		size64_t file_size = 0;
+		if (libfsapfs_file_entry_get_size(file_entry, &file_size, &error) != 1)
+			fail("unable to get file size", error);
+
+		size64_t remaining = file_size;
+		while (remaining > 0) {
+			size_t want = (remaining < sizeof(buffer)) ? (size_t) remaining : sizeof(buffer);
+			ssize_t got = libfsapfs_file_entry_read_buffer(file_entry, buffer, want, &error);
+			if (got < 0)
+				fail("read error", error);
+			if (got == 0)
+				break;
+			if (fwrite(buffer, 1, (size_t) got, stdout) != (size_t) got)
+				fail("write error", NULL);
+			remaining -= (size64_t) got;
+		}
 	}
 
 	libfsapfs_file_entry_free(&file_entry, NULL);

@@ -60,6 +60,7 @@ public nonisolated enum CaseStore {
     private static let powerlogFilename = "powerlog.json"
     private static let macConfigFilename = "macconfig.json"
     private static let installHistoryFilename = "installhistory.json"
+    private static let whereFromsFilename = "wherefroms.json"
     private static let macSecurityFilename = "macsecurity.json"
     private static let auditFilename      = "audit.json"
     private static let syslogFilename     = "syslog.json"
@@ -716,6 +717,15 @@ public nonisolated enum CaseStore {
     public static func writeInstallHistory(_ items: [MacInstallEntry], forHostID id: UUID, in bundle: URL) throws {
         try writeArray(items, at: hostDirectory(forHostID: id, in: bundle)
             .appendingPathComponent(installHistoryFilename))
+    }
+
+    public static func readWhereFroms(forHostID id: UUID, in bundle: URL) throws -> [MacWhereFrom]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(whereFromsFilename))
+    }
+    public static func writeWhereFroms(_ items: [MacWhereFrom], forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(items, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(whereFromsFilename))
     }
 
     public static func readAudit(forHostID id: UUID, in bundle: URL) throws -> [AuditEvent]? {
