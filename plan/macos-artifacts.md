@@ -286,7 +286,7 @@ builds can backfill newly added data.
 
 ## Download provenance (WhereFroms xattrs)
 
-- **done (engine + artifact; real-image validation pending).** Recovers the
+- **done — validated end-to-end on a real macOS APFS E01.** Recovers the
   `com.apple.metadata:kMDItemWhereFroms` extended attribute Spotlight writes on
   downloaded files — a bplist array of `[download URL, referrer]` → `MacWhereFrom`
   (`StrataCore`). This is *where a file came from*, and it **survives even when
@@ -301,19 +301,28 @@ builds can backfill newly added data.
   collections strip xattrs, and the TSK path doesn't surface them.
 - `WhereFromsParser` (`StrataCore`, pure) decodes the xattr bytes via `BinaryPlist`.
   In `AppModel.parseMac()`, the xattr is fetched for download-likely candidate
-  files (Downloads/Desktop + installer/archive/script extensions under `/Users`),
-  **capped at 2000 per host** to bound the one-xattr-read-per-file cost. Cached as
-  `wherefroms.json`, surfaced in a **Download Origins** tab; no timeline splice
-  (the xattr carries no timestamp). `MacWhereFromsAnalyzer` flags a download from
-  a **raw IP** (T1105, high) or a **paste / anon-share / tunnel** host (T1102,
-  medium).
+  files — the download **landing zones** (Downloads/Desktop/Documents, any file)
+  plus disk-image/installer files (dmg/pkg/iso) elsewhere — **excluding
+  `/Library/` and bundle internals** (`.app/`/`.framework/`/`.bundle/`), which
+  otherwise ballooned the candidate set into the tens of thousands with cache /
+  bundle files that are never user downloads. **Capped at 2000 per host**
+  (landing-zone candidates kept first) to bound the one-xattr-read-per-file cost;
+  truncation is surfaced in the status line. Cached as `wherefroms.json`,
+  surfaced in a **Download Origins** tab; no timeline splice (the xattr carries
+  no timestamp). `MacWhereFromsAnalyzer` flags a download from a **public raw IP**
+  (T1105, high; private/RFC1918 downgraded to medium) or a **paste / anon-share /
+  tunnel** host (T1102, medium, boundary-matched). xattr-extraction failures
+  (e.g. an `fsapfscat` without `-x`) are counted and reported, distinct from a
+  genuine "no WhereFroms found".
 - **Validation:** the pure decoder, host parsing, and analyzer are unit-tested
-  (`StrataTests/WhereFromsTests.swift`). The `fsapfscat -x` C path and the
-  per-file extraction **cannot be built/run in CI** (needs the vendored libyal
-  toolchain) — they require a `scripts/build-tsk.sh` rebuild and a test against a
-  **real APFS image** to confirm libfsapfs surfaces inline xattrs correctly.
-  **Known limits:** APFS-only; capped candidate set; inline-vs-stream xattr
-  read assumed handled by libfsapfs's `read_buffer` (verify on real evidence).
+  (`StrataTests/WhereFromsTests.swift`), and the full path — the `fsapfscat -x`
+  xattr extraction (incl. libfsapfs surfacing inline attributes) → decode →
+  Download Origins tab — is **confirmed working end-to-end on a real macOS APFS
+  E01**. **Rebuild step:** the `-x` mode requires `scripts/build-tsk.sh` (now
+  rebuilds `fsapfscat` when the source changes) **and** an Xcode rebuild so the
+  Copy-Files phase re-bundles the new binary. **Known limits:** APFS-only (loose
+  KAPE collections strip xattrs; TSK path doesn't surface them); capped candidate
+  set.
 
 ## Recovery
 
