@@ -1063,13 +1063,25 @@ final class AppModel: ObservableObject {
             return
         }
 
+        // Cheap COW snapshots on main; the actual path-set (potentially the whole
+        // file tree on a real image) is built off-main below, like runIOCMatch.
+        let fileSnapshots = evidenceList.compactMap { states[$0.id]?.files }
+
         errorMessage = nil
         isWorking = true
         defer { isWorking = false }
         statusMessage = "Generating on-device summary of \(allFindings.count) finding(s)…"
 
         do {
-            let text = try await FindingsSummarizer().summarize(findings: allFindings) { done, total in
+            // Whole-case file paths (scope-independent) — widens the validator's
+            // recognition of any path the model quotes beyond the findings' own.
+            // Built off the main actor: `fullPath` allocates per entry.
+            let fileIndex = await Task.detached(priority: .userInitiated) {
+                Set(fileSnapshots.flatMap { $0.map(\.fullPath) })
+            }.value
+
+            let validated = try await FindingsSummarizer().summarizeStructured(
+                findings: allFindings, fileIndex: fileIndex) { done, total in
                 Task { @MainActor in
                     // Only show step counts for genuinely multi-call runs.
                     if total > 1 {
@@ -1077,18 +1089,36 @@ final class AppModel: ObservableObject {
                     }
                 }
             }
-            guard !text.isEmpty else {
+            // `text` stays the rendered narrative (the executive overview); the
+            // per-claim detail rides structured in `claims`/`validation`. Trim so
+            // "empty" agrees with the report builder (which also trims).
+            let text = validated.overview.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty || !validated.claims.isEmpty else {
                 statusMessage = "The model returned an empty summary. Try regenerating."
                 return
             }
             let summary = CaseSummary(text: text, generatedAt: Date(),
                                       findingCount: allFindings.count,
-                                      modelLabel: FindingsSummarizer.modelLabel)
+                                      modelLabel: FindingsSummarizer.modelLabel,
+                                      claims: validated.claims,
+                                      validation: validated.report)
             caseSummary = summary
             try? CaseStore.writeSummary(summary, in: bundleURL)
             statusMessage = "Generated on-device summary of \(allFindings.count) finding(s)."
-            appendCustody(.summarized,
-                          detail: "AI executive summary generated on-device (\(FindingsSummarizer.modelLabel)) from \(allFindings.count) finding\(allFindings.count == 1 ? "" : "s").")
+            // Custody records what the evidence-ref validation actually did -
+            // including the worst case where every model claim was dropped
+            // (claimsProposed > 0 but claimsKept == 0). claimsProposed is 0 only
+            // when the model produced no claims at all (a bare entry then).
+            let v = validated.report
+            var custodyDetail = "AI executive summary generated on-device (\(FindingsSummarizer.modelLabel)) from \(allFindings.count) finding\(allFindings.count == 1 ? "" : "s")."
+            if v.claimsProposed > 0 {
+                custodyDetail += " \(v.claimsKept) of \(v.claimsProposed) model claim(s) validated"
+                if v.hadIssues {
+                    custodyDetail += "; \(v.claimsDroppedUnsupported) dropped, \(v.phantomRefsDropped) phantom ref(s) stripped, \(v.flaggedPathTokens.count) path(s) flagged"
+                }
+                custodyDetail += "."
+            }
+            appendCustody(.summarized, detail: custodyDetail)
         } catch {
             errorMessage = "Summary generation failed: \(error.localizedDescription)"
             statusMessage = ""
@@ -1191,7 +1221,9 @@ final class AppModel: ObservableObject {
                                   hosts: hosts, custodyLog: custodyForExport,
                                   caseNotes: caseNotes.text,
                                   annotations: annotationsForExport,
-                                  executiveSummary: caseSummary?.text ?? "")
+                                  executiveSummary: caseSummary?.text ?? "",
+                                  summaryClaims: caseSummary?.claims ?? [],
+                                  summaryValidation: caseSummary?.validation)
 
         let outcome = await Task.detached(priority: .userInitiated) { () -> ExportOutcome in
             let files = ExportGenerator.generate(inputs: inputs, selection: selection)
@@ -4212,35 +4244,36 @@ final class AppModel: ObservableObject {
                 return name.hasSuffix(".plist") && lower.contains("/db/receipts/")
             }
         }
-        // WhereFroms candidates — download-likely files whose kMDItemWhereFroms
-        // xattr is worth fetching (Downloads/Desktop + installer/archive/script
-        // extensions under /Users; plus .app/.appex *bundles* in Downloads/Desktop,
-        // which are directories carrying the xattr on the bundle root). Capped to
-        // bound the per-file xattr reads; Downloads/Desktop are kept first so the
-        // retained set under the cap is the highest-value.
+        // WhereFroms candidates — files whose kMDItemWhereFroms xattr is worth
+        // fetching. The xattr lands on files the *user* downloaded, so target the
+        // download landing zones (Downloads/Desktop/Documents, any file) plus
+        // disk-image/installer files (dmg/pkg/iso — rare, high-value) elsewhere
+        // under /Users. Crucially, EXCLUDE `/Library/` (caches, app-support,
+        // containers) and **bundle internals** (`.app/`, `.framework/`, `.bundle/`),
+        // which hold tens of thousands of .bin/.gz/.jar files that are never
+        // user downloads — that over-match ballooned the candidate set. Capped to
+        // bound the per-file xattr reads; landing-zone files kept first.
         let whereFromCap = 2000
-        let whereFromExts: Set<String> = [
-            "dmg", "pkg", "zip", "command", "sh", "scpt", "jxa", "jar",
-            "iso", "gz", "tgz", "tar", "7z", "rar", "bin", "mobileconfig",
-        ]
+        let installerExts: Set<String> = ["dmg", "pkg", "iso"]
+        func isLandingZone(_ lower: String) -> Bool {
+            lower.contains("/downloads/") || lower.contains("/desktop/") || lower.contains("/documents/")
+        }
         func whereFromCandidates(_ s: EvidenceState) -> [FileEntry] {
             let matched = s.files.filter { entry in
                 let lower = entry.fullPath.lowercased()
+                guard lower.contains("/users/"), !lower.contains("/library/") else { return false }
+                if lower.contains(".app/") || lower.contains(".framework/") || lower.contains(".bundle/") {
+                    return false
+                }
                 let ext = (entry.name as NSString).pathExtension.lowercased()
                 let isBundle = entry.isDirectory && (ext == "app" || ext == "appex")
                 guard isBundle || (!entry.isDirectory && entry.size > 0) else { return false }
-                guard lower.contains("/users/") else { return false }
-                if lower.contains("/downloads/") || lower.contains("/desktop/") { return true }
-                return !entry.isDirectory && whereFromExts.contains(ext)
+                if isLandingZone(lower) { return true }
+                return !entry.isDirectory && installerExts.contains(ext)
             }
-            // Prioritise Downloads/Desktop so truncation keeps the best candidates.
-            return matched.sorted { a, b in
-                func rank(_ e: FileEntry) -> Int {
-                    let l = e.fullPath.lowercased()
-                    return (l.contains("/downloads/") || l.contains("/desktop/")) ? 0 : 1
-                }
-                return rank(a) < rank(b)
-            }
+            // Keep landing-zone candidates first so truncation drops the least-likely.
+            return matched.sorted { isLandingZone($0.fullPath.lowercased())
+                                    && !isLandingZone($1.fullPath.lowercased()) }
         }
         // The owning scope for a macOS db path: "system" unless it lives under a
         // user home, in which case the user's name.
@@ -4279,6 +4312,7 @@ final class AppModel: ObservableObject {
         progress = ProgressInfo(current: 0, total: total, label: "Parsing macOS artifacts")
         var completed = 0
         var whereFromTruncations: [String] = []
+        var whereFromExtractFailures = 0
         do {
             let tskEnv = try TSKEnvironment.discover()
             for evidence in evidenceList {
@@ -4360,13 +4394,16 @@ final class AppModel: ObservableObject {
                 }
                 // Extract a named extended attribute's bytes (APFS only — loose
                 // collections strip xattrs and the TSK path doesn't surface them).
-                func extractAttribute(_ entry: FileEntry, _ attribute: String) async -> Data? {
+                // Throws on a tool failure (rc 1, e.g. an fsapfscat without `-x`
+                // support) so the caller can distinguish "extraction failed" from
+                // "file has no such attribute" (rc 3, returns empty → nil here).
+                func extractAttribute(_ entry: FileEntry, _ attribute: String) async throws -> Data? {
                     guard isAPFS, let apfsExtractor else { return nil }
                     let outURL = scratch!.appendingPathComponent("xattr-\(entry.id)")
                     let off = state.volumes.first { $0.id == entry.fsID }?.offsetBytes ?? 0
-                    try? await apfsExtractor.extract(volumePath: entry.fullPath,
-                                                     volumeIndex: entry.fsID ?? 0,
-                                                     offsetBytes: off, to: outURL, attribute: attribute)
+                    try await apfsExtractor.extract(volumePath: entry.fullPath,
+                                                    volumeIndex: entry.fsID ?? 0,
+                                                    offsetBytes: off, to: outURL, attribute: attribute)
                     defer { try? FileManager.default.removeItem(at: outURL) }
                     guard let data = try? Data(contentsOf: outURL), !data.isEmpty else { return nil }
                     return data
@@ -4617,14 +4654,21 @@ final class AppModel: ObservableObject {
                 // Download provenance — kMDItemWhereFroms xattrs (APFS only; one
                 // xattr read per candidate file, capped above).
                 var whereFroms: [MacWhereFrom] = []
+                var wfExtractErrors = 0
                 for entry in foundWhereFrom {
                     progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
                     defer { completed += 1 }
-                    guard let data = await extractAttribute(entry, "com.apple.metadata:kMDItemWhereFroms") else { continue }
-                    if let wf = WhereFromsParser.parse(data, path: entry.fullPath, scope: macScope(entry.fullPath)) {
-                        whereFroms.append(wf)
+                    do {
+                        guard let data = try await extractAttribute(entry, "com.apple.metadata:kMDItemWhereFroms")
+                        else { continue }
+                        if let wf = WhereFromsParser.parse(data, path: entry.fullPath, scope: macScope(entry.fullPath)) {
+                            whereFroms.append(wf)
+                        }
+                    } catch {
+                        wfExtractErrors += 1
                     }
                 }
+                if wfExtractErrors > 0 { whereFromExtractFailures += wfExtractErrors }
 
                 if !foundPlists.isEmpty { state.launchItems = launch }
                 if !foundQuar.isEmpty { state.quarantine = quar }
@@ -4726,7 +4770,11 @@ final class AppModel: ObservableObject {
                 }
             }
             progress = ProgressInfo(current: completed, total: total, label: "macOS artifact parse complete")
-            if !whereFromTruncations.isEmpty {
+            if whereFromExtractFailures > 0 {
+                // Almost always: the bundled fsapfscat predates the `-x` xattr mode.
+                statusMessage = "WhereFroms: xattr extraction failed for \(whereFromExtractFailures) file(s) — "
+                    + "rebuild fsapfscat with `-x` support (scripts/build-tsk.sh) and re-bundle it into the app."
+            } else if !whereFromTruncations.isEmpty {
                 statusMessage = "WhereFroms coverage truncated to \(whereFromTruncations.joined(separator: ", ")) download-likely files."
             }
         } catch {
@@ -5534,11 +5582,145 @@ final class AppModel: ObservableObject {
     /// Run analyzers against each evidence's own context, then store the
     /// findings on that evidence. "All" mode unions the per-evidence buckets
     /// via the computed `findings` property.
+    // MARK: - Ransomware entropy verification
+
+#if os(macOS)
+    private static let entropyMaxSamplesPerExt = 8
+    private static let entropyHeadBytes = 65_536
+    private static let entropyMinFileBytes: Int64 = 512
+    private static let entropyMaxFileBytes: Int64 = 16 * 1024 * 1024
+
+    /// Sample the real bytes of files caught in a ransomware mass-encryption
+    /// burst and compute their Shannon entropy, so `ImpactDestructionAnalyzer`
+    /// can confirm the files were actually encrypted (high entropy) rather than
+    /// merely renamed. Returns `[extension: stat]`; empty (and no I/O) when there
+    /// is no burst - the common case - so this costs nothing unless one is found.
+    private func sampleEncryptionEntropy(for evidence: Evidence,
+                                         state: EvidenceState) async -> [String: EncryptionEntropyStat] {
+        let bursts = ImpactDestructionAnalyzer.encryptionBursts(
+            files: state.files, usn: state.usn, mft: state.mft)
+        guard !bursts.isEmpty else { return [:] }
+
+        let isLoose = evidence.kind == .kapeLooseFolder
+        let isAPFS = evidence.kind == .apfs
+        var database: TSKDatabase?
+        var extractor: TSKFileExtractor?
+        var apfsExtractor: FsApfsExtractor?
+        var scratch: URL?
+        if !isLoose {
+            guard let env = try? TSKEnvironment.discover() else { return [:] }
+            let dir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("strata-entropy-\(evidence.id.uuidString)")
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            scratch = dir
+            if isAPFS {
+                apfsExtractor = FsApfsExtractor(environment: env,
+                                                rawURL: evidence.apfsRawURL ?? evidence.sourceURL,
+                                                credential: fileVaultCredentials[evidence.id])
+            } else {
+                guard let dbURL = state.dbURL, let db = try? TSKDatabase(path: dbURL) else { return [:] }
+                database = db
+                extractor = TSKFileExtractor(environment: env, imageURL: evidence.sourceURL,
+                                             imageType: TSKImageIngestor.imageType(for: evidence.sourceURL))
+            }
+        }
+        defer { if let scratch { try? FileManager.default.removeItem(at: scratch) } }
+
+        var result: [String: EncryptionEntropyStat] = [:]
+        for burst in bursts {
+            // Sample only LIVE files that are part of THIS burst (matched by the
+            // lowercased leaf name `encryptionBursts` counted), so the entropy
+            // reflects the burst population - not incidental same-extension files
+            // - and never a deleted entry whose runlist may point at reallocated
+            // (stale) clusters under icat.
+            let candidates = state.files
+                .filter { !$0.isDirectory && !$0.isDeleted
+                          && $0.fileExtension == burst.ext
+                          && burst.names.contains($0.name.lowercased())
+                          && $0.size >= Self.entropyMinFileBytes
+                          && $0.size <= Self.entropyMaxFileBytes }
+                .prefix(Self.entropyMaxSamplesPerExt)
+            var perFile: [Double] = []
+            for entry in candidates {
+                if let e = await fileMaxEntropy(of: entry, isLoose: isLoose, isAPFS: isAPFS,
+                                                state: state, database: database, extractor: extractor,
+                                                apfsExtractor: apfsExtractor, scratch: scratch) {
+                    perFile.append(e)
+                }
+            }
+            if let stat = EncryptionEntropyStat.from(fileMaxEntropies: perFile) { result[burst.ext] = stat }
+        }
+        return result
+    }
+
+    /// The maximum windowed entropy of one file's content, read via the right
+    /// path for the evidence kind (loose disk / APFS fsapfscat / TSK icat).
+    /// Best-effort: nil when the bytes can't be read (analyzer → "unverified").
+    private func fileMaxEntropy(of entry: FileEntry, isLoose: Bool, isAPFS: Bool,
+                               state: EvidenceState, database: TSKDatabase?,
+                               extractor: TSKFileExtractor?, apfsExtractor: FsApfsExtractor?,
+                               scratch: URL?) async -> Double? {
+        let url: URL
+        var cleanup: URL?
+        if isLoose {
+            guard let disk = entry.diskURL else { return nil }
+            url = disk
+        } else {
+            guard let scratch else { return nil }
+            let outURL = scratch.appendingPathComponent("\(entry.id)")
+            cleanup = outURL
+            if isAPFS {
+                guard let apfsExtractor else { return nil }
+                let off = state.volumes.first { $0.id == entry.fsID }?.offsetBytes ?? 0
+                try? await apfsExtractor.extract(volumePath: entry.fullPath, volumeIndex: entry.fsID ?? 0,
+                                                 offsetBytes: off, to: outURL)
+            } else {
+                guard let database, let extractor,
+                      let info = try? database.fetchExtractInfo(forFileID: entry.id) else { return nil }
+                try? await extractor.extract(metaAddr: info.metaAddr,
+                                             imageOffsetSectors: info.imageOffsetSectors, to: outURL)
+            }
+            url = outURL
+        }
+        defer { if let cleanup { try? FileManager.default.removeItem(at: cleanup) } }
+        return Self.windowedMaxEntropy(at: url, fileSize: entry.size)
+    }
+
+    /// Max Shannon entropy over up to three windows (head / middle / tail) of the
+    /// file. Sampling more than the head is what lets partial / intermittent /
+    /// append-based encryptors - which leave the head plaintext - still register
+    /// as encrypted.
+    private static func windowedMaxEntropy(at url: URL, fileSize: Int64) -> Double? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        let window = entropyHeadBytes
+        var offsets: [UInt64] = [0]
+        if fileSize > Int64(window) * 2 {
+            offsets.append(UInt64(Swift.max(0, fileSize / 2 - Int64(window / 2))))
+            offsets.append(UInt64(Swift.max(0, fileSize - Int64(window))))
+        }
+        var best: Double?
+        for off in offsets {
+            try? handle.seek(toOffset: off)
+            guard let data = try? handle.read(upToCount: window),
+                  data.count >= Int(entropyMinFileBytes) else { continue }
+            best = Swift.max(best ?? 0, FileEntropy.shannonEntropy(data))
+        }
+        return best
+    }
+#else
+    private func sampleEncryptionEntropy(for evidence: Evidence,
+                                         state: EvidenceState) async -> [String: EncryptionEntropyStat] { [:] }
+#endif
+
     func runAnalyzers(recordCustody: Bool = true) async {
         statusMessage = "Running analyzers..."
         var total = 0
         for evidence in evidenceList {
             guard var state = states[evidence.id] else { continue }
+            // Verify any ransomware mass-encryption burst by sampling real file
+            // bytes (no-op / no I/O unless a burst is actually present).
+            let encryptionEntropy = await sampleEncryptionEntropy(for: evidence, state: state)
             let context = AnalysisContext(files: state.files,
                                           events: state.events,
                                           timeline: state.timeline,
@@ -5584,7 +5766,8 @@ final class AppModel: ObservableObject {
                                           powerlog: state.powerlog,
                                           config: state.macConfig,
                                           installHistory: state.installHistory,
-                                          whereFroms: state.whereFroms)
+                                          whereFroms: state.whereFroms,
+                                          encryptionEntropy: encryptionEntropy)
             let results = await analysisEngine.run(on: context)
             state.findings = results
             states[evidence.id] = state
