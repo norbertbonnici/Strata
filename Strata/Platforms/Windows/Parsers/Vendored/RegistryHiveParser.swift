@@ -12,9 +12,9 @@ import Foundation
 /// If a registry browser view ever needs the tree, build it on demand from
 /// the flat list.
 public actor RegistryHiveParser {
-    private let environment: RegistryEnvironment
+    private let environment: VendoredTool
 
-    public init(environment: RegistryEnvironment) { self.environment = environment }
+    public init(environment: VendoredTool) { self.environment = environment }
 
     /// Run regfexport against a hive file and parse its output.
     /// `hiveLabel` is the logical hive name we tag every value with
@@ -50,8 +50,8 @@ public actor RegistryHiveParser {
         try? outHandle.close()
 
         guard process.terminationStatus == 0 else {
-            throw RegistryError.parseFailed(exitCode: process.terminationStatus,
-                                            stderr: stderrCollector.text)
+            throw VendoredToolError.parseFailed(tool: "regfexport", exitCode: process.terminationStatus,
+                                                stderr: stderrCollector.text)
         }
 
         let text = (try? String(contentsOf: tempURL, encoding: .utf8)) ?? ""

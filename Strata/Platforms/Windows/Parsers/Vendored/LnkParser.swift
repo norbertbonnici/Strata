@@ -6,9 +6,9 @@ import Foundation
 /// liblnk's `lnkinfo`. One `.lnk` describes one shortcut, so each parse yields a
 /// single entry (or nil if nothing useful decoded).
 public actor LnkParser {
-    private let environment: LnkEnvironment
+    private let environment: VendoredTool
 
-    public init(environment: LnkEnvironment) { self.environment = environment }
+    public init(environment: VendoredTool) { self.environment = environment }
 
     public func parse(fileAt fileURL: URL) async throws -> LnkEntry? {
         let tool = try environment.url(for: "lnkinfo")
@@ -38,8 +38,8 @@ public actor LnkParser {
         try? outHandle.close()
 
         guard process.terminationStatus == 0 else {
-            throw LnkError.parseFailed(exitCode: process.terminationStatus,
-                                       stderr: stderrCollector.text)
+            throw VendoredToolError.parseFailed(tool: "lnkinfo", exitCode: process.terminationStatus,
+                                                stderr: stderrCollector.text)
         }
 
         let text = (try? String(contentsOf: tempURL, encoding: .utf8)) ?? ""

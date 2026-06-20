@@ -11,9 +11,9 @@ import Foundation
 /// text report. The report is small (a few KB), but we still spool stdout to a
 /// temp file to stay consistent with EVTXParser and sidestep any pipe edge case.
 public actor PrefetchParser {
-    private let environment: PrefetchEnvironment
+    private let environment: VendoredTool
 
-    public init(environment: PrefetchEnvironment) { self.environment = environment }
+    public init(environment: VendoredTool) { self.environment = environment }
 
     public func parse(fileAt fileURL: URL) async throws -> PrefetchEntry? {
         let tool = try environment.url(for: "sccainfo")
@@ -43,8 +43,8 @@ public actor PrefetchParser {
         try? outHandle.close()
 
         guard process.terminationStatus == 0 else {
-            throw PrefetchError.parseFailed(exitCode: process.terminationStatus,
-                                            stderr: stderrCollector.text)
+            throw VendoredToolError.parseFailed(tool: "sccainfo", exitCode: process.terminationStatus,
+                                                stderr: stderrCollector.text)
         }
 
         let text = (try? String(contentsOf: tempURL, encoding: .utf8)) ?? ""

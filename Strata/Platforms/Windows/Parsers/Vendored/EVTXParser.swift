@@ -7,9 +7,9 @@ import Foundation
 /// we split on the record boundary and pull fields out with simple regexes
 /// (a full XMLParser pass would be slower and the format is rigid).
 public actor EVTXParser {
-    private let environment: EVTXEnvironment
+    private let environment: VendoredTool
 
-    public init(environment: EVTXEnvironment) { self.environment = environment }
+    public init(environment: VendoredTool) { self.environment = environment }
 
     public func parse(fileAt fileURL: URL) async throws -> [EventLogRecord] {
         let tool = try environment.url(for: "evtxexport")
@@ -45,8 +45,8 @@ public actor EVTXParser {
         try? outHandle.close()
 
         guard process.terminationStatus == 0 else {
-            throw EVTXError.parseFailed(exitCode: process.terminationStatus,
-                                        stderr: stderrCollector.text)
+            throw VendoredToolError.parseFailed(tool: "evtxexport", exitCode: process.terminationStatus,
+                                                stderr: stderrCollector.text)
         }
 
         let xml = (try? String(contentsOf: tempURL, encoding: .utf8)) ?? ""

@@ -58,6 +58,13 @@ Per-release notes live in `docs/releases/`; keep `CHANGELOG.md` updated.
 
 ## Architecture (folders under `Strata/`)
 
+> **Placement guide:** see [ARCHITECTURE.md](ARCHITECTURE.md) for the
+> "where does this go?" decision tree. OS-specific artifact code now lives under
+> `Strata/Platforms/<Windows|macOS|Linux|Shared>/{Parsers,Models}/`; `StrataCore`
+> is slimmed to cross-cutting `Models/` + `Utilities/`. The per-format folders
+> below (StrataEVTX, StrataMac, StrataLinux, …) have been consolidated there —
+> the table records their *responsibilities*, which are unchanged.
+
 | Module | Responsibility |
 |--------|----------------|
 | `StrataCore` | Value types: `FileEntry`, `TimelineEvent`, `EventLogRecord`, `RegistryValue`, `IOC`, `HostProfile`, `VolumeInfo`, case + kill-chain models |

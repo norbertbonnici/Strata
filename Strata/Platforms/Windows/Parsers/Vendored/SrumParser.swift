@@ -11,9 +11,9 @@ import Foundation
 /// `SrumExportDecoder`, which resolves the SruDbIdMapTable foreign keys and
 /// builds the unified rows. Mirrors `JumpListParser`'s use of `olecfexport`.
 public actor SrumParser {
-    private let environment: SRUMEnvironment
+    private let environment: VendoredTool
 
-    public init(environment: SRUMEnvironment) { self.environment = environment }
+    public init(environment: VendoredTool) { self.environment = environment }
 
     public func parse(fileAt fileURL: URL, sourceFile: String) async throws -> [SrumEntry] {
         let tool = try environment.url(for: "esedbexport")
@@ -46,7 +46,7 @@ public actor SrumParser {
         try await process.runAndWait()
         stderrPipe.fileHandleForReading.readabilityHandler = nil
         guard process.terminationStatus == 0 else {
-            throw SRUMError.exportFailed(exitCode: process.terminationStatus, stderr: collector.text)
+            throw VendoredToolError.parseFailed(tool: "esedbexport", exitCode: process.terminationStatus, stderr: collector.text)
         }
 
         let fm = FileManager.default

@@ -1,0 +1,38 @@
+# SwiftLint config. CI runs non-strict (warnings don't fail the build), so this
+# is signal to tighten over time, not a hard gate. See ARCHITECTURE.md for the
+# placement rules CI's structure check enforces.
+included:
+  - Strata
+  - StrataTests
+excluded:
+  - Vendor
+  - Design
+
+disabled_rules:
+  - todo                 # tracked in the roadmap, not the linter
+  - trailing_comma
+  - opening_brace
+  - for_where
+
+line_length:
+  warning: 140           # forensic format/path strings are wide
+  ignores_comments: true
+  ignores_urls: true
+
+file_length:
+  warning: 1600          # AppModel etc. are large by design; warn only when extreme
+  ignore_comment_only_lines: true
+
+type_body_length:
+  warning: 700
+
+function_body_length:
+  warning: 130
+
+identifier_name:
+  min_length:
+    warning: 1           # single-letter byte-parser locals (i, p, b) are idiomatic
+  excluded: [id, db, ok, to]
+
+cyclomatic_complexity:
+  warning: 25            # byte-parsers + analyzers branch heavily
