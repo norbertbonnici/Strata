@@ -43,8 +43,7 @@ public actor SrumParser {
             collector.append(String(decoding: chunk, as: UTF8.self))
         }
 
-        try process.run()
-        await withCheckedContinuation { c in process.terminationHandler = { _ in c.resume() } }
+        try await process.runAndWait()
         stderrPipe.fileHandleForReading.readabilityHandler = nil
         guard process.terminationStatus == 0 else {
             throw SRUMError.exportFailed(exitCode: process.terminationStatus, stderr: collector.text)

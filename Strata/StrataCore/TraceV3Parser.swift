@@ -59,10 +59,13 @@ public nonisolated enum TraceV3Parser {
         var i = 0
         while i + 16 <= bytes.count {
             let tag = readU32(bytes, i)
-            let size = Int(readU64(bytes, i + 8))
             let dataStart = i + 16
+            // Hostile size field: reject anything past Int.max (the trapping
+            // Int(UInt64) initializer), then bound against the buffer without an
+            // Int overflow (dataStart <= bytes.count holds from the loop guard).
+            guard let size = intExact(readU64(bytes, i + 8)),
+                  size <= bytes.count - dataStart else { break }
             let dataEnd = dataStart + size
-            guard size >= 0, dataEnd <= bytes.count else { break }
             result.append(Chunk(tag: tag, subtag: readU32(bytes, i + 4), range: dataStart..<dataEnd))
             // Advance to the next 8-byte-aligned preamble.
             var next = dataEnd

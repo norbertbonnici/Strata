@@ -55,17 +55,32 @@ public nonisolated struct PasswordSprayAnalyzer: Analyzer {
     /// Slide a 60-minute window over per-source failures; return the first
     /// slice that meets distinct-accounts + low-per-user thresholds.
     private func firstSprayWindow(in hits: [EventLogRecord]) -> [EventLogRecord]? {
+        // Precompute the target account once per hit — `data()` compiles a fresh
+        // regex per call, so calling it per window position is what made this
+        // O(n²) on a forged 4625 flood — then slide a genuine two-pointer window
+        // with an incremental distinct-account multiset. O(n) overall; the slice
+        // is materialised only on a match.
+        let users: [String?] = hits.map { $0.data("TargetUserName")?.lowercased() }
+        var counts: [String: Int] = [:]
+        var distinct = 0
         var start = 0
         for end in 0..<hits.count {
+            if let u = users[end] {
+                if counts[u, default: 0] == 0 { distinct += 1 }
+                counts[u, default: 0] += 1
+            }
             while hits[end].writtenAt.timeIntervalSince(hits[start].writtenAt) > Self.window {
+                if let u = users[start] {
+                    counts[u]! -= 1
+                    if counts[u]! == 0 { distinct -= 1 }
+                }
                 start += 1
             }
-            let slice = Array(hits[start...end])
-            let users = Set(slice.compactMap { $0.data("TargetUserName")?.lowercased() })
-            let perUser = Double(slice.count) / Double(max(1, users.count))
-            if users.count >= Self.minDistinctAccounts,
+            let windowCount = end - start + 1
+            let perUser = Double(windowCount) / Double(max(1, distinct))
+            if distinct >= Self.minDistinctAccounts,
                perUser <= Double(Self.maxAttemptsPerAccount) {
-                return slice
+                return Array(hits[start...end])
             }
         }
         return nil

@@ -107,10 +107,7 @@ public actor EWFInfo {
             text.split(whereSeparator: \.isNewline).forEach { progress?(String($0)) }
         }
 
-        try process.run()
-        await withCheckedContinuation { continuation in
-            process.terminationHandler = { _ in continuation.resume() }
-        }
+        try await process.runAndWait()
         outPipe.fileHandleForReading.readabilityHandler = nil
         errPipe.fileHandleForReading.readabilityHandler = nil
 

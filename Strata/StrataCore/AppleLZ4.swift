@@ -34,7 +34,11 @@ public nonisolated enum AppleLZ4 {
                 let decodedSize = Int(readU32(bytes, i + 4))
                 let encodedSize = Int(readU32(bytes, i + 8))
                 let start = i + 12, end = start + encodedSize
-                guard end <= bytes.count, decodedSize >= 0 else { return nil }
+                // Cap the per-block decoded size: `decoded_size` is an attacker
+                // field, so a 12-byte block could otherwise force a ~4 GB
+                // zero-filled allocation (decompression bomb). 256 MB/block is far
+                // above any real unified-log chunkset.
+                guard end <= bytes.count, decodedSize >= 0, decodedSize <= 256 << 20 else { return nil }
                 guard let block = lz4RawDecode(Array(bytes[start..<end]), decodedSize: decodedSize)
                 else { return nil }
                 out.append(block)

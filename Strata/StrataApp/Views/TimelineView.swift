@@ -286,8 +286,13 @@ struct TimelineView: View {
     private var histogramControls: some View {
         HStack(spacing: 8) {
             if let extent = fullExtent {
+                // Clamp the displayed value into `extent`: a "Reveal in Timeline"
+                // pivot can set `dateSelection` ±30 min beyond the current source
+                // scope's extent, and DatePicker(selection:in:) requires the value
+                // to lie within the range. (Inlined min/max — a local func isn't
+                // allowed inside the ViewBuilder body.)
                 let lower = Binding<Date>(
-                    get: { visibleRange?.lowerBound ?? extent.lowerBound },
+                    get: { min(max(visibleRange?.lowerBound ?? extent.lowerBound, extent.lowerBound), extent.upperBound) },
                     set: { newStart in
                         let current = visibleRange ?? extent
                         let end = max(newStart, current.upperBound)
@@ -295,7 +300,7 @@ struct TimelineView: View {
                     }
                 )
                 let upper = Binding<Date>(
-                    get: { visibleRange?.upperBound ?? extent.upperBound },
+                    get: { min(max(visibleRange?.upperBound ?? extent.upperBound, extent.lowerBound), extent.upperBound) },
                     set: { newEnd in
                         let current = visibleRange ?? extent
                         let start = min(current.lowerBound, newEnd)

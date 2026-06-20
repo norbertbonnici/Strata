@@ -6,13 +6,23 @@ import Foundation
 public nonisolated enum CSVExporter {
     private static let newline = "\r\n"
 
-    /// Escape a single field per RFC-4180.
+    /// Escape a single field per RFC-4180, and neutralize spreadsheet formula
+    /// injection. Cell text comes from adversary-controlled evidence (file and
+    /// registry names, IOC values, event fields); a field that begins with a
+    /// formula trigger (`= + - @`, or a leading tab/CR) is *executed* by Excel /
+    /// Numbers / LibreOffice when the examiner opens the export (HYPERLINK /
+    /// WEBSERVICE exfiltration, DDE), turning a forensic export into an attack on
+    /// the analyst. Prefix such a field with a single quote so it's treated as
+    /// text; the raw value stays recoverable and the JSON export is unaffected.
     static func escape(_ field: String) -> String {
-        if field.contains(",") || field.contains("\"") ||
-           field.contains("\n") || field.contains("\r") {
-            return "\"" + field.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+        var f = field
+        if let first = f.first, "=+-@\t\r".contains(first) {
+            f = "'" + f
         }
-        return field
+        if f.contains(",") || f.contains("\"") || f.contains("\n") || f.contains("\r") {
+            return "\"" + f.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+        }
+        return f
     }
 
     /// Join one record's fields into an escaped CSV line.

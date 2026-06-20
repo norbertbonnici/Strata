@@ -95,9 +95,14 @@ struct TimelineHistogram: View {
     }
 
     private var scaleDomain: ClosedRange<Date> {
-        if let span = visibleSpan { return span }
-        let now = Date()
-        return now...now.addingTimeInterval(1)
+        // A single event — or many events sharing one timestamp (trivially
+        // producible by hostile evidence: a uniform FILETIME, or 1980-epoch slack
+        // rows) — yields a zero-width span, which feeds Swift Charts a degenerate
+        // (NaN) x-scale and collapses the plot. Synthesize a 1-second window in
+        // that case, not just when the span is nil.
+        if let span = visibleSpan, span.upperBound > span.lowerBound { return span }
+        let anchor = visibleSpan?.lowerBound ?? Date()
+        return anchor...anchor.addingTimeInterval(1)
     }
 
     private func clamp(_ value: CGFloat, to range: ClosedRange<CGFloat>) -> CGFloat {

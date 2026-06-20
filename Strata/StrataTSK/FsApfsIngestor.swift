@@ -177,7 +177,11 @@ public actor FsApfsIngestor {
             let cols = line.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
             guard cols.count >= 4, cols[0].hasSuffix(":"),
                   let startSector = UInt64(cols[2]) else { continue }
-            offsets.append(startSector * 512)
+            // A crafted partition table can declare a near-UInt64.max start LBA;
+            // the bare `* 512` would trap on overflow — skip such an entry.
+            let (byteOffset, overflow) = startSector.multipliedReportingOverflow(by: 512)
+            guard !overflow else { continue }
+            offsets.append(byteOffset)
         }
         return offsets
     }
@@ -225,8 +229,7 @@ public actor FsApfsIngestor {
             let d = h.availableData
             if !d.isEmpty { outData.append(d) }
         }
-        try process.run()
-        await withCheckedContinuation { c in process.terminationHandler = { _ in c.resume() } }
+        try await process.runAndWait()
         errPipe.fileHandleForReading.readabilityHandler = nil
         outPipe.fileHandleForReading.readabilityHandler = nil
         guard process.terminationReason == .exit, process.terminationStatus == 0 else {

@@ -40,10 +40,7 @@ public actor EVTXParser {
             stderrCollector.append(String(decoding: chunk, as: UTF8.self))
         }
 
-        try process.run()
-        await withCheckedContinuation { continuation in
-            process.terminationHandler = { _ in continuation.resume() }
-        }
+        try await process.runAndWait()
         stderrPipe.fileHandleForReading.readabilityHandler = nil
         try? outHandle.close()
 

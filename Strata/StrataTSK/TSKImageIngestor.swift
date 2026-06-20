@@ -45,10 +45,7 @@ public actor TSKImageIngestor {
             text.split(whereSeparator: \.isNewline).forEach { progress?(String($0)) }
         }
 
-        try process.run()
-        await withCheckedContinuation { continuation in
-            process.terminationHandler = { _ in continuation.resume() }
-        }
+        try await process.runAndWait()
         stderrPipe.fileHandleForReading.readabilityHandler = nil
 
         // A signal (e.g. SIGABRT from TSK's APFS parser crashing on a macOS

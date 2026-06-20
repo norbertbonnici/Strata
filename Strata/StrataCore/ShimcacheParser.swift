@@ -130,11 +130,15 @@ public nonisolated enum ShimcacheParser {
                 let pathOffset: Int
                 let ftOffset: Int
                 if is64 {
-                    pathOffset = Int(u64(b, base + 8) ?? 0); ftOffset = base + 16
+                    // A hostile 64-bit path offset past Int.max would trap
+                    // Int(UInt64); -1 sentinel falls out the `> 0` guard below.
+                    pathOffset = u64(b, base + 8).flatMap(intExact) ?? -1; ftOffset = base + 16
                 } else {
-                    pathOffset = Int(u32(b, base + 4) ?? 0); ftOffset = base + 8
+                    pathOffset = u32(b, base + 4).map { Int($0) } ?? -1; ftOffset = base + 8
                 }
-                guard pathOffset > 0, pathOffset + Int(pathLen) <= b.count else { continue }
+                // Overflow-safe bound: `pathOffset + pathLen` could overflow Int.
+                guard pathOffset > 0, pathOffset <= b.count,
+                      Int(pathLen) <= b.count - pathOffset else { continue }
                 let path = utf16(b, pathOffset, pathOffset + Int(pathLen))
                 guard !path.isEmpty else { continue }
                 out.append(ShimcacheEntry(path: path,
