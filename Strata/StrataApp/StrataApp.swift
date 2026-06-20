@@ -88,6 +88,12 @@ private struct ToolsCommands: Commands {
             Button("Carve Deleted Files") { Task { await model.carveArtifacts() } }
                 .disabled(!model.hasApfsHost || model.isWorking)
 
+            Button("Run Summary Self-Eval") { model.requestSummaryEval() }
+                .disabled(model.isWorking || !model.summaryAvailability.isAvailable)
+
+            Button("AI Inference Settings...") { model.activeSheet = .inferenceSettings }
+                .disabled(model.isWorking)
+
             Divider()
 
             Button("Export...") { model.requestExport() }

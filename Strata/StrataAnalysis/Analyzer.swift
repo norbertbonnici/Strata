@@ -52,6 +52,12 @@ public nonisolated struct AnalysisContext: Sendable {
     public let config: [MacConfigSetting]
     public let installHistory: [MacInstallEntry]
     public let whereFroms: [MacWhereFrom]
+    /// Per-extension entropy verdict for files caught in a ransomware
+    /// mass-encryption burst, sampled from real bytes at the AppModel level
+    /// (analyzers are pure / no I/O). Keyed by lowercased extension; absent for
+    /// an extension means "content not measured". Empty on iOS / loose-without-
+    /// content / when there is no burst.
+    public let encryptionEntropy: [String: EncryptionEntropyStat]
 
     public init(files: [FileEntry], events: [EventLogRecord],
                 timeline: [TimelineEvent], registryValues: [RegistryValue],
@@ -79,7 +85,8 @@ public nonisolated struct AnalysisContext: Sendable {
                 powerlog: [PowerlogEntry] = [],
                 config: [MacConfigSetting] = [],
                 installHistory: [MacInstallEntry] = [],
-                whereFroms: [MacWhereFrom] = []) {
+                whereFroms: [MacWhereFrom] = [],
+                encryptionEntropy: [String: EncryptionEntropyStat] = [:]) {
         self.files = files
         self.events = events
         self.timeline = timeline
@@ -126,6 +133,7 @@ public nonisolated struct AnalysisContext: Sendable {
         self.config = config
         self.installHistory = installHistory
         self.whereFroms = whereFroms
+        self.encryptionEntropy = encryptionEntropy
     }
 }
 

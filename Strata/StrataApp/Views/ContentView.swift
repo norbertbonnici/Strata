@@ -202,6 +202,18 @@ struct ContentView: View {
                 #else
                 EmptyView()
                 #endif
+            case .inferenceSettings:
+                #if os(macOS)
+                InferenceSettingsSheet().environmentObject(model)
+                #else
+                EmptyView()
+                #endif
+            case .cloudInferenceConfirm(let action):
+                #if os(macOS)
+                CloudInferenceConfirmSheet(action: action).environmentObject(model)
+                #else
+                EmptyView()
+                #endif
             }
         }
     }

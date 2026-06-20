@@ -48,10 +48,35 @@ public nonisolated enum HTMLReportRenderer {
 
         // AI executive summary - on-device generated, ahead of the analyst's
         // own narrative.
-        if !model.executiveSummary.isEmpty {
+        // The section renders when there's an overview OR validated claims, so a
+        // (rare) whitespace-only overview never drops the evidence-anchored claims.
+        if !model.executiveSummary.isEmpty || !model.summaryClaims.isEmpty {
             out += "<h2>Executive summary</h2>\n"
-            out += "<p class=\"narrative\">\(escapeMultiline(model.executiveSummary))</p>\n"
-            out += "<p class=\"note\">Generated on-device by Apple Intelligence. Examiner review recommended.</p>\n"
+            if !model.executiveSummary.isEmpty {
+                out += "<p class=\"narrative\">\(escapeMultiline(model.executiveSummary))</p>\n"
+            }
+            // Validated, evidence-anchored claims (each cites the real artifact
+            // paths from its supporting findings - never model-emitted text).
+            if !model.summaryClaims.isEmpty {
+                out += "<ul class=\"claims\">\n"
+                for claim in model.summaryClaims {
+                    out += "<li>\(severityBadge(claim.severity, suffix: "")) \(escape(claim.statement))"
+                    if !claim.citations.isEmpty {
+                        let cites = claim.citations.map { "<code>\(escape($0))</code>" }.joined(separator: " ")
+                        out += " <span class=\"cite\">\(cites)</span>"
+                    }
+                    out += "</li>\n"
+                }
+                out += "</ul>\n"
+            }
+            if let v = model.summaryValidation, v.hadIssues {
+                out += "<p class=\"note\">Validation: \(v.claimsKept) claim(s) kept"
+                if v.claimsDroppedUnsupported > 0 { out += ", \(v.claimsDroppedUnsupported) dropped citing no evidence" }
+                if v.phantomRefsDropped > 0 { out += ", \(v.phantomRefsDropped) phantom reference(s) stripped" }
+                if !v.flaggedPathTokens.isEmpty { out += ", \(v.flaggedPathTokens.count) unverified path(s) flagged" }
+                out += ".</p>\n"
+            }
+            out += "<p class=\"note\">\(escape(model.summaryProvenanceNote))</p>\n"
         }
 
         // Analyst narrative + bookmarked items - the case story as the analyst

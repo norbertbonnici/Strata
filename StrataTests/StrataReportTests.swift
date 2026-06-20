@@ -243,6 +243,148 @@ struct StrataReportTests {
         #expect(decoded == summary)
     }
 
+    @Test func caseSummaryDecodesLegacyJSONWithoutNewKeys() throws {
+        // A summary.json written before the validated structured path: only the
+        // four original keys. It must decode with claims == [] / validation == nil.
+        let legacy = """
+        {"text":"Legacy summary.","generatedAt":"2001-01-01T00:00:00Z","findingCount":2,"modelLabel":"Apple Intelligence (on-device)"}
+        """
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = .iso8601
+        let summary = try dec.decode(CaseSummary.self, from: Data(legacy.utf8))
+        #expect(summary.text == "Legacy summary.")
+        #expect(summary.findingCount == 2)
+        #expect(summary.claims.isEmpty)
+        #expect(summary.validation == nil)
+    }
+
+    @Test func caseSummaryRoundTripsClaimsAndValidation() throws {
+        let claim = SummaryClaim(statement: "Persistence via LaunchAgent.",
+                                 phase: .installation, severity: .high,
+                                 citations: ["/Library/LaunchAgents/x.plist"])
+        let report = SummaryValidationReport(claimsProposed: 3, claimsKept: 1,
+                                             claimsDroppedUnsupported: 1, phantomRefsDropped: 2,
+                                             flaggedPathTokens: ["/Users/evil/y"])
+        let summary = CaseSummary(text: "Overview.", generatedAt: Self.epoch,
+                                  findingCount: 5, modelLabel: "Apple Intelligence (on-device)",
+                                  claims: [claim], validation: report)
+        let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601
+        let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
+        let decoded = try dec.decode(CaseSummary.self, from: enc.encode(summary))
+        #expect(decoded == summary)
+        #expect(decoded.claims.first?.citations == ["/Library/LaunchAgents/x.plist"])
+        #expect(decoded.validation?.hadIssues == true)
+    }
+
+    @Test func executiveSummaryClaimsRenderInMarkdownAndHTML() {
+        let claim = SummaryClaim(statement: "Office spawned PowerShell.",
+                                 phase: .exploitation, severity: .high,
+                                 citations: ["/Users/v/Library/LaunchAgents/x.plist"])
+        // hadIssues == true (one claim dropped) so the validation caveat renders.
+        let report = SummaryValidationReport(claimsProposed: 2, claimsKept: 1,
+                                             claimsDroppedUnsupported: 1, phantomRefsDropped: 0,
+                                             flaggedPathTokens: [])
+        let inputs = ReportInputs(
+            caseName: "Operation Test", examiner: "J. Doe",
+            createdAt: Self.epoch, generatedAt: Self.epoch.addingTimeInterval(3600),
+            hosts: [Self.sampleHost()],
+            executiveSummary: "The host was compromised.",
+            summaryClaims: [claim], summaryValidation: report)
+        let model = ReportModelBuilder.build(from: inputs)
+
+        let md = MarkdownReportRenderer.render(model)
+        #expect(md.contains("Office spawned PowerShell."))
+        #expect(md.contains("/Users/v/Library/LaunchAgents/x.plist"))
+        #expect(md.contains("Validation:"))
+
+        let html = HTMLReportRenderer.render(model)
+        #expect(html.contains("Office spawned PowerShell."))
+        #expect(html.contains("class=\"claims\""))
+        #expect(html.contains("Validation:"))
+    }
+
+    /// The examiner report (legal-weight) must state the TRUE generation
+    /// provenance: an off-device (Apple Private Cloud Compute / third-party)
+    /// summary may never be reported as on-device/sovereign.
+    @Test func reportStatesTrueGenerationProvenance() {
+        func render(tier: SovereigntyTier, label: String) -> (md: String, html: String) {
+            let inputs = ReportInputs(
+                caseName: "Op", examiner: "J", createdAt: Self.epoch, generatedAt: Self.epoch,
+                hosts: [Self.sampleHost()], executiveSummary: "Overview.",
+                summaryModelLabel: label, summarySovereignty: tier)
+            let model = ReportModelBuilder.build(from: inputs)
+            return (MarkdownReportRenderer.render(model), HTMLReportRenderer.render(model))
+        }
+
+        // On-device (and legacy empty label): the historical wording stands.
+        let onDevice = render(tier: .onDevice, label: "Apple Intelligence (on-device)")
+        #expect(onDevice.md.contains("Generated on-device by Apple Intelligence"))
+        #expect(onDevice.html.contains("Generated on-device by Apple Intelligence"))
+        #expect(ReportModel.summaryProvenanceNote(tier: .onDevice, modelLabel: "").contains("on-device"))
+
+        // Apple Private Cloud Compute: never "on-device"; must say off-device + name PCC.
+        let pcc = render(tier: .applePrivateCloud, label: "Apple Private Cloud Compute")
+        #expect(!pcc.md.contains("Generated on-device by Apple Intelligence"))
+        #expect(!pcc.html.contains("Generated on-device by Apple Intelligence"))
+        #expect(pcc.md.contains("Apple Private Cloud Compute"))
+        #expect(pcc.md.contains("off-device"))
+        #expect(pcc.html.contains("off-device"))
+
+        // Third-party cloud: never "on-device"; must name the model + off-host.
+        let cloud = render(tier: .thirdPartyCloud, label: "Cloud · claude-opus-4-8")
+        #expect(!cloud.md.contains("Generated on-device by Apple Intelligence"))
+        #expect(!cloud.html.contains("Generated on-device by Apple Intelligence"))
+        #expect(cloud.md.contains("third-party cloud"))
+        #expect(cloud.md.contains("claude-opus-4-8"))
+    }
+
+    /// A summary persisted before the tier was stored infers its tier from the
+    /// recorded model label, so old cases still report off-device runs honestly.
+    @Test func caseSummaryInfersSovereigntyFromLegacyLabel() {
+        #expect(SovereigntyTier.infer(fromLabel: "Apple Intelligence (on-device)") == .onDevice)
+        #expect(SovereigntyTier.infer(fromLabel: "Apple Private Cloud Compute") == .applePrivateCloud)
+        #expect(SovereigntyTier.infer(fromLabel: "Cloud · claude-opus-4-8") == .thirdPartyCloud)
+        #expect(SovereigntyTier.infer(fromLabel: "") == .onDevice)
+    }
+
+    @Test func validationCaveatHiddenWhenReportClean() {
+        let claim = SummaryClaim(statement: "Clean claim.", phase: .installation,
+                                 severity: .medium, citations: ["/a/b"])
+        // hadIssues == false: nothing dropped/flagged (e.g. the multi-batch
+        // fallback's zeroed report, or a flawless single-batch run).
+        let clean = SummaryValidationReport(claimsProposed: 1, claimsKept: 1,
+                                            claimsDroppedUnsupported: 0, phantomRefsDropped: 0,
+                                            flaggedPathTokens: [])
+        let inputs = ReportInputs(
+            caseName: "Op", examiner: "J", createdAt: Self.epoch, generatedAt: Self.epoch,
+            hosts: [Self.sampleHost()], executiveSummary: "Overview.",
+            summaryClaims: [claim], summaryValidation: clean)
+        let model = ReportModelBuilder.build(from: inputs)
+        let md = MarkdownReportRenderer.render(model)
+        let html = HTMLReportRenderer.render(model)
+        #expect(md.contains("Clean claim."))      // the claim still renders…
+        #expect(html.contains("Clean claim."))
+        #expect(!md.contains("Validation:"))      // …but no caveat on a clean report
+        #expect(!html.contains("Validation:"))
+    }
+
+    @Test func claimsRenderEvenWhenOverviewEmpty() {
+        // A whitespace/empty overview must not drop the evidence-anchored claims
+        // from the examiner report (the UI keeps them; the report must too).
+        let claim = SummaryClaim(statement: "Persistence installed.", phase: .installation,
+                                 severity: .high, citations: ["/Library/LaunchAgents/x.plist"])
+        let inputs = ReportInputs(
+            caseName: "Op", examiner: "J", createdAt: Self.epoch, generatedAt: Self.epoch,
+            hosts: [Self.sampleHost()], executiveSummary: "", summaryClaims: [claim])
+        let model = ReportModelBuilder.build(from: inputs)
+        let md = MarkdownReportRenderer.render(model)
+        let html = HTMLReportRenderer.render(model)
+        #expect(md.contains("## Executive summary"))
+        #expect(md.contains("Persistence installed."))
+        #expect(html.contains("Persistence installed."))
+        #expect(html.contains("class=\"claims\""))
+    }
+
     // MARK: - HTML safety
 
     @Test func htmlEscapesInjectedMarkup() {

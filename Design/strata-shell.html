@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<meta name="color-scheme" content="dark"/>
+<title>Strata · Shell & access</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#0b0e13;--bg2:#0e131a;--surface:#151b23;--surface2:#1b222c;--surface3:#222a36;--line:#2a323f;--line-soft:#212934;--inbg:#10151c;
+    --text:#e9edf3;--text2:#a7b1bf;--text3:#69727f;--teal:#3fd1c0;--amber:#f0b45c;--indigo:#8d8cf2;--coral:#f06a5d;--green:#5ad19a;--steel:#8b97ab;
+    --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;--disp:"Space Grotesk",system-ui,sans-serif;--body:"Inter",system-ui,sans-serif;--sh:0 14px 40px -18px rgba(0,0,0,.7)}
+  *{box-sizing:border-box}html,body{margin:0}
+  body{background:radial-gradient(1200px 500px at 50% -10%,#131a24,rgba(19,26,36,0) 60%),var(--bg);color:var(--text);font-family:var(--body);-webkit-font-smoothing:antialiased;line-height:1.5;padding-bottom:40px}
+  button{font-family:inherit}
+  .appbar{display:flex;align-items:center;gap:12px;padding:max(14px,env(safe-area-inset-top)) 16px 10px;max-width:620px;margin:0 auto}
+  .brand{display:flex;flex-direction:column;line-height:1.1}
+  .brand .name{font-family:var(--disp);font-weight:700;font-size:19px;letter-spacing:-.01em}
+  .brand .sub{font-size:11.5px;color:var(--text3);font-family:var(--mono);margin-top:2px}
+  .sp{flex:1}.ver{font-family:var(--mono);font-size:11px;color:var(--text3);border:1px solid var(--line-soft);padding:4px 8px;border-radius:999px}
+  .tabs{max-width:620px;margin:10px auto 4px;display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;padding:0 16px}.tabs::-webkit-scrollbar{display:none}
+  .tab{flex:0 0 auto;cursor:pointer;border:1px solid var(--line-soft);background:var(--surface);color:var(--text2);border-radius:999px;padding:8px 14px;display:flex;gap:8px;align-items:center;font-size:13px;font-weight:500;white-space:nowrap;transition:.16s}
+  .tab .n{font-family:var(--mono);font-size:11px;color:var(--text3)}
+  .tab[aria-selected=true]{background:var(--surface3);color:var(--text);border-color:#39434f}.tab[aria-selected=true] .n{color:var(--teal)}
+  main{max-width:620px;margin:0 auto;padding:8px 16px 0}
+  .view{display:none}.view.active{display:block;animation:rise .35s ease both}@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .vhead{padding:8px 2px 12px}.vhead h2{font-family:var(--disp);font-size:21px;font-weight:600;letter-spacing:-.02em;margin:0 0 5px}.vhead p{margin:0;color:var(--text2);font-size:13.5px}
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:500;padding:3px 8px;border-radius:999px;border:1px solid transparent;font-family:var(--mono);white-space:nowrap}
+  .pill .dot{width:6px;height:6px;border-radius:50%}
+  .pill.teal{background:rgba(63,209,192,.1);color:#8fe7da;border-color:#23514b}.pill.teal .dot{background:var(--teal)}
+  .pill.amber{background:rgba(240,180,92,.1);color:#f3c987;border-color:#52401f}.pill.amber .dot{background:var(--amber)}
+  .pill.coral{background:rgba(240,106,93,.1);color:#f3a299;border-color:#5a2b26}.pill.coral .dot{background:var(--coral)}
+  .pill.indigo{background:rgba(141,140,242,.1);color:#b9b8f7;border-color:#3a3a73}.pill.indigo .dot{background:var(--indigo)}
+  .pill.muted{background:var(--surface2);color:var(--text3);border-color:var(--line-soft)}.pill.muted .dot{background:var(--steel)}
+  .clf{font-family:var(--mono);font-size:9.5px;padding:3px 7px;border-radius:6px;border:1px solid;white-space:nowrap}
+  .clf.confidential{color:#f3c987;border-color:#52401f;background:rgba(240,180,92,.08)}
+  .clf.secret{color:#f3a299;border-color:#5a2b26;background:rgba(240,106,93,.08)}
+  .clf.restricted{color:#8fe7da;border-color:#23514b;background:rgba(63,209,192,.08)}
+  .btn{appearance:none;border:1px solid var(--line);background:var(--surface2);color:var(--text);border-radius:11px;padding:11px 15px;font-size:14px;font-weight:600;cursor:pointer;transition:.16s;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+  .btn:hover{background:var(--surface3)}.btn.primary{background:var(--teal);color:#062420;border-color:transparent}.btn.primary:hover{filter:brightness(1.06)}.btn.block{width:100%}.btn.sm{padding:9px 13px;font-size:12.5px}
+  .input{width:100%;background:var(--inbg);border:1px solid var(--line);color:var(--text);border-radius:11px;padding:11px 12px 11px 36px;font-size:13.5px;font-family:var(--body)}
+  .input:focus{outline:2px solid var(--teal);outline-offset:1px;border-color:#33506f}
+
+  /* ===== dashboard ===== */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-bottom:14px}
+  @media(max-width:520px){.stats{grid-template-columns:1fr 1fr}}
+  .stat{border:1px solid var(--line-soft);border-radius:13px;background:linear-gradient(180deg,var(--bg2),var(--surface));padding:12px}
+  .stat .v{font-family:var(--disp);font-weight:600;font-size:22px;line-height:1}
+  .stat .l{font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:6px;text-transform:uppercase;letter-spacing:.04em}
+  .stat .v.t{color:var(--teal)}.stat .v.a{color:var(--amber)}.stat .v.c{color:var(--coral)}
+  .dsearch{position:relative;margin-bottom:11px}.dsearch .si{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--text3)}
+  .filters{display:flex;gap:7px;overflow-x:auto;scrollbar-width:none;margin-bottom:13px}.filters::-webkit-scrollbar{display:none}
+  .fchip{flex:0 0 auto;font-family:var(--mono);font-size:11.5px;padding:6px 12px;border-radius:999px;border:1px solid var(--line-soft);background:var(--surface);color:var(--text3);cursor:pointer;white-space:nowrap}
+  .fchip[aria-pressed=true]{background:var(--surface3);color:var(--text);border-color:#39434f}
+  .ccard{border:1px solid var(--line-soft);border-radius:14px;background:var(--surface);padding:14px;margin-bottom:10px;cursor:pointer;transition:.14s}
+  .ccard:hover{background:var(--surface2);transform:translateY(-1px)}
+  .ccard .top{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px}
+  .ccard .ref{font-family:var(--mono);font-size:11px;color:var(--teal)}
+  .ccard .ti{font-family:var(--disp);font-weight:600;font-size:16px;letter-spacing:-.01em;margin-top:2px}
+  .ccard .top .right{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+  .ccard .meta{display:flex;flex-wrap:wrap;gap:6px 14px;font-family:var(--mono);font-size:10.5px;color:var(--text3)}
+  .ccard .meta b{color:var(--text2);font-weight:500}
+  .ccard .barwrap{margin-top:11px;height:5px;border-radius:5px;background:#10161d;overflow:hidden}
+  .ccard .bar{height:100%;border-radius:5px;background:linear-gradient(90deg,var(--teal),#69e6d7)}
+  .ccard .stagerow{display:flex;justify-content:space-between;margin-top:7px;font-family:var(--mono);font-size:10px;color:var(--text3)}
+
+  /* ===== nav shell ===== */
+  .frame{border:1px solid var(--line);border-radius:26px;overflow:hidden;background:var(--bg2);box-shadow:var(--sh);max-width:380px;margin:0 auto}
+  .frame .scr{padding:16px 15px;min-height:300px}
+  .fhead{font-family:var(--disp);font-weight:600;font-size:17px;margin:0 0 12px}
+  .miniitem{display:flex;align-items:center;gap:11px;padding:11px;border:1px solid var(--line-soft);border-radius:11px;background:var(--surface);margin-bottom:8px}
+  .miniitem .ic{width:30px;height:30px;border-radius:8px;background:var(--surface2);border:1px solid var(--line);display:grid;place-items:center;flex:0 0 auto}
+  .miniitem .a{font-size:13px;font-weight:600}.miniitem .b{font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:1px}
+  .tabbar{display:flex;border-top:1px solid var(--line-soft);background:rgba(14,19,26,.9)}
+  .tabbar button{flex:1;background:transparent;border:0;color:var(--text3);padding:10px 4px 12px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:5px;font-family:var(--mono);font-size:9.5px}
+  .tabbar button.on{color:var(--teal)}
+  .tabbar button .ico{opacity:.8}
+  .shellnote{display:flex;gap:18px;margin-top:16px;flex-wrap:wrap}
+  .sidebar{flex:1;min-width:200px;border:1px solid var(--line-soft);border-radius:13px;background:var(--surface);padding:10px;font-family:var(--mono);font-size:12px}
+  .sidebar .sh{font-size:9.5px;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin:4px 6px 8px}
+  .sbrow{display:flex;align-items:center;gap:9px;padding:8px 8px;border-radius:8px;color:var(--text2)}
+  .sbrow.on{background:var(--surface3);color:var(--text)}
+  .sbrow .d{width:6px;height:6px;border-radius:50%;background:var(--teal)}
+
+  /* ===== auth ===== */
+  .authcard{max-width:360px;margin:10px auto;border:1px solid var(--line);border-radius:20px;background:linear-gradient(180deg,var(--bg2),var(--surface));box-shadow:var(--sh);padding:26px 22px;text-align:center;position:relative;overflow:hidden}
+  .authcard .logo{width:54px;height:54px;border-radius:15px;margin:0 auto 14px;background:var(--surface2);border:1px solid var(--line);display:grid;place-items:center}
+  .authcard h3{font-family:var(--disp);font-weight:600;font-size:18px;margin:0 0 4px}
+  .authcard .sub{font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:20px}
+  .fld{text-align:left;margin-bottom:12px}.fld label{display:block;font-size:11.5px;color:var(--text2);margin-bottom:6px}
+  .fld .input{padding-left:12px}
+  .otp{display:flex;gap:8px;justify-content:center;margin-bottom:6px}
+  .otp input{width:42px;height:50px;text-align:center;font-family:var(--mono);font-size:20px;background:var(--inbg);border:1px solid var(--line);color:var(--text);border-radius:11px}
+  .otp input:focus{outline:2px solid var(--teal);outline-offset:1px}
+  .bio{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:14px;color:var(--text3);font-family:var(--mono);font-size:11px;cursor:pointer}
+  .lockoverlay{display:none;text-align:center;padding:30px 22px}
+  .lockoverlay.show{display:block}
+  .lockoverlay .lk{width:60px;height:60px;border-radius:50%;margin:0 auto 16px;background:rgba(240,180,92,.1);border:1px solid #52401f;display:grid;place-items:center}
+  .lockoverlay h3{font-family:var(--disp);font-weight:600;font-size:18px;margin:0 0 5px}
+  .lockoverlay p{font-family:var(--mono);font-size:11.5px;color:var(--text3);margin:0 0 18px;line-height:1.6}
+  .seg-auth{display:flex;gap:8px;justify-content:center;margin-bottom:14px}
+  .seg-auth button{font-family:var(--mono);font-size:11px;padding:6px 11px;border-radius:8px;border:1px solid var(--line-soft);background:var(--surface);color:var(--text3);cursor:pointer}
+  .seg-auth button.on{background:var(--surface3);color:var(--text)}
+  .note{font-family:var(--mono);font-size:11px;color:var(--text3);display:flex;gap:8px;align-items:flex-start;line-height:1.55;margin:14px 2px 0}
+  @media(prefers-reduced-motion:reduce){*{transition-duration:.001ms!important;animation-duration:.001ms!important}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute"><defs>
+  <symbol id="mark" viewBox="0 0 28 28"><rect x="3" y="4" width="22" height="4" rx="1.4" fill="#7f8aa0"/><rect x="5" y="10" width="20" height="4" rx="1.4" fill="#3fd1c0"/><rect x="3" y="16" width="18" height="4" rx="1.4" fill="#8d8cf2"/><rect x="6" y="22" width="16" height="3.4" rx="1.4" fill="#f0b45c"/></symbol>
+</defs></svg>
+
+<header class="appbar">
+  <svg width="29" height="29"><use href="#mark"/></svg>
+  <div class="brand"><span class="name">Strata</span><span class="sub">shell &amp; access</span></div>
+  <span class="sp"></span><span class="ver">3 / 18 screens</span>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button class="tab" role="tab" aria-selected="true" data-go="d"><span class="n">01</span> Dashboard</button>
+  <button class="tab" role="tab" aria-selected="false" data-go="n"><span class="n">02</span> Navigation</button>
+  <button class="tab" role="tab" aria-selected="false" data-go="a"><span class="n">03</span> Sign-in &amp; lock</button>
+</nav>
+
+<main>
+<!-- DASHBOARD -->
+<section class="view active" id="d">
+  <div class="vhead"><h2>Cases</h2><p>The home surface — open cases, what's processing, and what needs custody action.</p></div>
+  <div class="stats">
+    <div class="stat"><div class="v">7</div><div class="l">open cases</div></div>
+    <div class="stat"><div class="v a">3</div><div class="l">processing</div></div>
+    <div class="stat"><div class="v c">2</div><div class="l">custody due</div></div>
+    <div class="stat"><div class="v t">41</div><div class="l">findings</div></div>
+  </div>
+  <div class="dsearch"><span class="si"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.6"/><path d="M20 20l-3.2-3.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><input class="input" placeholder="Search cases, references, examiners…"></div>
+  <div class="filters" id="filters">
+    <button class="fchip" aria-pressed="true" data-f="all">All</button>
+    <button class="fchip" aria-pressed="false" data-f="active">Active</button>
+    <button class="fchip" aria-pressed="false" data-f="review">In review</button>
+    <button class="fchip" aria-pressed="false" data-f="closed">Closed</button>
+    <button class="fchip" aria-pressed="false" data-f="mine">Assigned to me</button>
+  </div>
+  <div id="cases">
+    <div class="ccard" data-status="active mine">
+      <div class="top"><div><div class="ref">FIAU-2026-0114</div><div class="ti">Operation Tramontana</div></div>
+        <div class="right"><span class="clf confidential">Confidential</span><span class="pill amber"><span class="dot"></span>processing</span></div></div>
+      <div class="meta"><span>Money laundering</span><span>lead <b>N. Borg</b></span><span><b>5</b> exhibits</span><span><b>12</b> findings</span></div>
+      <div class="barwrap"><div class="bar" style="width:62%"></div></div>
+      <div class="stagerow"><span>ingest 3/5 images</span><span>opened 6 days ago</span></div>
+    </div>
+    <div class="ccard" data-status="review mine">
+      <div class="top"><div><div class="ref">FIAU-2026-0109</div><div class="ti">Lampuki Holdings</div></div>
+        <div class="right"><span class="clf secret">Secret</span><span class="pill indigo"><span class="dot"></span>in review</span></div></div>
+      <div class="meta"><span>Sanctions evasion</span><span>lead <b>A. Vella</b></span><span><b>3</b> exhibits</span><span><b>21</b> findings</span></div>
+      <div class="barwrap"><div class="bar" style="width:100%"></div></div>
+      <div class="stagerow"><span>analysis complete · report drafting</span><span>custody transfer due</span></div>
+    </div>
+    <div class="ccard" data-status="active">
+      <div class="top"><div><div class="ref">FIAU-2026-0118</div><div class="ti">Marsamxett Exchange</div></div>
+        <div class="right"><span class="clf restricted">Restricted</span><span class="pill teal"><span class="dot"></span>collecting</span></div></div>
+      <div class="meta"><span>Fraud</span><span>lead <b>D. Spiteri</b></span><span><b>1</b> exhibit</span><span><b>0</b> findings</span></div>
+      <div class="barwrap"><div class="bar" style="width:18%"></div></div>
+      <div class="stagerow"><span>awaiting acquisition</span><span>opened 2 days ago</span></div>
+    </div>
+    <div class="ccard" data-status="closed">
+      <div class="top"><div><div class="ref">FIAU-2026-0071</div><div class="ti">Gozo Ferry Co.</div></div>
+        <div class="right"><span class="clf confidential">Confidential</span><span class="pill muted"><span class="dot"></span>closed</span></div></div>
+      <div class="meta"><span>Cyber-enabled crime</span><span>lead <b>M. Grech</b></span><span><b>4</b> exhibits</span><span><b>34</b> findings</span></div>
+      <div class="barwrap"><div class="bar" style="width:100%;background:var(--steel)"></div></div>
+      <div class="stagerow"><span>archived · retention 10y</span><span>closed 3 weeks ago</span></div>
+    </div>
+  </div>
+  <button class="btn primary block" style="margin-top:6px">+ New case</button>
+</section>
+
+<!-- NAVIGATION -->
+<section class="view" id="n">
+  <div class="vhead"><h2>Navigation shell</h2><p>One codebase, adaptive: a bottom tab bar on iPhone, a source-list sidebar on Mad/iPad. This is the spine that connects every screen.</p></div>
+  <div class="frame">
+    <div class="scr">
+      <div class="fhead">Operation Tramontana</div>
+      <div class="miniitem"><div class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" stroke="#3fd1c0" stroke-width="1.5" fill="none" stroke-linejoin="round"/></svg></div><div><div class="a">5 exhibits</div><div class="b">3 processing · 2 ready</div></div></div>
+      <div class="miniitem"><div class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 3v18M5 8l7-5 7 5" stroke="#8d8cf2" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div><div><div class="a">Custody chain</div><div class="b">4 links · verified ✓</div></div></div>
+      <div class="miniitem"><div class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h16M4 18h10" stroke="#8b97ab" stroke-width="1.6" stroke-linecap="round"/></svg></div><div><div class="a">Evidence viewer</div><div class="b">41 categories across 5 OS</div></div></div>
+    </div>
+    <div class="tabbar">
+      <button class="on"><span class="ico"><svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M4 11l8-7 8 7M6 10v9h12v-9" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>Cases</button>
+      <button><span class="ico"><svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M12 3v11m0 0l-4-4m4 4l4-4M5 18h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Intake</button>
+      <button><span class="ico"><svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M12 3l8 4v5c0 5-3.4 8-8 9-4.6-1-8-4-8-9V7z" stroke="currentColor" stroke-width="1.5" fill="none"/></svg></span>Custody</button>
+      <button><span class="ico"><svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></span>Viewer</button>
+      <button><span class="ico"><svg width="19" height="19" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>Settings</button>
+    </div>
+  </div>
+  <div class="shellnote">
+    <div class="sidebar">
+      <div class="sh">macOS / iPad sidebar</div>
+      <div class="sbrow on"><span class="d"></span>Cases</div>
+      <div class="sbrow">Intake queue</div>
+      <div class="sbrow">Chain of custody</div>
+      <div class="sbrow">Evidence viewer</div>
+      <div class="sbrow">Reports</div>
+      <div class="sbrow">Audit log</div>
+      <div class="sbrow">Settings</div>
+    </div>
+  </div>
+  <div class="note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M4 6h16v12H4z" stroke="#69727f" stroke-width="1.5"/></svg><span>Same NavigationStack content; the chrome adapts via size class. Deep links (a case → its custody chain) route through one navigation model.</span></div>
+</section>
+
+<!-- AUTH -->
+<section class="view" id="a">
+  <div class="vhead"><h2>Sign-in &amp; lock</h2><p>An evidence tool holding case data needs authenticated access, MFA, and an idle lock that re-authenticates without losing state.</p></div>
+  <div class="seg-auth" id="authSeg">
+    <button class="on" data-s="signin">Sign-in</button>
+    <button data-s="locked">Idle lock</button>
+  </div>
+  <div class="authcard">
+    <div id="signinPane">
+      <div class="logo"><svg width="28" height="28"><use href="#mark"/></svg></div>
+      <h3>Sign in to Strata</h3>
+      <div class="sub">FIAU Malta · evidence workspace</div>
+      <div class="fld"><label>Examiner ID</label><input class="input" value="n.borg@fiau.mt"></div>
+      <div class="fld"><label>Password</label><input class="input" type="password" value="••••••••••"></div>
+      <div class="fld"><label>Authenticator code</label>
+        <div class="otp"><input value="4" inputmode="numeric" maxlength="1"><input value="8" inputmode="numeric" maxlength="1"><input value="2" inputmode="numeric" maxlength="1"><input value="1" inputmode="numeric" maxlength="1"><input inputmode="numeric" maxlength="1"><input inputmode="numeric" maxlength="1"></div>
+      </div>
+      <button class="btn primary block" style="margin-top:8px">Unlock workspace</button>
+      <div class="bio"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 11v3M8 5a8 8 0 018 0M6 9a11 11 0 0112 0M9 13a4 4 0 016 0" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>Use Touch ID</div>
+    </div>
+    <div class="lockoverlay" id="lockPane">
+      <div class="lk"><svg width="26" height="26" viewBox="0 0 24 24" fill="none"><rect x="5" y="11" width="14" height="9" rx="2" stroke="#f0b45c" stroke-width="1.6"/><path d="M8 11V8a4 4 0 018 0v3" stroke="#f0b45c" stroke-width="1.6"/></svg></div>
+      <h3>Session locked</h3>
+      <p>Locked after 10 min idle.<br>Case FIAU-2026-0114 is held in place — re-authenticate to continue.</p>
+      <div class="fld"><label>Password</label><input class="input" type="password" placeholder="re-enter to resume"></div>
+      <button class="btn primary block">Resume session</button>
+      <div class="bio"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 11v3M8 5a8 8 0 018 0M6 9a11 11 0 0112 0M9 13a4 4 0 016 0" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>Unlock with Face ID</div>
+    </div>
+  </div>
+  <div class="note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 3l8 4v5c0 5-3.4 8-8 9-4.6-1-8-4-8-9V7z" stroke="#69727f" stroke-width="1.5"/></svg><span>Auto-lock interval and "wipe local cache on sign-out" live in Settings. Every sign-in/out writes to the audit log.</span></div>
+</section>
+</main>
+
+<script>
+(function(){
+  var tabs=[].slice.call(document.querySelectorAll(".tab"));
+  tabs.forEach(function(t){t.onclick=function(){tabs.forEach(function(x){x.setAttribute("aria-selected",x===t?"true":"false");});document.querySelectorAll(".view").forEach(function(v){v.classList.toggle("active",v.id===t.dataset.go);});window.scrollTo({top:0,behavior:"smooth"});};});
+  // dashboard filters
+  document.querySelectorAll("#filters .fchip").forEach(function(b){b.onclick=function(){
+    document.querySelectorAll("#filters .fchip").forEach(function(x){x.setAttribute("aria-pressed","false");});b.setAttribute("aria-pressed","true");
+    var f=b.dataset.f;document.querySelectorAll("#cases .ccard").forEach(function(c){var s=c.dataset.status||"";c.style.display=(f==="all"||s.indexOf(f)>=0)?"":"none";});
+  };});
+  // auth toggle
+  document.querySelectorAll("#authSeg button").forEach(function(b){b.onclick=function(){
+    document.querySelectorAll("#authSeg button").forEach(function(x){x.classList.toggle("on",x===b);});
+    var locked=b.dataset.s==="locked";document.getElementById("signinPane").style.display=locked?"none":"block";document.getElementById("lockPane").classList.toggle("show",locked);
+  };});
+})();
+</script>
+</body>
+</html>
