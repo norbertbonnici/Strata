@@ -251,22 +251,27 @@ public nonisolated struct BrowserHistoryParser: Sendable {
     private static func intValue(_ v: Int64?) -> Int? { v.map(Int.init) }
     private static func int64Value(_ v: Int64?) -> Int64? { v }
 
-    private static func collectSafariDownloadDictionaries(from object: Any, visit: ([String: Any]) -> Void) {
+    private static func collectSafariDownloadDictionaries(from object: Any, depth: Int = 0, visit: ([String: Any]) -> Void) {
+        // Bound the recursion: a hostile Downloads.plist can nest dicts/arrays
+        // arbitrarily deep (a binary plist expresses this compactly), and Swift
+        // has no tail-call guarantee, so unbounded depth overflows the stack
+        // (uncatchable SIGSEGV). 64 is far beyond any real download list.
+        guard depth < 64 else { return }
         if let dict = object as? [String: Any] {
             if firstString(dict, keys: ["DownloadEntryURL", "DownloadEntryURLString", "DownloadEntryPath"]) != nil {
                 visit(dict)
             }
-            dict.values.forEach { collectSafariDownloadDictionaries(from: $0, visit: visit) }
+            dict.values.forEach { collectSafariDownloadDictionaries(from: $0, depth: depth + 1, visit: visit) }
         } else if let array = object as? [Any] {
-            array.forEach { collectSafariDownloadDictionaries(from: $0, visit: visit) }
+            array.forEach { collectSafariDownloadDictionaries(from: $0, depth: depth + 1, visit: visit) }
         } else if let dict = object as? NSDictionary {
             var swift: [String: Any] = [:]
             for (key, value) in dict {
                 if let key = key as? String { swift[key] = value }
             }
-            collectSafariDownloadDictionaries(from: swift, visit: visit)
+            collectSafariDownloadDictionaries(from: swift, depth: depth + 1, visit: visit)
         } else if let array = object as? NSArray {
-            array.forEach { collectSafariDownloadDictionaries(from: $0, visit: visit) }
+            array.forEach { collectSafariDownloadDictionaries(from: $0, depth: depth + 1, visit: visit) }
         }
     }
 

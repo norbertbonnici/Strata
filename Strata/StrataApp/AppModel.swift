@@ -1887,6 +1887,7 @@ final class AppModel: ObservableObject {
     /// events. Does NOT run analyzers - the caller is expected to use
     /// `parseArtifacts()` if it wants the full pipeline.
     func parseEventLogs() async {
+        guard !isWorking else { return }   // single-flight: don't overlap parse passes
         guard !evidenceList.isEmpty else {
             errorMessage = "No evidence loaded."
             return
@@ -1965,7 +1966,7 @@ final class AppModel: ObservableObject {
                         guard let info = try database!.fetchExtractInfo(forFileID: entry.id) else {
                             completed += 1; continue
                         }
-                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name)")
+                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name.scratchSafeComponent)")
                         try await extractor!.extract(metaAddr: info.metaAddr,
                                                      imageOffsetSectors: info.imageOffsetSectors,
                                                      to: outURL)
@@ -2002,6 +2003,7 @@ final class AppModel: ObservableObject {
     /// collected file in place for loose folders. Each `.lnk` yields one
     /// `LnkEntry`. Mirrors `parseEventLogs`; does NOT run analyzers.
     func parseLnk() async {
+        guard !isWorking else { return }   // single-flight: don't overlap parse passes
         guard !evidenceList.isEmpty else {
             errorMessage = "No evidence loaded."
             return
@@ -2072,7 +2074,7 @@ final class AppModel: ObservableObject {
                         guard let info = try database!.fetchExtractInfo(forFileID: entry.id) else {
                             completed += 1; continue
                         }
-                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name)")
+                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name.scratchSafeComponent)")
                         try await extractor!.extract(metaAddr: info.metaAddr,
                                                      imageOffsetSectors: info.imageOffsetSectors,
                                                      to: outURL)
@@ -2125,6 +2127,7 @@ final class AppModel: ObservableObject {
     /// metadata merged; custom lists are a flat LNK sequence. Each file yields
     /// multiple JumpListEntry. Mirrors parseLnk; does NOT run analyzers.
     func parseJumpList() async {
+        guard !isWorking else { return }   // single-flight: don't overlap parse passes
         guard !evidenceList.isEmpty else {
             errorMessage = "No evidence loaded."
             return
@@ -2200,7 +2203,7 @@ final class AppModel: ObservableObject {
                         guard let info = try database!.fetchExtractInfo(forFileID: entry.id) else {
                             completed += 1; continue
                         }
-                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name)")
+                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name.scratchSafeComponent)")
                         try await extractor!.extract(metaAddr: info.metaAddr,
                                                      imageOffsetSectors: info.imageOffsetSectors,
                                                      to: outURL)
@@ -2255,6 +2258,7 @@ final class AppModel: ObservableObject {
     /// The byte-parse runs OFF the main actor (`$J` can be 100 MB+). Mirrors
     /// `parseEventLogs` for timeline splicing; does NOT run analyzers.
     func parseUsn() async {
+        guard !isWorking else { return }   // single-flight: don't overlap parse passes
         guard !evidenceList.isEmpty else {
             errorMessage = "No evidence loaded."
             return
@@ -2335,8 +2339,12 @@ final class AppModel: ObservableObject {
                     }
 
                     // Read the (potentially huge) stream and parse it off the
-                    // main actor so the UI stays responsive.
-                    guard let data = try? Data(contentsOf: fileURL, options: .mappedIfSafe) else {
+                    // main actor so the UI stays responsive. The `[UInt8](data)`
+                    // copy faults the whole (attacker-sized) stream into the heap,
+                    // so skip an implausibly large one (>4 GB) rather than OOM —
+                    // far above a real $J/$MFT/OBJECTS.DATA.
+                    guard let data = try? Data(contentsOf: fileURL, options: .mappedIfSafe),
+                          data.count <= 4 << 30 else {
                         completed += 1; continue
                     }
                     let bytes = [UInt8](data)
@@ -2378,6 +2386,7 @@ final class AppModel: ObservableObject {
     /// shells out to libesedb's `esedbexport` (so it already runs off the main
     /// actor). Mirrors `parseEventLogs` for timeline splicing; does NOT run analyzers.
     func parseSrum() async {
+        guard !isWorking else { return }   // single-flight: don't overlap parse passes
         guard !evidenceList.isEmpty else {
             errorMessage = "No evidence loaded."
             return
@@ -2494,6 +2503,7 @@ final class AppModel: ObservableObject {
     /// (`BrowserHistoryParser`, GRDB for SQLite) is run off the main actor in a
     /// detached task. Mirrors `parseSrum`; does NOT run analyzers.
     func parseBrowserHistory() async {
+        guard !isWorking else { return }   // single-flight: don't overlap parse passes
         guard !evidenceList.isEmpty else {
             errorMessage = "No evidence loaded."
             return
@@ -2584,7 +2594,7 @@ final class AppModel: ObservableObject {
                         fileURL = disk
                     } else if isAPFS {
                         // APFS: extract the DB + its -wal/-shm sidecars via libfsapfs.
-                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name)")
+                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name.scratchSafeComponent)")
                         let off = state.volumes.first { $0.id == entry.fsID }?.offsetBytes ?? 0
                         try? await apfsExtractor!.extract(volumePath: entry.fullPath,
                                                           volumeIndex: entry.fsID ?? 0,
@@ -2604,7 +2614,7 @@ final class AppModel: ObservableObject {
                         guard let info = try database!.fetchExtractInfo(forFileID: entry.id) else {
                             completed += 1; continue
                         }
-                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name)")
+                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name.scratchSafeComponent)")
                         try await extractor!.extract(metaAddr: info.metaAddr,
                                                      imageOffsetSectors: info.imageOffsetSectors,
                                                      to: outURL)
@@ -2684,6 +2694,7 @@ final class AppModel: ObservableObject {
     /// `$FN` MACB so the timestomp analyzer can compare them; spliced onto the
     /// timeline as the true NTFS file MACB. Mirrors `parseUsn`; does NOT run analyzers.
     func parseMft() async {
+        guard !isWorking else { return }   // single-flight: don't overlap parse passes
         guard !evidenceList.isEmpty else {
             errorMessage = "No evidence loaded."
             return
@@ -2770,7 +2781,8 @@ final class AppModel: ObservableObject {
                     // region is released before the parse — it isn't held alongside
                     // the [UInt8] copy and the parser's own allocations.
                     let bytes: [UInt8]
-                    if let data = try? Data(contentsOf: fileURL, options: .mappedIfSafe) {
+                    if let data = try? Data(contentsOf: fileURL, options: .mappedIfSafe),
+                       data.count <= 4 << 30 {   // skip an implausibly large stream rather than OOM on the [UInt8] copy
                         bytes = [UInt8](data)
                     } else {
                         completed += 1; continue
@@ -2827,6 +2839,7 @@ final class AppModel: ObservableObject {
     /// the plain icat path; the byte carve (`WmiRepositoryParser`) runs off the
     /// main actor. Mirrors `parseMft`; does NOT run analyzers or splice the timeline.
     func parseWmi() async {
+        guard !isWorking else { return }   // single-flight: don't overlap parse passes
         guard !evidenceList.isEmpty else {
             errorMessage = "No evidence loaded."
             return
@@ -2911,7 +2924,8 @@ final class AppModel: ObservableObject {
                     // Carve the repository off the main actor (scope the mapped
                     // region so it isn't held alongside the [UInt8] copy).
                     let bytes: [UInt8]
-                    if let data = try? Data(contentsOf: fileURL, options: .mappedIfSafe) {
+                    if let data = try? Data(contentsOf: fileURL, options: .mappedIfSafe),
+                       data.count <= 4 << 30 {   // skip an implausibly large stream rather than OOM on the [UInt8] copy
                         bytes = [UInt8](data)
                     } else {
                         completed += 1; continue
@@ -2946,6 +2960,7 @@ final class AppModel: ObservableObject {
     /// Findings are NOT regenerated here - call `runAnalyzers()` (or
     /// `parseArtifacts`) to surface results.
     func parseRegistry(force: Bool = false) async {
+        guard !isWorking else { return }   // single-flight: don't overlap parse passes
         guard !evidenceList.isEmpty else {
             errorMessage = "No evidence loaded."
             return
@@ -3058,7 +3073,7 @@ final class AppModel: ObservableObject {
                         guard let info = try database!.fetchExtractInfo(forFileID: candidate.entry.id) else {
                             completed += 1; continue
                         }
-                        let outURL = scratch!.appendingPathComponent("\(candidate.entry.id)-\(candidate.entry.name)")
+                        let outURL = scratch!.appendingPathComponent("\(candidate.entry.id)-\(candidate.entry.name.scratchSafeComponent)")
                         do {
                             try await extractor!.extract(metaAddr: info.metaAddr,
                                                          imageOffsetSectors: info.imageOffsetSectors,
@@ -3203,6 +3218,7 @@ final class AppModel: ObservableObject {
     /// path, size, and deletion time. Plain files → the prefetch icat-extract
     /// pattern (not the `$J` ADS path). Splices deletion times onto the timeline.
     func parseRecycleBin() async {
+        guard !isWorking else { return }   // single-flight: don't overlap parse passes
         guard !evidenceList.isEmpty else { errorMessage = "No evidence loaded."; return }
         errorMessage = nil
         isWorking = true
@@ -3254,7 +3270,7 @@ final class AppModel: ObservableObject {
                         fileURL = disk
                     } else {
                         guard let info = try database!.fetchExtractInfo(forFileID: entry.id) else { continue }
-                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name)")
+                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name.scratchSafeComponent)")
                         try await extractor!.extract(metaAddr: info.metaAddr,
                                                      imageOffsetSectors: info.imageOffsetSectors, to: outURL)
                         fileURL = outURL
@@ -3289,6 +3305,7 @@ final class AppModel: ObservableObject {
     /// LaunchServices quarantine store — for every host without results. Both
     /// are plain files (icat-extract for images, read-in-place for loose).
     func parseMac() async {
+        guard !isWorking else { return }   // single-flight: don't overlap parse passes
         guard !evidenceList.isEmpty else { errorMessage = "No evidence loaded."; return }
         errorMessage = nil
         isWorking = true
@@ -3493,7 +3510,7 @@ final class AppModel: ObservableObject {
                               FileManager.default.fileExists(atPath: disk.path) else { return nil }
                         return disk
                     }
-                    let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name)")
+                    let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name.scratchSafeComponent)")
                     if isAPFS {
                         let off = state.volumes.first { $0.id == entry.fsID }?.offsetBytes ?? 0
                         try? await apfsExtractor!.extract(volumePath: entry.fullPath,
@@ -3706,6 +3723,7 @@ final class AppModel: ObservableObject {
     /// **Special** logs are decoded; Signpost (perf) and HighVolume (I/O tracing)
     /// are skipped as low-signal + high-volume.
     func parseUnifiedLog() async {
+        guard !isWorking else { return }   // single-flight: don't overlap parse passes
         guard !evidenceList.isEmpty else { return }
         errorMessage = nil
         isWorking = true
@@ -3788,7 +3806,7 @@ final class AppModel: ObservableObject {
                               FileManager.default.fileExists(atPath: disk.path) else { return nil }
                         return try? Data(contentsOf: disk)
                     }
-                    let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name)")
+                    let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name.scratchSafeComponent)")
                     if isAPFS {
                         let off = state.volumes.first { $0.id == entry.fsID }?.offsetBytes ?? 0
                         try? await apfsExtractor!.extract(volumePath: entry.fullPath,
@@ -3855,6 +3873,7 @@ final class AppModel: ObservableObject {
     }
 
     func parsePrefetch() async {
+        guard !isWorking else { return }   // single-flight: don't overlap parse passes
         guard !evidenceList.isEmpty else {
             errorMessage = "No evidence loaded."
             return
@@ -3932,7 +3951,7 @@ final class AppModel: ObservableObject {
                         guard let info = try database!.fetchExtractInfo(forFileID: entry.id) else {
                             completed += 1; continue
                         }
-                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name)")
+                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name.scratchSafeComponent)")
                         try await extractor!.extract(metaAddr: info.metaAddr,
                                                      imageOffsetSectors: info.imageOffsetSectors,
                                                      to: outURL)
@@ -3976,6 +3995,7 @@ final class AppModel: ObservableObject {
     /// candidates and is skipped silently, so this is safe in the standard
     /// `parseArtifacts` chain. Does NOT run analyzers.
     func parseLinux() async {
+        guard !isWorking else { return }   // single-flight: don't overlap parse passes
         guard !evidenceList.isEmpty else {
             errorMessage = "No evidence loaded."
             return
@@ -4251,7 +4271,7 @@ final class AppModel: ObservableObject {
                         guard let extractInfo = try database!.fetchExtractInfo(forFileID: entry.id) else {
                             continue
                         }
-                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name)")
+                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name.scratchSafeComponent)")
                         try await extractor!.extract(metaAddr: extractInfo.metaAddr,
                                                      imageOffsetSectors: extractInfo.imageOffsetSectors,
                                                      to: outURL)

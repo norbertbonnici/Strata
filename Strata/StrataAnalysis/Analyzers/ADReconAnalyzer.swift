@@ -100,14 +100,25 @@ public nonisolated struct ADReconAnalyzer: Analyzer {
     /// distinct services to count as a roast.
     private func firstServiceBurst(in hits: [EventLogRecord]) -> [EventLogRecord]? {
         guard hits.count >= Self.roastDistinctServices else { return nil }
+        // Precompute the service name once per hit — `serviceName` runs a regex
+        // per call, so rebuilding the Set per window position made this O(n²) on
+        // a forged 4769 flood — then slide a two-pointer window with an
+        // incremental distinct-service multiset. O(n); slice built only on match.
+        let services: [String] = hits.map { serviceName(of: $0).lowercased() }
+        var counts: [String: Int] = [:]
+        var distinct = 0
         var start = 0
         for end in 0..<hits.count {
+            let s = services[end]
+            if counts[s, default: 0] == 0 { distinct += 1 }
+            counts[s, default: 0] += 1
             while hits[end].writtenAt.timeIntervalSince(hits[start].writtenAt) > Self.roastWindow {
+                let r = services[start]
+                counts[r]! -= 1
+                if counts[r]! == 0 { distinct -= 1 }
                 start += 1
             }
-            let slice = Array(hits[start...end])
-            let services = Set(slice.map { serviceName(of: $0).lowercased() })
-            if services.count >= Self.roastDistinctServices { return slice }
+            if distinct >= Self.roastDistinctServices { return Array(hits[start...end]) }
         }
         return nil
     }

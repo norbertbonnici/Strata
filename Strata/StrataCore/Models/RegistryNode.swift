@@ -80,7 +80,11 @@ public nonisolated struct RegistryNode: Identifiable, Sendable {
                 .filter { !$0.isEmpty }
             var cursor = root
             var path = hive
-            for comp in components {
+            // Cap tree depth: a hostile hive can declare absurdly deep key nesting,
+            // and `materialize` recurses once per level — unbounded depth overflows
+            // the stack (uncatchable). 512 is far beyond any real registry path;
+            // deeper values attach at the cap rather than crash.
+            for comp in components.prefix(512) {
                 path += "\\" + comp
                 if let existing = cursor.kids[comp] {
                     cursor = existing

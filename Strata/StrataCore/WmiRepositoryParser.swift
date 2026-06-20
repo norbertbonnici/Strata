@@ -95,7 +95,11 @@ public nonisolated enum WmiRepositoryParser {
     /// a NUL right after the marker; the class definition by the name check.)
     private static func findCommand(consumerName: String, in b: [UInt8]) -> String? {
         let marker = ascii("CommandLineEventConsumer")
-        let markers = indices(of: marker, in: b)
+        // Cap the marker scan: this runs once per binding (up to maxBindings), so
+        // an OBJECTS.DATA packed with a dense field of `CommandLineEventConsumer`
+        // markers could otherwise blow up to O(bindings × markers). 256 is far
+        // more than any real repository carries.
+        let markers = indices(of: marker, in: b, cap: 256)
         for (k, at) in markers.enumerated() {
             var p = at + marker.count
             guard p < b.count, b[p] == 0 else { continue }   // instance, not ".Name=" ref

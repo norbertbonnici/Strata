@@ -61,8 +61,7 @@ public actor JumpListParser {
             collector.append(String(decoding: chunk, as: UTF8.self))
         }
 
-        try process.run()
-        await withCheckedContinuation { c in process.terminationHandler = { _ in c.resume() } }
+        try await process.runAndWait()
         stderrPipe.fileHandleForReading.readabilityHandler = nil
         guard process.terminationStatus == 0 else {
             throw JumpListError.exportFailed(exitCode: process.terminationStatus, stderr: collector.text)
@@ -123,7 +122,11 @@ public actor JumpListParser {
         defer { try? FileManager.default.removeItem(at: scratch) }
 
         var out: [JumpListEntry] = []
-        for (idx, blob) in blobs.enumerated() {
+        // Each blob forks an lnkinfo subprocess; ShellLinkCarver returns ~N/20
+        // blobs for an N-byte file, so a crafted .customDestinations-ms of
+        // repeated signatures could spawn hundreds of thousands of processes.
+        // Cap at a count far above any real CustomDestinations list.
+        for (idx, blob) in blobs.prefix(512).enumerated() {
             let lnkURL = scratch.appendingPathComponent("\(idx).lnk")
             guard (try? Data(blob).write(to: lnkURL)) != nil else { continue }
             guard let lnk = try? await lnkParser.parse(fileAt: lnkURL), lnk.targetPath != nil else { continue }

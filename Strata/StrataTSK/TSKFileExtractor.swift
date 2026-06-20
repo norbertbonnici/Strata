@@ -58,6 +58,7 @@ public actor TSKFileExtractor {
         process.arguments = args
 
         let outHandle = try FileHandle(forWritingTo: destination)
+        defer { try? outHandle.close() }   // close on every path, incl. a launch throw
         let stderrPipe = Pipe()
         process.standardOutput = outHandle
         process.standardError = stderrPipe
@@ -72,12 +73,8 @@ public actor TSKFileExtractor {
             collector.append(String(decoding: chunk, as: UTF8.self))
         }
 
-        try process.run()
-        await withCheckedContinuation { continuation in
-            process.terminationHandler = { _ in continuation.resume() }
-        }
+        try await process.runAndWait()
         stderrPipe.fileHandleForReading.readabilityHandler = nil
-        try? outHandle.close()
 
         guard process.terminationStatus == 0 else {
             throw TSKError.ingestionFailed(exitCode: process.terminationStatus,

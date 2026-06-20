@@ -193,7 +193,10 @@ public nonisolated enum AuditParser {
     /// Rebuild a command line from an EXECVE record: argc + a0..a(argc-1),
     /// each decoded (quoted literal or hex), joined with spaces.
     private static func reconstructExecve(_ rec: Record) -> String? {
-        let argc = rec.fields["argc"].flatMap { Int($0) } ?? 64
+        // `argc` is adversary-controlled: clamp it so a forged `argc=2000000000`
+        // can't drive a multi-billion-iteration hang, and `argc=Int.max` can't
+        // overflow-trap on `argc + 8`. Real EXECVE argc is small.
+        let argc = min(max(rec.fields["argc"].flatMap { Int($0) } ?? 64, 0), 4096)
         var args: [String] = []
         var n = 0
         while n < argc + 8 {                  // small slack past argc

@@ -24,7 +24,10 @@ public nonisolated enum FileTime {
     /// `2019-11-22 12:29:11.9188377`. nil for 0 (unset).
     public static func precise(_ ft: UInt64) -> String? {
         guard ft != 0 else { return nil }
-        let unixTicks = Int64(bitPattern: ft) - unixEpochTicks   // can be negative (pre-1970)
+        // Overflow-safe: a hostile FILETIME with the top bit set underflows Int64
+        // here (the bare `-` would trap); treat such a value as unrenderable.
+        let (unixTicks, overflow) = Int64(bitPattern: ft).subtractingReportingOverflow(unixEpochTicks)
+        guard !overflow else { return nil }   // can be negative (pre-1970)
         var seconds = unixTicks / ticksPerSecond
         var sub = unixTicks % ticksPerSecond
         if sub < 0 { sub += ticksPerSecond; seconds -= 1 }       // floor toward the past

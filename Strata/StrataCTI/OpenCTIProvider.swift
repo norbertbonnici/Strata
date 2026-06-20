@@ -113,7 +113,7 @@ extension OpenCTIProvider {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
         let payload: [String: Any] = [
-            "query": graphQLQuery(for: kind),
+            "query": graphQLQuery(for: kind, value: indicator),
             "variables": ["value": indicator],
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return nil }
@@ -135,11 +135,21 @@ extension OpenCTIProvider {
     /// A minimal GraphQL query: filter `stixCyberObservables` by observable value
     /// (hashes match any of the File hash fields), requesting the id, value, and
     /// each attached indicator's `x_opencti_score` + `indicator_types`.
-    static func graphQLQuery(for kind: IOCKind) -> String {
-        // For hashes the relevant filter key is `hashes.*`; for everything else
-        // it's the observable `value`. We request both `value` and `observable_value`
-        // back so the decoder can match regardless of observable subtype.
-        let filterKey: String = (kind == .hash) ? "hashes.MD5" : "value"
+    static func graphQLQuery(for kind: IOCKind, value: String) -> String {
+        // For hashes the filter key is the specific `hashes.<ALGO>` subfield, keyed
+        // off the digest length — a single `.hash` IOCKind covers MD5/SHA-1/SHA-256,
+        // and filtering every digest against `hashes.MD5` silently never matches a
+        // SHA-1/SHA-256 (the dominant DFIR hash). Everything else filters `value`.
+        let filterKey: String
+        if kind == .hash {
+            switch value.count {
+            case 64: filterKey = "hashes.SHA-256"
+            case 40: filterKey = "hashes.SHA-1"
+            default: filterKey = "hashes.MD5"   // 32-hex MD5, or unknown length
+            }
+        } else {
+            filterKey = "value"
+        }
         let types = observableTypes(for: kind)
             .map { "\"\($0)\"" }
             .joined(separator: ", ")
@@ -275,7 +285,8 @@ extension OpenCTIProvider {
     static func intScore(_ raw: Any?) -> Int? {
         switch raw {
         case let n as Int:      return n
-        case let d as Double:   return Int(d.rounded())
+        // intExact, not Int(d): a hostile/MITM'd score (1e308 / NaN) would trap.
+        case let d as Double:   return intExact(d.rounded())
         case let n as NSNumber: return n.intValue
         case let s as String:   return Int(s)
         default:                return nil

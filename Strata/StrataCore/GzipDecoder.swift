@@ -65,6 +65,11 @@ public nonisolated enum GzipDecoder {
         var output = Data()
         let chunkSize = max(64 << 10, min(hint, 8 << 20))
         var dst = [UInt8](repeating: 0, count: chunkSize)
+        // Total-output ceiling: the gzip input is adversary-controlled (rotated
+        // logs, /.fseventsd/ pages), so a few-KB DEFLATE bomb could otherwise
+        // inflate to gigabytes and OOM-kill the app. 1 GB is far above any real
+        // forensic artifact while still stopping the bomb.
+        let maxOutput = 1 << 30
 
         return try deflate.withUnsafeBufferPointer { src -> Data in
             stream.src_ptr = src.baseAddress!
@@ -77,6 +82,7 @@ public nonisolated enum GzipDecoder {
                     output.append(dstBuf.baseAddress!, count: dstBuf.count - stream.dst_size)
                     return s
                 }
+                guard output.count <= maxOutput else { throw GzipError.inflateFailed }
                 switch status {
                 case COMPRESSION_STATUS_END: return output
                 case COMPRESSION_STATUS_OK:  continue   // dst full, loop for more

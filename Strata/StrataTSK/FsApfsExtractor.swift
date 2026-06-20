@@ -39,6 +39,7 @@ public actor FsApfsExtractor {
         process.arguments = args
 
         let outHandle = try FileHandle(forWritingTo: destination)
+        defer { try? outHandle.close() }   // close on every path, incl. a launch throw
         let stderrPipe = Pipe()
         process.standardOutput = outHandle
         process.standardError = stderrPipe
@@ -51,12 +52,8 @@ public actor FsApfsExtractor {
             collector.append(String(decoding: chunk, as: UTF8.self))
         }
 
-        try process.run()
-        await withCheckedContinuation { continuation in
-            process.terminationHandler = { _ in continuation.resume() }
-        }
+        try await process.runAndWait()
         stderrPipe.fileHandleForReading.readabilityHandler = nil
-        try? outHandle.close()
 
         // rc 2 == "no such file" (a candidate path that doesn't exist on this
         // volume) - treat as an empty extraction, not a hard failure.

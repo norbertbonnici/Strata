@@ -131,16 +131,25 @@ public nonisolated struct VirusTotalProvider: CTIProvider {
         let raw = indicator.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty else { return nil }
 
+        // Percent-encode the indicator as a single path segment: an IOC value is
+        // adversary-influenceable (free-form pasted lists, classify() defaults
+        // unknown tokens to .domain), and interpolating it raw lets `../` collapse
+        // the path to a different VT resource (masking a verdict) and `?`/`#`
+        // inject query/fragment.
+        var seg = CharacterSet.urlPathAllowed
+        seg.remove(charactersIn: "/")
+        func encode(_ s: String) -> String { s.addingPercentEncoding(withAllowedCharacters: seg) ?? "" }
+
         let pathComponent: String
         switch kind {
         case .hash:
-            pathComponent = "files/\(raw.lowercased())"
+            pathComponent = "files/\(encode(raw.lowercased()))"
         case .ip:
-            pathComponent = "ip_addresses/\(raw)"
+            pathComponent = "ip_addresses/\(encode(raw))"
         case .domain:
-            pathComponent = "domains/\(raw)"
+            pathComponent = "domains/\(encode(raw))"
         case .url:
-            // VT identifies a URL by the unpadded base64url of the raw URL.
+            // VT identifies a URL by the unpadded base64url of the raw URL (already URL-safe).
             pathComponent = "urls/\(base64URLNoPadding(raw))"
         }
         // Append as raw path segments (the id is already URL-safe — base64url
@@ -194,7 +203,9 @@ public nonisolated struct VirusTotalProvider: CTIProvider {
         func count(_ name: String) -> Int {
             // VT renders these as JSON numbers; tolerate string-encoded too.
             if let n = stats[name] as? Int { return n }
-            if let d = stats[name] as? Double { return Int(d) }
+            // intExact, not Int(d): a hostile/MITM'd VT body with an out-of-range
+            // number (e.g. 1e308 / NaN) would trap the bare Int(Double).
+            if let d = stats[name] as? Double { return intExact(d) ?? 0 }
             if let s = stats[name] as? String, let n = Int(s) { return n }
             return 0
         }

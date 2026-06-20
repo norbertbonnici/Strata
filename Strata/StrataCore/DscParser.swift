@@ -98,8 +98,10 @@ public enum DscParser {
         ranges.reserveCapacity(numberRanges)
         for i in 0..<numberRanges {
             let o = rangeBase + i * rangeStride
+            // Hostile uuid_index past Int.max would trap Int(UInt64); map it to
+            // .max so the downstream `uuidIndex < uuidEntries.count` simply misses.
             ranges.append(.init(rangeOffset: u64(o), dataOffset: u32(o + 8),
-                                rangeSize: u32(o + 12), uuidIndex: Int(u64(o + 16))))
+                                rangeSize: u32(o + 12), uuidIndex: intExact(u64(o + 16)) ?? .max))
         }
         var uuidEntries: [DscFile.UUIDEntry] = []
         uuidEntries.reserveCapacity(numberUUIDs)

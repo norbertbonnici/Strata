@@ -19,19 +19,28 @@ struct FilesystemDrillView: View {
     /// image-backed cases show every subfolder as empty.
     private func normalized(_ p: String) -> String { FileEntry.normalizeDirPath(p) }
 
-    private var children: [FileEntry] {
+    // Derived off `body` (CLAUDE.md: "Don't do heavy work in body"): on a disk
+    // image `model.files` is millions of rows, so filtering/counting per render
+    // froze navigation. Recompute only when the data or the path changes.
+    @State private var kids: [FileEntry] = []
+    @State private var totalCount = 0
+    @State private var deletedCount = 0
+
+    private func recompute() {
         let here = normalized(path)
-        return model.files
+        let files = model.files
+        kids = files
             .filter { normalized($0.parentPath) == here }
             .sorted { lhs, rhs in
                 if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory }
                 return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
             }
+        totalCount = files.count
+        deletedCount = files.lazy.filter(\.isDeleted).count
     }
 
     var body: some View {
-        let kids = children
-        return ScrollView {
+        ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 LargeTitle(title: "Filesystem")
 
@@ -52,7 +61,8 @@ struct FilesystemDrillView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.bg, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
-        .onChange(of: path) { displayLimit = pageSize }   // restart paging on navigate
+        .task(id: model.dataVersion) { recompute() }
+        .onChange(of: path) { displayLimit = pageSize; recompute() }   // restart paging + refilter on navigate
     }
 
     /// Tappable breadcrumb so the analyst can jump back up the tree (the system
@@ -85,10 +95,7 @@ struct FilesystemDrillView: View {
     }
 
     private var note: some View {
-        let files = model.files
-        let total = files.count
-        let deleted = files.lazy.filter(\.isDeleted).count
-        return Text("\(human(total)) objects · \(human(deleted)) deleted")
+        Text("\(human(totalCount)) objects · \(human(deletedCount)) deleted")
             .font(.system(size: 12))
             .foregroundStyle(Theme.text3)
             .padding(.horizontal, 22)

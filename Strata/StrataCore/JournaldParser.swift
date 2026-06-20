@@ -133,10 +133,14 @@ public nonisolated enum JournaldParser {
         guard payloadLen > 0, payloadStart + payloadLen <= bytes.count else { return nil }
         let payload = Array(bytes[payloadStart..<(payloadStart + payloadLen)])
 
-        // Per-object compression (object flags byte), falling back to the
-        // file-level incompatible flag for older journals.
+        // The per-object compression flag drives decompression. (An earlier
+        // file-level-LZ4 fallback for flags==0 objects was actively harmful: in a
+        // real LZ4 journal the sub-512-byte fields are stored UNcompressed with
+        // flags==0, and treating them as LZ4 by length silently dropped them —
+        // broad evidence loss. LZ4-compressed objects always carry the per-object
+        // OBJECT_COMPRESSED_LZ4 flag, set since LZ4 support landed.)
         let objFlags = header.flags
-        if objFlags & objLZ4 != 0 || (objFlags == 0 && incompatible & flagCompressedLZ4 != 0 && looksLZ4(payload)) {
+        if objFlags & objLZ4 != 0 {
             guard let raw = inflateLZ4(payload) else { return nil }
             return String(decoding: raw, as: UTF8.self)
         }
@@ -149,8 +153,10 @@ public nonisolated enum JournaldParser {
 
     private static func inflateLZ4(_ payload: [UInt8]) -> [UInt8]? {
         guard payload.count > 8 else { return nil }
-        let dstSize = Int(UInt64(littleEndian: payload[0..<8].withUnsafeBytes { $0.load(as: UInt64.self) }))
-        guard dstSize > 0, dstSize < 64 << 20 else { return nil }   // sanity cap 64 MB
+        // intExact first: a hostile uncompressed_size past Int.max would trap the
+        // bare Int(UInt64) before the sanity cap could reject it.
+        guard let dstSize = intExact(UInt64(littleEndian: payload[0..<8].withUnsafeBytes { $0.load(as: UInt64.self) })),
+              dstSize > 0, dstSize < 64 << 20 else { return nil }   // sanity cap 64 MB
         var dst = [UInt8](repeating: 0, count: dstSize)
         let n = payload[8...].withUnsafeBufferPointer { src in
             dst.withUnsafeMutableBufferPointer { d in
@@ -169,10 +175,13 @@ public nonisolated enum JournaldParser {
 
     /// ObjectHeader: type(1) flags(1) reserved[6] size(8 - total incl. header).
     private static func readObject(_ bytes: [UInt8], at offset: UInt64) -> ObjectInfo? {
-        let base = Int(offset)
-        guard base >= 0, base + 16 <= bytes.count else { return nil }
+        // Hostile offset past Int.max would trap Int(UInt64); reject it (and any
+        // offset within 16 bytes of the end) here — the gateway every read
+        // funnels through — so Int(offset) at the call sites is then always safe,
+        // as is Int(header.size) (size is bounded to bytes.count below).
+        guard let base = intExact(offset), base <= bytes.count - 16 else { return nil }
         let size = u64(bytes, base + 8)
-        guard size >= 16, UInt64(base) + size <= UInt64(bytes.count) else { return nil }
+        guard size >= 16, size <= UInt64(bytes.count - base) else { return nil }
         return ObjectInfo(type: bytes[base], flags: bytes[base + 1], size: size)
     }
 
