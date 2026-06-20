@@ -70,11 +70,27 @@ public nonisolated struct ReportInputs: Sendable {
     /// On-device AI-generated executive summary of the findings, surfaced at the
     /// top of the examiner report. Defaulted empty when none was generated.
     public let executiveSummary: String
+    /// Validated, evidence-anchored claims from the structured on-device path,
+    /// listed under the executive summary. Defaulted empty (legacy / prose path).
+    public let summaryClaims: [SummaryClaim]
+    /// The evidence-reference validation report, surfaced as a caveat under the
+    /// claims. `nil` when the summary was not produced by the validated path.
+    public let summaryValidation: SummaryValidationReport?
+    /// The persisted `CaseSummary.modelLabel` (e.g. "Apple Intelligence
+    /// (on-device)", "Apple Private Cloud Compute", "Cloud · <model>"), shown in
+    /// the report. Empty when no summary.
+    public let summaryModelLabel: String
+    /// Where the summary's inference ran - drives the report's provenance line.
+    public let summarySovereignty: SovereigntyTier
 
     public init(caseName: String, examiner: String, createdAt: Date,
                 generatedAt: Date, hosts: [Host], custodyLog: [CustodyEvent] = [],
                 caseNotes: String = "", annotations: [Annotation] = [],
-                executiveSummary: String = "") {
+                executiveSummary: String = "",
+                summaryClaims: [SummaryClaim] = [],
+                summaryValidation: SummaryValidationReport? = nil,
+                summaryModelLabel: String = "",
+                summarySovereignty: SovereigntyTier = .onDevice) {
         self.caseName = caseName
         self.examiner = examiner
         self.createdAt = createdAt
@@ -84,5 +100,9 @@ public nonisolated struct ReportInputs: Sendable {
         self.caseNotes = caseNotes
         self.annotations = annotations
         self.executiveSummary = executiveSummary
+        self.summaryClaims = summaryClaims
+        self.summaryValidation = summaryValidation
+        self.summaryModelLabel = summaryModelLabel
+        self.summarySovereignty = summarySovereignty
     }
 }

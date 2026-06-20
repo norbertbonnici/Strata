@@ -42,6 +42,22 @@ public nonisolated struct AnalysisContext: Sendable {
     public let knowledgeC: [KnowledgeEntry]
     public let macRecentItems: [MacRecentItem]
     public let macSecurityEvents: [MacSecurityEvent]
+    public let kexts: [MacKextEntry]
+    public let backgroundItems: [MacBackgroundItem]
+    public let messages: [MessageEntry]
+    public let mail: [MailMessageEntry]
+    public let network: [MacNetworkItem]
+    public let userActivity: [MacActivityItem]
+    public let powerlog: [PowerlogEntry]
+    public let config: [MacConfigSetting]
+    public let installHistory: [MacInstallEntry]
+    public let whereFroms: [MacWhereFrom]
+    /// Per-extension entropy verdict for files caught in a ransomware
+    /// mass-encryption burst, sampled from real bytes at the AppModel level
+    /// (analyzers are pure / no I/O). Keyed by lowercased extension; absent for
+    /// an extension means "content not measured". Empty on iOS / loose-without-
+    /// content / when there is no burst.
+    public let encryptionEntropy: [String: EncryptionEntropyStat]
 
     public init(files: [FileEntry], events: [EventLogRecord],
                 timeline: [TimelineEvent], registryValues: [RegistryValue],
@@ -62,7 +78,15 @@ public nonisolated struct AnalysisContext: Sendable {
                 macPersistence: [MacPersistenceItem] = [], fsEvents: [FSEventRecord] = [],
                 unifiedLog: [UnifiedLogEntry] = [], tcc: [TCCAccess] = [],
                 knowledgeC: [KnowledgeEntry] = [], macRecentItems: [MacRecentItem] = [],
-                macSecurityEvents: [MacSecurityEvent] = []) {
+                macSecurityEvents: [MacSecurityEvent] = [], kexts: [MacKextEntry] = [],
+                backgroundItems: [MacBackgroundItem] = [], messages: [MessageEntry] = [],
+                mail: [MailMessageEntry] = [], network: [MacNetworkItem] = [],
+                userActivity: [MacActivityItem] = [],
+                powerlog: [PowerlogEntry] = [],
+                config: [MacConfigSetting] = [],
+                installHistory: [MacInstallEntry] = [],
+                whereFroms: [MacWhereFrom] = [],
+                encryptionEntropy: [String: EncryptionEntropyStat] = [:]) {
         self.files = files
         self.events = events
         self.timeline = timeline
@@ -99,6 +123,17 @@ public nonisolated struct AnalysisContext: Sendable {
         self.knowledgeC = knowledgeC
         self.macRecentItems = macRecentItems
         self.macSecurityEvents = macSecurityEvents
+        self.kexts = kexts
+        self.backgroundItems = backgroundItems
+        self.messages = messages
+        self.mail = mail
+        self.network = network
+        self.userActivity = userActivity
+        self.powerlog = powerlog
+        self.config = config
+        self.installHistory = installHistory
+        self.whereFroms = whereFroms
+        self.encryptionEntropy = encryptionEntropy
     }
 }
 

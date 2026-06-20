@@ -130,6 +130,141 @@ public nonisolated enum TimelineBuilder {
         return events.sorted { $0.date < $1.date }
     }
 
+    /// macOS Messages (`chat.db`) rows → timeline. One event per timestamped
+    /// message; the path carries direction + counterpart + a body preview.
+    public static func build(from records: [MessageEntry]) -> [TimelineEvent] {
+        var events: [TimelineEvent] = []
+        events.reserveCapacity(records.count)
+        for record in records {
+            guard let date = record.timestamp else { continue }
+            events.append(TimelineEvent(date: date,
+                                        kind: .changed,
+                                        source: .messages,
+                                        fileID: 0,
+                                        path: record.timelineSummary,
+                                        size: 0,
+                                        isDeleted: false))
+        }
+        return events.sorted { $0.date < $1.date }
+    }
+
+    /// macOS Mail (`Envelope Index`) rows → timeline. One event per message with
+    /// a date; the path carries direction + counterpart + subject.
+    public static func build(from records: [MailMessageEntry]) -> [TimelineEvent] {
+        var events: [TimelineEvent] = []
+        events.reserveCapacity(records.count)
+        for record in records {
+            guard let date = record.timestamp else { continue }
+            events.append(TimelineEvent(date: date,
+                                        kind: .changed,
+                                        source: .mail,
+                                        fileID: 0,
+                                        path: record.timelineSummary,
+                                        size: 0,
+                                        isDeleted: false))
+        }
+        return events.sorted { $0.date < $1.date }
+    }
+
+    /// macOS network/device items (Wi-Fi join / DHCP lease / Bluetooth last-seen /
+    /// Time Machine backup) → timeline. Only items carrying a timestamp project;
+    /// config-only items (pairings) are dropped.
+    public static func build(from records: [MacNetworkItem]) -> [TimelineEvent] {
+        var events: [TimelineEvent] = []
+        for record in records {
+            guard let date = record.timestamp else { continue }
+            events.append(TimelineEvent(date: date,
+                                        kind: .changed,
+                                        source: .network,
+                                        fileID: 0,
+                                        path: record.timelineSummary,
+                                        size: 0,
+                                        isDeleted: false))
+        }
+        return events.sorted { $0.date < $1.date }
+    }
+
+    /// macOS user-activity items (QuickLook preview / Trash) → timeline. A Trash
+    /// row is marked deleted; QuickLook is a "viewed" activity row.
+    public static func build(from records: [MacActivityItem]) -> [TimelineEvent] {
+        var events: [TimelineEvent] = []
+        for record in records {
+            guard let date = record.timestamp else { continue }
+            events.append(TimelineEvent(date: date,
+                                        kind: .changed,
+                                        source: .userActivity,
+                                        fileID: 0,
+                                        path: record.timelineSummary,
+                                        size: 0,
+                                        isDeleted: record.kind == .trash))
+        }
+        return events.sorted { $0.date < $1.date }
+    }
+
+    /// macOS document Versions → timeline. One event per saved generation (a
+    /// `.modified` activity row), dropping versions with no recorded time.
+    public static func build(from records: [MacDocumentVersion]) -> [TimelineEvent] {
+        var events: [TimelineEvent] = []
+        for record in records {
+            guard let date = record.versionTime else { continue }
+            events.append(TimelineEvent(date: date,
+                                        kind: .modified,
+                                        source: .docRevisions,
+                                        fileID: 0,
+                                        path: record.timelineSummary,
+                                        size: record.size ?? 0,
+                                        isDeleted: false))
+        }
+        return events.sorted { $0.date < $1.date }
+    }
+
+    /// macOS Notification Center records → timeline (one event per delivered
+    /// notification with a date).
+    public static func build(from records: [MacNotification]) -> [TimelineEvent] {
+        var events: [TimelineEvent] = []
+        for record in records {
+            guard let date = record.deliveredDate else { continue }
+            events.append(TimelineEvent(date: date,
+                                        kind: .changed,
+                                        source: .notifications,
+                                        fileID: 0,
+                                        path: record.timelineSummary,
+                                        size: 0,
+                                        isDeleted: false))
+        }
+        return events.sorted { $0.date < $1.date }
+    }
+
+    public static func build(from records: [PowerlogEntry]) -> [TimelineEvent] {
+        var events: [TimelineEvent] = []
+        for record in records {
+            guard let date = record.date else { continue }
+            events.append(TimelineEvent(date: date,
+                                        kind: .changed,
+                                        source: .powerlog,
+                                        fileID: 0,
+                                        path: record.timelineSummary,
+                                        size: 0,
+                                        isDeleted: false))
+        }
+        return events.sorted { $0.date < $1.date }
+    }
+
+    public static func build(from records: [MacInstallEntry]) -> [TimelineEvent] {
+        var events: [TimelineEvent] = []
+        for record in records {
+            guard let date = record.date else { continue }
+            events.append(TimelineEvent(date: date,
+                                        kind: .born,
+                                        source: .install,
+                                        fileID: 0,
+                                        path: record.timelineSummary,
+                                        size: 0,
+                                        isDeleted: false))
+        }
+        return events.sorted { $0.date < $1.date }
+    }
+
     /// Project registry keys onto the timeline as key last-written events. The
     /// parse output is per-*value*, but the timestamp libregf surfaces is the
     /// *key's*, so values are deduped to one event per key write (keyed on

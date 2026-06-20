@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/><meta name="color-scheme" content="dark"/>
+<title>Strata · Activity &amp; lifecycle</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#0b0e13;--bg2:#0e131a;--surface:#151b23;--surface2:#1b222c;--surface3:#222a36;--line:#2a323f;--line-soft:#212934;--inbg:#10151c;
+    --text:#e9edf3;--text2:#a7b1bf;--text3:#69727f;--teal:#3fd1c0;--amber:#f0b45c;--indigo:#8d8cf2;--coral:#f06a5d;--green:#5ad19a;--steel:#8b97ab;
+    --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;--disp:"Space Grotesk",system-ui,sans-serif;--body:"Inter",system-ui,sans-serif;--sh:0 14px 40px -18px rgba(0,0,0,.7)}
+  *{box-sizing:border-box}html,body{margin:0}
+  body{background:radial-gradient(1200px 500px at 50% -10%,#131a24,rgba(19,26,36,0) 60%),var(--bg);color:var(--text);font-family:var(--body);-webkit-font-smoothing:antialiased;line-height:1.5;padding-bottom:40px}
+  button{font-family:inherit}
+  .appbar{display:flex;align-items:center;gap:12px;padding:max(14px,env(safe-area-inset-top)) 16px 10px;max-width:620px;margin:0 auto}
+  .brand{display:flex;flex-direction:column;line-height:1.1}.brand .name{font-family:var(--disp);font-weight:700;font-size:19px;letter-spacing:-.01em}.brand .sub{font-size:11.5px;color:var(--text3);font-family:var(--mono);margin-top:2px}
+  .sp{flex:1}.ver{font-family:var(--mono);font-size:11px;color:var(--text3);border:1px solid var(--line-soft);padding:4px 8px;border-radius:999px}
+  .tabs{max-width:620px;margin:10px auto 4px;display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;padding:0 16px}.tabs::-webkit-scrollbar{display:none}
+  .tab{flex:0 0 auto;cursor:pointer;border:1px solid var(--line-soft);background:var(--surface);color:var(--text2);border-radius:999px;padding:8px 14px;display:flex;gap:8px;align-items:center;font-size:13px;font-weight:500;white-space:nowrap;transition:.16s}
+  .tab .n{font-family:var(--mono);font-size:11px;color:var(--text3)}.tab[aria-selected=true]{background:var(--surface3);color:var(--text);border-color:#39434f}.tab[aria-selected=true] .n{color:var(--teal)}
+  main{max-width:620px;margin:0 auto;padding:8px 16px 0}
+  .view{display:none}.view.active{display:block;animation:rise .35s ease both}@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .vhead{padding:8px 2px 12px}.vhead h2{font-family:var(--disp);font-size:21px;font-weight:600;letter-spacing:-.02em;margin:0 0 5px}.vhead p{margin:0;color:var(--text2);font-size:13.5px}
+  .btn{appearance:none;border:1px solid var(--line);background:var(--surface2);color:var(--text);border-radius:11px;padding:11px 15px;font-size:14px;font-weight:600;cursor:pointer;transition:.16s;display:inline-flex;align-items:center;justify-content:center;gap:8px}.btn:hover{background:var(--surface3)}.btn.primary{background:var(--teal);color:#062420;border-color:transparent}.btn.block{width:100%}.btn.sm{padding:8px 12px;font-size:12.5px}.btn.danger{color:#f3a299;border-color:#5a2b26}.btn.danger:hover{background:rgba(240,106,93,.08)}
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:500;padding:3px 7px;border-radius:999px;border:1px solid transparent;font-family:var(--mono);white-space:nowrap}.pill .dot{width:5px;height:5px;border-radius:50%}
+  .pill.teal{background:rgba(63,209,192,.1);color:#8fe7da;border-color:#23514b}.pill.teal .dot{background:var(--teal)}
+  .pill.amber{background:rgba(240,180,92,.1);color:#f3c987;border-color:#52401f}.pill.amber .dot{background:var(--amber)}
+  .pill.green{background:rgba(90,209,154,.1);color:#9be3c0;border-color:#235140}.pill.green .dot{background:var(--green)}
+  .note{font-family:var(--mono);font-size:11px;color:var(--text3);display:flex;gap:8px;align-items:flex-start;line-height:1.55;margin:14px 2px 0}
+  .sc{border:1px solid var(--line-soft);border-radius:14px;background:linear-gradient(180deg,var(--bg2),var(--surface));padding:15px;margin-bottom:13px}
+  .sc-t{font-family:var(--mono);font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);margin:0 0 12px;display:flex;align-items:center;gap:9px}.sc-t::before{content:"";width:3px;height:13px;border-radius:2px;background:var(--teal)}.sc-t.a::before{background:var(--amber)}
+
+  /* activity */
+  .statusbar{display:flex;align-items:center;gap:10px;margin-bottom:13px;flex-wrap:wrap}
+  .statusbar .v{font-family:var(--disp);font-weight:600;font-size:15px}
+  .statusbar .ok{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;color:#8fe7da;border:1px solid #23514b;background:rgba(63,209,192,.08);padding:4px 9px;border-radius:999px}
+  .filters{display:flex;gap:7px;overflow-x:auto;scrollbar-width:none;margin-bottom:13px}.filters::-webkit-scrollbar{display:none}
+  .fchip{flex:0 0 auto;font-family:var(--mono);font-size:11px;padding:6px 11px;border-radius:999px;border:1px solid var(--line-soft);background:var(--surface);color:var(--text3);cursor:pointer;white-space:nowrap}.fchip[aria-pressed=true]{background:var(--surface3);color:var(--text);border-color:#39434f}
+  .alog{position:relative;padding-left:4px}
+  .arow{position:relative;padding:0 0 12px 24px}
+  .arow::before{content:"";position:absolute;left:6px;top:5px;bottom:-2px;width:2px;background:var(--line)}.arow:last-child::before{display:none}
+  .arow .nd{position:absolute;left:0;top:3px;width:13px;height:13px;border-radius:50%;background:var(--bg);border:2px solid var(--steel)}
+  .arow[data-cat=evidence] .nd{border-color:var(--teal)}
+  .arow[data-cat=custody] .nd{border-color:var(--indigo)}
+  .arow[data-cat=analysis] .nd{border-color:var(--amber)}
+  .arow[data-cat=exports] .nd{border-color:var(--green)}
+  .arow[data-cat=lifecycle] .nd{border-color:var(--steel)}
+  .arow.alert .nd{border-color:var(--coral);box-shadow:0 0 0 3px rgba(240,106,93,.15)}
+  .arow .card{border:1px solid var(--line-soft);border-radius:11px;background:var(--surface);padding:10px 11px}
+  .arow.alert .card{border-color:#5a2b26;background:linear-gradient(180deg,#1f1311,#1a1210)}
+  .arow .l1{font-size:12.5px;line-height:1.4}.arow .l1 b{font-weight:600}.arow .who{color:var(--text);font-weight:600}
+  .arow .act{color:var(--text2)}
+  .arow.alert .l1{color:#f3a299}
+  .arow .l2{font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:5px;display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+  .arow .l2 .h{color:var(--teal)}
+  .arow .l2 .catlbl{text-transform:uppercase;letter-spacing:.05em}
+
+  /* lifecycle */
+  .lcstep{display:flex;align-items:center;margin:6px 0 16px}
+  .lcstep .s{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;position:relative}
+  .lcstep .s .ring{width:26px;height:26px;border-radius:50%;border:1.5px solid var(--line);display:grid;place-items:center;background:var(--bg2);z-index:2;font-family:var(--mono);font-size:10px;color:var(--text3)}
+  .lcstep .s .lb{font-family:var(--mono);font-size:9.5px;color:var(--text3)}
+  .lcstep .s::before{content:"";position:absolute;top:13px;left:-50%;width:100%;height:1.5px;background:var(--line);z-index:1}.lcstep .s:first-child::before{display:none}
+  .lcstep .s.done .ring{border-color:var(--teal);color:var(--teal);background:#0f211e}.lcstep .s.cur .ring{border-color:var(--teal);background:var(--teal);color:#062420}
+  .lcstep .s.done .lb,.lcstep .s.cur .lb{color:var(--text2)}
+  .kv{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--line-soft);font-size:13px}.kv:last-child{border-bottom:0}.kv .k{font-family:var(--mono);font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.04em}.kv .v{text-align:right}.kv .v .m{font-family:var(--mono);font-size:11px;color:var(--text2)}
+  .fld{margin-bottom:12px}.fld label{display:block;font-size:12px;color:var(--text2);margin-bottom:6px}
+  .input{width:100%;background:var(--inbg);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:11px 12px;font-size:13.5px;font-family:var(--body)}select.input{appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg width='12' height='12' viewBox='0 0 12 12' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M2 4l4 4 4-4' stroke='%2369727f' stroke-width='1.4' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:32px}
+  .danger-z{border:1px solid #5a2b26;border-radius:13px;background:linear-gradient(180deg,#1f1311,#1a1210);padding:14px;margin-top:13px}
+  .danger-z .t{font-family:var(--disp);font-weight:600;font-size:13.5px;color:#f3a299;margin-bottom:4px}
+  .danger-z .d{font-family:var(--mono);font-size:10.5px;color:#c9a59f;margin-bottom:11px;line-height:1.5}
+  @media(prefers-reduced-motion:reduce){*{transition-duration:.001ms!important;animation-duration:.001ms!important}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute"><defs>
+  <symbol id="mark" viewBox="0 0 28 28"><rect x="3" y="4" width="22" height="4" rx="1.4" fill="#7f8aa0"/><rect x="5" y="10" width="20" height="4" rx="1.4" fill="#3fd1c0"/><rect x="3" y="16" width="18" height="4" rx="1.4" fill="#8d8cf2"/><rect x="6" y="22" width="16" height="3.4" rx="1.4" fill="#f0b45c"/></symbol>
+</defs></svg>
+
+<header class="appbar"><svg width="29" height="29"><use href="#mark"/></svg>
+  <div class="brand"><span class="name">Strata</span><span class="sub">activity &amp; lifecycle</span></div><span class="sp"></span><span class="ver">2 screens</span></header>
+
+<nav class="tabs" role="tablist">
+  <button class="tab" role="tab" aria-selected="true" data-go="ac"><span class="n">01</span> Case activity</button>
+  <button class="tab" role="tab" aria-selected="false" data-go="lc"><span class="n">02</span> Lifecycle</button>
+</nav>
+
+<main>
+<!-- ACTIVITY -->
+<section class="view active" id="ac">
+  <div class="vhead"><h2>Case activity</h2><p>Your own tamper-evident journal of what was done in this case — for defensibility and reproducibility, not access control.</p></div>
+  <div class="statusbar"><div class="v">47 entries</div><span class="ok"><svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M5 12l5 5L20 7" stroke="#8fe7da" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>chain intact</span><span class="sp"></span><button class="btn sm">Verify journal</button></div>
+  <div class="filters"><button class="fchip" aria-pressed="true" data-f="all">All</button><button class="fchip" data-f="evidence">Evidence</button><button class="fchip" data-f="custody">Custody</button><button class="fchip" data-f="analysis">Findings</button><button class="fchip" data-f="exports">Exports</button><button class="fchip" data-f="lifecycle">Lifecycle</button></div>
+  <div class="alog" id="alog">
+    <div class="arow" data-cat="exports"><span class="nd"></span><div class="card"><div class="l1"><span class="who">A. Vella</span> <span class="act">exported</span> <b>custody PDF</b> for EXH-001</div><div class="l2"><span>2026-06-14 11:08Z</span><span class="catlbl">exports</span><span class="h">seq #47 · chained</span></div></div></div>
+    <div class="arow" data-cat="analysis"><span class="nd"></span><div class="card"><div class="l1"><span class="who">A. Vella</span> <span class="act">tagged finding</span> <b>“moved the funds…”</b> as IOC</div><div class="l2"><span>2026-06-14 10:55Z</span><span class="catlbl">finding</span><span>suspect-iphone.tar</span></div></div></div>
+    <div class="arow" data-cat="custody"><span class="nd"></span><div class="card"><div class="l1"><span class="who">N. Borg</span> <span class="act">transferred custody</span> → <b>A. Vella</b></div><div class="l2"><span>2026-06-10 09:30Z</span><span class="catlbl">custody</span><span>EXH-001 · hash verified</span><span class="h">link #2</span></div></div></div>
+    <div class="arow alert" data-cat="evidence"><span class="nd"></span><div class="card"><div class="l1"><span class="who" style="color:#f3a299">System</span> flagged <b>integrity mismatch</b> on REDTEAM-WS.vhdx — transfer blocked</div><div class="l2"><span>2026-06-09 14:48Z</span><span class="catlbl">evidence</span></div></div></div>
+    <div class="arow" data-cat="evidence"><span class="nd"></span><div class="card"><div class="l1"><span class="who">N. Borg</span> <span class="act">started batch processing</span> <b>(3 images)</b></div><div class="l2"><span>2026-06-09 15:02Z</span><span class="catlbl">evidence</span><span>2× parallel</span></div></div></div>
+    <div class="arow" data-cat="evidence"><span class="nd"></span><div class="card"><div class="l1"><span class="who">N. Borg</span> <span class="act">ingested</span> <b>WIN11-FINANCE.E01</b></div><div class="l2"><span>2026-06-09 14:40Z</span><span class="catlbl">evidence</span><span>NTFS · BitLocker</span></div></div></div>
+    <div class="arow" data-cat="lifecycle"><span class="nd"></span><div class="card"><div class="l1"><span class="who">N. Borg</span> <span class="act">opened case</span> <b>FIAU-2026-0114</b></div><div class="l2"><span>2026-06-08 10:12Z</span><span class="catlbl">lifecycle</span><span class="h">seq #1 · GENESIS</span></div></div></div>
+  </div>
+  <div class="note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 3l8 4v5c0 5-3.4 8-8 9-4.6-1-8-4-8-9V7z" stroke="#69727f" stroke-width="1.5"/></svg><span>Append-only and SHA-256 hash-chained, exactly like the custody log — entries can't be edited or deleted, only added. Verifiable on demand.</span></div>
+</section>
+
+<!-- LIFECYCLE -->
+<section class="view" id="lc">
+  <div class="vhead"><h2>Case lifecycle</h2><p>Open → active → review → closed → archived, with retention and evidence disposition.</p></div>
+  <div class="sc">
+    <div class="sc-t">FIAU-2026-0114 · Operation Tramontana</div>
+    <div class="lcstep">
+      <div class="s done"><div class="ring">✓</div><div class="lb">Open</div></div>
+      <div class="s done"><div class="ring">✓</div><div class="lb">Active</div></div>
+      <div class="s cur"><div class="ring">3</div><div class="lb">Review</div></div>
+      <div class="s"><div class="ring">4</div><div class="lb">Closed</div></div>
+      <div class="s"><div class="ring">5</div><div class="lb">Archived</div></div>
+    </div>
+    <div class="kv"><span class="k">Status</span><span class="v"><span class="pill amber"><span class="dot"></span>in review</span></span></div>
+    <div class="kv"><span class="k">Opened</span><span class="v"><span class="m">2026-06-08 · N. Borg</span></span></div>
+    <div class="kv"><span class="k">Exhibits</span><span class="v"><span class="m">5 · all in custody</span></span></div>
+    <div class="kv"><span class="k">Open findings</span><span class="v"><span class="m">12 (9 in report)</span></span></div>
+  </div>
+  <div class="sc">
+    <div class="sc-t a">Retention &amp; disposition</div>
+    <div class="fld"><label>Retention policy</label><select class="input"><option>10 years (financial crime — default)</option><option>7 years</option><option>Indefinite (active prosecution)</option><option>Until court disposal</option></select></div>
+    <div class="fld"><label>On close, evidence disposition</label><select class="input"><option>Retain sealed in evidence store</option><option>Return to owner</option><option>Transfer to prosecution</option><option>Secure destruction (after retention)</option></select></div>
+    <div class="kv"><span class="k">Dispose after</span><span class="v"><span class="m">2036-06-08</span></span></div>
+  </div>
+  <button class="btn block" style="margin-bottom:13px">Mark review complete → Close case</button>
+  <div class="danger-z">
+    <div class="t">⚠ Irreversible</div>
+    <div class="d">Closing freezes the case read-only — custody and findings can no longer change. Disposition is gated on retention elapsing. Both are journaled.</div>
+    <button class="btn danger block" style="margin-bottom:9px">Close &amp; lock case (type-to-confirm)</button>
+    <button class="btn danger block">Dispose evidence (retention not yet elapsed)</button>
+  </div>
+  <div class="note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5h6v2M7 7l1 13h8l1-13" stroke="#69727f" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>One examiner closing and archiving their own case is normal — this is case state, not an admin gate.</span></div>
+</section>
+</main>
+
+<script>
+(function(){
+  var tabs=[].slice.call(document.querySelectorAll(".tab"));
+  tabs.forEach(function(t){t.onclick=function(){tabs.forEach(function(x){x.setAttribute("aria-selected",x===t?"true":"false");});document.querySelectorAll(".view").forEach(function(v){v.classList.toggle("active",v.id===t.dataset.go);});window.scrollTo({top:0,behavior:"smooth"});};});
+  document.querySelectorAll(".fchip").forEach(function(c){c.onclick=function(){
+    document.querySelectorAll(".fchip").forEach(function(x){x.setAttribute("aria-pressed","false");});c.setAttribute("aria-pressed","true");
+    var f=c.dataset.f;document.querySelectorAll("#alog .arow").forEach(function(r){r.style.display=(f==="all"||r.dataset.cat===f)?"":"none";});
+  };});
+})();
+</script>
+</body>
+</html>

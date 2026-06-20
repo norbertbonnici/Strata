@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/><meta name="color-scheme" content="dark"/>
+<title>Strata · Reporting &amp; export</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#0b0e13;--bg2:#0e131a;--surface:#151b23;--surface2:#1b222c;--surface3:#222a36;--line:#2a323f;--line-soft:#212934;--inbg:#10151c;
+    --text:#e9edf3;--text2:#a7b1bf;--text3:#69727f;--teal:#3fd1c0;--amber:#f0b45c;--indigo:#8d8cf2;--coral:#f06a5d;--green:#5ad19a;--steel:#8b97ab;
+    --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;--disp:"Space Grotesk",system-ui,sans-serif;--body:"Inter",system-ui,sans-serif;--sh:0 14px 40px -18px rgba(0,0,0,.7)}
+  *{box-sizing:border-box}html,body{margin:0}
+  body{background:radial-gradient(1200px 500px at 50% -10%,#131a24,rgba(19,26,36,0) 60%),var(--bg);color:var(--text);font-family:var(--body);-webkit-font-smoothing:antialiased;line-height:1.5;padding-bottom:40px}
+  button{font-family:inherit}
+  .appbar{display:flex;align-items:center;gap:12px;padding:max(14px,env(safe-area-inset-top)) 16px 10px;max-width:620px;margin:0 auto}
+  .brand{display:flex;flex-direction:column;line-height:1.1}.brand .name{font-family:var(--disp);font-weight:700;font-size:19px;letter-spacing:-.01em}.brand .sub{font-size:11.5px;color:var(--text3);font-family:var(--mono);margin-top:2px}
+  .sp{flex:1}.ver{font-family:var(--mono);font-size:11px;color:var(--text3);border:1px solid var(--line-soft);padding:4px 8px;border-radius:999px}
+  .tabs{max-width:620px;margin:10px auto 4px;display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;padding:0 16px}.tabs::-webkit-scrollbar{display:none}
+  .tab{flex:0 0 auto;cursor:pointer;border:1px solid var(--line-soft);background:var(--surface);color:var(--text2);border-radius:999px;padding:8px 14px;display:flex;gap:8px;align-items:center;font-size:13px;font-weight:500;white-space:nowrap;transition:.16s}
+  .tab .n{font-family:var(--mono);font-size:11px;color:var(--text3)}.tab[aria-selected=true]{background:var(--surface3);color:var(--text);border-color:#39434f}.tab[aria-selected=true] .n{color:var(--teal)}
+  main{max-width:620px;margin:0 auto;padding:8px 16px 0}
+  .view{display:none}.view.active{display:block;animation:rise .35s ease both}@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .vhead{padding:8px 2px 12px}.vhead h2{font-family:var(--disp);font-size:21px;font-weight:600;letter-spacing:-.02em;margin:0 0 5px}.vhead p{margin:0;color:var(--text2);font-size:13.5px}
+  .btn{appearance:none;border:1px solid var(--line);background:var(--surface2);color:var(--text);border-radius:11px;padding:11px 15px;font-size:14px;font-weight:600;cursor:pointer;transition:.16s;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+  .btn:hover{background:var(--surface3)}.btn.primary{background:var(--teal);color:#062420;border-color:transparent}.btn.primary:hover{filter:brightness(1.06)}.btn.block{width:100%}.btn.sm{padding:9px 13px;font-size:12.5px}.btn.ghost{background:transparent}
+  .tag{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:7px;border:1px solid;cursor:pointer}
+  .tag.rel{color:#8fe7da;border-color:#23514b;background:rgba(63,209,192,.08)}
+  .tag.ioc{color:#f3a299;border-color:#5a2b26;background:rgba(240,106,93,.08)}
+  .tag.exc{color:#b9b8f7;border-color:#3a3a73;background:rgba(141,140,242,.08)}
+  .tag.off{color:var(--text3);border-color:var(--line-soft);background:transparent}
+
+  /* findings */
+  .fbar{display:flex;gap:8px;align-items:center;margin-bottom:13px;flex-wrap:wrap}
+  .fbar .count{font-family:var(--disp);font-weight:600;font-size:15px}
+  .fbar .sub{font-family:var(--mono);font-size:11px;color:var(--text3)}
+  .grouplabel{font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);margin:14px 2px 8px;display:flex;align-items:center;gap:8px}.grouplabel .ln{height:1px;flex:1;background:var(--line-soft)}
+  .find{border:1px solid var(--line-soft);border-radius:13px;background:var(--surface);padding:12px;margin-bottom:9px;position:relative;overflow:hidden}
+  .find .bar{position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--coral)}
+  .find.rel .bar{background:var(--teal)}.find.exc .bar{background:var(--indigo)}
+  .find .top{display:flex;align-items:flex-start;gap:10px;margin-bottom:8px;padding-left:8px}
+  .find .ti{flex:1;min-width:0;font-size:13.5px;font-weight:600;line-height:1.35}
+  .find .src{font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:3px}
+  .find .chk{width:20px;height:20px;border-radius:6px;border:1.5px solid #3a4350;flex:0 0 auto;display:grid;place-items:center;cursor:pointer;transition:.14s}
+  .find .chk svg{width:11px;height:11px;opacity:0}
+  .find.inc .chk{background:var(--teal);border-color:var(--teal)}.find.inc .chk svg{opacity:1}
+  .find .note{padding-left:8px;margin-top:6px;font-size:12px;color:var(--text2);font-style:italic;border-left:2px solid var(--line);padding-left:9px}
+  .find .tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px;padding-left:8px}
+
+  /* report builder */
+  .seglist{border:1px solid var(--line-soft);border-radius:13px;overflow:hidden;margin-bottom:13px}
+  .seg-r{display:flex;align-items:center;gap:11px;padding:12px 13px;border-bottom:1px solid var(--line-soft);background:var(--surface)}
+  .seg-r:last-child{border-bottom:0}
+  .seg-r .grip{color:#414a57;cursor:grab}
+  .seg-r .num{font-family:var(--mono);font-size:11px;color:var(--text3);width:18px}
+  .seg-r .a{flex:1;font-size:13.5px;font-weight:500}
+  .seg-r .a .b{font-family:var(--mono);font-size:10px;color:var(--text3);font-weight:400;margin-top:1px}
+  .sw{width:40px;height:23px;border-radius:999px;background:#222a36;position:relative;cursor:pointer;border:1px solid var(--line);flex:0 0 auto;padding:0}
+  .sw .k{position:absolute;top:2px;left:2px;width:17px;height:17px;border-radius:50%;background:#69727f;transition:.16s}
+  .sw[aria-pressed=true]{background:rgba(63,209,192,.16);border-color:#23514b}.sw[aria-pressed=true] .k{left:19px;background:var(--teal)}
+  .sc{border:1px solid var(--line-soft);border-radius:14px;background:linear-gradient(180deg,var(--bg2),var(--surface));padding:15px;margin-bottom:13px}
+  .sc-t{font-family:var(--mono);font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);margin:0 0 12px;display:flex;align-items:center;gap:9px}.sc-t::before{content:"";width:3px;height:13px;border-radius:2px;background:var(--indigo)}
+  .fld{margin-bottom:12px}.fld label{display:block;font-size:12px;color:var(--text2);margin-bottom:6px}
+  .input{width:100%;background:var(--inbg);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:11px 12px;font-size:13.5px;font-family:var(--body)}select.input{appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg width='12' height='12' viewBox='0 0 12 12' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M2 4l4 4 4-4' stroke='%2369727f' stroke-width='1.4' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:32px}
+  .opt{display:flex;align-items:center;gap:10px;padding:9px 0;font-size:13px;color:var(--text2)}
+  .opt .cb{width:18px;height:18px;border-radius:5px;border:1.5px solid #3a4350;display:grid;place-items:center;cursor:pointer}.opt .cb.on{background:var(--teal);border-color:var(--teal)}.opt .cb svg{width:11px;height:11px;opacity:0}.opt .cb.on svg{opacity:1}
+
+  /* court export — paper preview */
+  .exportbar{display:flex;gap:9px;margin-bottom:13px;flex-wrap:wrap}
+  .paper{background:#f4f2ec;color:#1a1c20;border-radius:8px;padding:26px 24px;box-shadow:0 18px 50px -20px rgba(0,0,0,.8);font-family:"Source Serif 4",Georgia,serif;max-width:520px;margin:0 auto}
+  .paper .ph{text-align:center;border-bottom:2px solid #1a1c20;padding-bottom:14px;margin-bottom:16px}
+  .paper .ph .org{font-family:var(--body);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#5a5e66}
+  .paper .ph h1{font-size:19px;margin:7px 0 4px;font-weight:600}
+  .paper .ph .doc{font-family:var(--mono);font-size:10.5px;color:#6a6e76}
+  .paper h2{font-family:var(--body);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#3a3e46;border-bottom:1px solid #c9c5bb;padding-bottom:5px;margin:18px 0 9px}
+  .paper .kv{display:flex;gap:10px;font-size:13px;margin:5px 0}.paper .kv .k{color:#5a5e66;flex:0 0 38%}.paper .kv .v{flex:1}
+  .paper .mono{font-family:var(--mono);font-size:11px;word-break:break-all}
+  .paper .chainrow{border-left:2px solid #1a1c20;padding:4px 0 10px 12px;margin-left:3px;position:relative}
+  .paper .chainrow::before{content:"";position:absolute;left:-5px;top:5px;width:8px;height:8px;border-radius:50%;background:#1a1c20}
+  .paper .chainrow .ln1{font-size:13px;font-weight:600}
+  .paper .chainrow .ln2{font-size:11.5px;color:#4a4e56;margin-top:2px}
+  .paper .chainrow .h{font-family:var(--mono);font-size:9.5px;color:#6a6e76;margin-top:4px;word-break:break-all}
+  .paper .integrity{background:#e7efe9;border:1px solid #a9c7b6;border-radius:6px;padding:10px 12px;font-size:12px;margin-top:10px;display:flex;gap:9px;align-items:flex-start}
+  .paper .sigrow{display:flex;gap:20px;margin-top:22px}
+  .paper .sigrow .s{flex:1}.paper .sigrow .line{border-top:1px solid #1a1c20;margin-top:30px;padding-top:5px;font-size:10.5px;color:#5a5e66}
+  .paper .foot{margin-top:20px;border-top:1px solid #c9c5bb;padding-top:8px;font-family:var(--mono);font-size:9px;color:#8a8e96;text-align:center}
+  .note{font-family:var(--mono);font-size:11px;color:var(--text3);display:flex;gap:8px;align-items:flex-start;line-height:1.55;margin:14px 2px 0}
+  @media(prefers-reduced-motion:reduce){*{transition-duration:.001ms!important;animation-duration:.001ms!important}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute"><defs>
+  <symbol id="mark" viewBox="0 0 28 28"><rect x="3" y="4" width="22" height="4" rx="1.4" fill="#7f8aa0"/><rect x="5" y="10" width="20" height="4" rx="1.4" fill="#3fd1c0"/><rect x="3" y="16" width="18" height="4" rx="1.4" fill="#8d8cf2"/><rect x="6" y="22" width="16" height="3.4" rx="1.4" fill="#f0b45c"/></symbol>
+  <symbol id="ck" viewBox="0 0 12 12"><path d="M2 6l3 3 5-6" stroke="#062420" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</defs></svg>
+
+<header class="appbar"><svg width="29" height="29"><use href="#mark"/></svg>
+  <div class="brand"><span class="name">Strata</span><span class="sub">reporting &amp; export</span></div><span class="sp"></span><span class="ver">3 screens</span></header>
+
+<nav class="tabs" role="tablist">
+  <button class="tab" role="tab" aria-selected="true" data-go="f"><span class="n">01</span> Findings</button>
+  <button class="tab" role="tab" aria-selected="false" data-go="b"><span class="n">02</span> Report builder</button>
+  <button class="tab" role="tab" aria-selected="false" data-go="x"><span class="n">03</span> Custody export</button>
+</nav>
+
+<main>
+<!-- FINDINGS -->
+<section class="view active" id="f">
+  <div class="vhead"><h2>Findings</h2><p>Bookmarked artifacts become findings — tag them, annotate, and choose what goes into the report.</p></div>
+  <div class="fbar"><div><div class="count">12 findings</div><div class="sub">8 relevant · 3 IOC · 1 exculpatory</div></div><span class="sp"></span><button class="btn sm">Group: artifact ▾</button></div>
+
+  <div class="grouplabel">Execution &amp; persistence <span class="ln"></span></div>
+  <div class="find ioc inc">
+    <div class="bar"></div>
+    <div class="top"><div><div class="ti">Run key → C:\Users\Public\upd.exe</div><div class="src">WIN11-FINANCE.E01 · NTUSER.DAT · registry</div></div><div class="chk"><svg><use href="#ck"/></svg></div></div>
+    <div class="note">Auto-start persistence written 9 min after the network logon. Matches the dropped binary in 4688.</div>
+    <div class="tags"><span class="tag ioc">● IOC</span><span class="tag rel">relevant</span><span class="tag off">+ tag</span></div>
+  </div>
+  <div class="find rel inc">
+    <div class="bar"></div>
+    <div class="top"><div><div class="ti">@reboot /opt/.x/miner — deploy crontab</div><div class="src">app-prod-02.qcow2 · crontab · persistence</div></div><div class="chk"><svg><use href="#ck"/></svg></div></div>
+    <div class="note">Persistence on the Linux host; corroborates the SSH key addition at 02:14.</div>
+    <div class="tags"><span class="tag rel">● relevant</span><span class="tag off">+ tag</span></div>
+  </div>
+
+  <div class="grouplabel">Communications <span class="ln"></span></div>
+  <div class="find ioc inc">
+    <div class="bar"></div>
+    <div class="top"><div><div class="ti">“moved the funds, account is clean now”</div><div class="src">suspect-iphone.tar · sms.db · iMessage</div></div><div class="chk"><svg><use href="#ck"/></svg></div></div>
+    <div class="note">Sent 21:04, ~3h after the offshore search. Directly probative.</div>
+    <div class="tags"><span class="tag ioc">● IOC</span><span class="tag rel">relevant</span><span class="tag off">+ tag</span></div>
+  </div>
+  <div class="find exc">
+    <div class="bar"></div>
+    <div class="top"><div><div class="ti">“I had nothing to do with the transfers”</div><div class="src">pixel-7.img · mmssms.db · SMS</div></div><div class="chk"><svg><use href="#ck"/></svg></div></div>
+    <div class="note">Flagged exculpatory — retained per disclosure duty; excluded from the IOC set.</div>
+    <div class="tags"><span class="tag exc">● exculpatory</span><span class="tag off">+ tag</span></div>
+  </div>
+  <div class="note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M5 12l5 5L20 7" stroke="#69727f" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Each finding keeps a link back to its source record and the exhibit's verified hash, so the report is traceable.</span></div>
+</section>
+
+<!-- REPORT BUILDER -->
+<section class="view" id="b">
+  <div class="vhead"><h2>Report builder</h2><p>Assemble the deliverable — pick a template, reorder sections, choose findings, generate.</p></div>
+  <div class="sc">
+    <div class="sc-t">Template &amp; scope</div>
+    <div class="fld"><label>Template</label><select class="input"><option>Investigation report — full</option><option>Executive summary</option><option>Technical appendix only</option><option>Disclosure bundle</option></select></div>
+    <div class="fld"><label>Classification banner</label><select class="input"><option>Confidential</option><option>Restricted</option><option>Secret</option><option>Official</option></select></div>
+  </div>
+  <div class="sc-t" style="margin:0 2px 8px;display:flex"><span style="display:flex;align-items:center;gap:9px"><span style="width:3px;height:13px;border-radius:2px;background:var(--indigo);display:inline-block"></span>SECTIONS · drag to reorder</span></div>
+  <div class="seglist" id="seglist">
+    <div class="seg-r"><span class="grip">⠿</span><span class="num">1</span><span class="a">Cover &amp; case identity<span class="b">reference, authority, classification</span></span><button class="sw" aria-pressed="true"><span class="k"></span></button></div>
+    <div class="seg-r"><span class="grip">⠿</span><span class="num">2</span><span class="a">Executive summary<span class="b">narrative · auto-draft + edit</span></span><button class="sw" aria-pressed="true"><span class="k"></span></button></div>
+    <div class="seg-r"><span class="grip">⠿</span><span class="num">3</span><span class="a">Methodology &amp; tools<span class="b">acquisition, write-blockers, parsers</span></span><button class="sw" aria-pressed="true"><span class="k"></span></button></div>
+    <div class="seg-r"><span class="grip">⠿</span><span class="num">4</span><span class="a">Findings<span class="b">9 of 12 selected</span></span><button class="sw" aria-pressed="true"><span class="k"></span></button></div>
+    <div class="seg-r"><span class="grip">⠿</span><span class="num">5</span><span class="a">Timeline<span class="b">merged events, incident window</span></span><button class="sw" aria-pressed="true"><span class="k"></span></button></div>
+    <div class="seg-r"><span class="grip">⠿</span><span class="num">6</span><span class="a">Chain of custody<span class="b">hash-chained log + integrity statement</span></span><button class="sw" aria-pressed="true"><span class="k"></span></button></div>
+    <div class="seg-r"><span class="grip">⠿</span><span class="num">7</span><span class="a">Exhibit manifest<span class="b">5 exhibits · hashes</span></span><button class="sw" aria-pressed="true"><span class="k"></span></button></div>
+    <div class="seg-r"><span class="grip">⠿</span><span class="num">8</span><span class="a">Appendix — raw artifacts<span class="b">optional</span></span><button class="sw" aria-pressed="false"><span class="k"></span></button></div>
+  </div>
+  <div class="sc">
+    <div class="sc-t">Output</div>
+    <div class="opt"><span class="cb on"><svg><use href="#ck"/></svg></span>PDF (paginated, classification banner)</div>
+    <div class="opt"><span class="cb on"><svg><use href="#ck"/></svg></span>CSV — findings &amp; timeline</div>
+    <div class="opt"><span class="cb"><svg><use href="#ck"/></svg></span>Redact PII in disclosure copy</div>
+    <div class="opt"><span class="cb on"><svg><use href="#ck"/></svg></span>Sign report (examiner key)</div>
+  </div>
+  <button class="btn primary block">Generate report</button>
+  <div class="note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M6 3h8l4 4v14H6z" stroke="#69727f" stroke-width="1.5" fill="none" stroke-linejoin="round"/></svg><span>Generated reports are themselves hashed and logged, so a produced PDF can be tied back to the case state at generation time.</span></div>
+</section>
+
+<!-- CUSTODY EXPORT -->
+<section class="view" id="x">
+  <div class="vhead"><h2>Custody export</h2><p>The court deliverable: a formatted chain-of-custody record with per-entry hashes, the integrity statement, and signatures.</p></div>
+  <div class="exportbar"><button class="btn sm primary">Export PDF</button><button class="btn sm">Export CSV</button><button class="btn sm ghost">Copy hashes</button></div>
+  <div class="paper">
+    <div class="ph"><div class="org">FIAU Malta · Financial Intelligence Analysis Unit</div><h1>Chain of Custody Record</h1><div class="doc">Case FIAU-2026-0114 · Exhibit EXH-001 · generated 2026-06-14 11:08Z</div></div>
+
+    <h2>Exhibit</h2>
+    <div class="kv"><span class="k">Description</span><span class="v">Dell Latitude 7420 · S/N 7H2K9X3</span></div>
+    <div class="kv"><span class="k">Acquisition</span><span class="v">Physical bit-stream · Tableau T8u · FTK Imager · E01, 498 GB</span></div>
+    <div class="kv"><span class="k">Acquisition hash</span><span class="v mono">SHA-256 9f2a4c7e1b6d08af33c9…cd55d3e41c</span></div>
+
+    <h2>Custody chain</h2>
+    <div class="chainrow"><div class="ln1">1 · Collection</div><div class="ln2">M. Camilleri → N. Borg (FIAU Malta) · 2026-06-09 14:22 CEST · seal FIAU-SEAL-00219</div><div class="h">entry c6dd2686…1f4a · prev GENESIS</div></div>
+    <div class="chainrow"><div class="ln1">2 · Transfer</div><div class="ln2">N. Borg → A. Vella, malware analyst (FIAU Malta) · 2026-06-10 09:30 CEST · seal unchanged</div><div class="h">entry 7e1c0a9b…33af · prev c6dd2686…1f4a</div></div>
+    <div class="chainrow"><div class="ln1">3 · Transfer</div><div class="ln2">A. Vella → Evidence store · 2026-06-13 17:00 CEST · re-sealed FIAU-SEAL-00231</div><div class="h">entry 4b8c77af…e190 · prev 7e1c0a9b…33af</div></div>
+
+    <div class="integrity"><span style="color:#1f7a4a">✓</span><span><b>Integrity statement.</b> Each entry is a SHA-256 hash of its contents and the preceding entry's hash. The chain was re-verified on export and is unbroken (3 links). The exhibit hash matches the acquisition baseline.</span></div>
+
+    <div class="sigrow"><div class="s"><div class="line">Releasing examiner — N. Borg</div></div><div class="s"><div class="line">Receiving custodian — Evidence store</div></div></div>
+    <div class="foot">FIAU-2026-0114 · EXH-001 · this record is digitally signed and verifiable · page 1 of 1</div>
+  </div>
+  <div class="note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 3l8 4v5c0 5-3.4 8-8 9-4.6-1-8-4-8-9V7z" stroke="#69727f" stroke-width="1.5"/></svg><span>Rendered from the same hash-chained custody model in the app — the PDF is a view of verified data, not a re-typed copy.</span></div>
+</section>
+</main>
+
+<script>
+(function(){
+  var tabs=[].slice.call(document.querySelectorAll(".tab"));
+  tabs.forEach(function(t){t.onclick=function(){tabs.forEach(function(x){x.setAttribute("aria-selected",x===t?"true":"false");});document.querySelectorAll(".view").forEach(function(v){v.classList.toggle("active",v.id===t.dataset.go);});window.scrollTo({top:0,behavior:"smooth"});};});
+  document.querySelectorAll(".find .chk").forEach(function(c){c.onclick=function(){c.closest(".find").classList.toggle("inc");};});
+  document.querySelectorAll(".tag.off").forEach(function(t){t.onclick=function(){/* add-tag affordance */};});
+  document.querySelectorAll(".sw").forEach(function(s){s.onclick=function(){s.setAttribute("aria-pressed",s.getAttribute("aria-pressed")==="true"?"false":"true");};});
+  document.querySelectorAll(".opt .cb").forEach(function(c){c.onclick=function(){c.classList.toggle("on");};});
+})();
+</script>
+</body>
+</html>

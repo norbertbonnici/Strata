@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/><meta name="color-scheme" content="dark"/>
+<title>Strata · Analysis views</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#0b0e13;--bg2:#0e131a;--surface:#151b23;--surface2:#1b222c;--surface3:#222a36;--line:#2a323f;--line-soft:#212934;--inbg:#10151c;
+    --text:#e9edf3;--text2:#a7b1bf;--text3:#69727f;--teal:#3fd1c0;--amber:#f0b45c;--indigo:#8d8cf2;--coral:#f06a5d;--green:#5ad19a;--steel:#8b97ab;
+    --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;--disp:"Space Grotesk",system-ui,sans-serif;--body:"Inter",system-ui,sans-serif;--sh:0 14px 40px -18px rgba(0,0,0,.7)}
+  *{box-sizing:border-box}html,body{margin:0}
+  body{background:radial-gradient(1200px 500px at 50% -10%,#131a24,rgba(19,26,36,0) 60%),var(--bg);color:var(--text);font-family:var(--body);-webkit-font-smoothing:antialiased;line-height:1.5;padding-bottom:40px}
+  button{font-family:inherit}
+  .appbar{display:flex;align-items:center;gap:12px;padding:max(14px,env(safe-area-inset-top)) 16px 10px;max-width:620px;margin:0 auto}
+  .brand{display:flex;flex-direction:column;line-height:1.1}.brand .name{font-family:var(--disp);font-weight:700;font-size:19px;letter-spacing:-.01em}.brand .sub{font-size:11.5px;color:var(--text3);font-family:var(--mono);margin-top:2px}
+  .sp{flex:1}.ver{font-family:var(--mono);font-size:11px;color:var(--text3);border:1px solid var(--line-soft);padding:4px 8px;border-radius:999px}
+  .tabs{max-width:620px;margin:10px auto 4px;display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;padding:0 16px}.tabs::-webkit-scrollbar{display:none}
+  .tab{flex:0 0 auto;cursor:pointer;border:1px solid var(--line-soft);background:var(--surface);color:var(--text2);border-radius:999px;padding:8px 13px;display:flex;gap:8px;align-items:center;font-size:13px;font-weight:500;white-space:nowrap;transition:.16s}
+  .tab .n{font-family:var(--mono);font-size:11px;color:var(--text3)}.tab[aria-selected=true]{background:var(--surface3);color:var(--text);border-color:#39434f}.tab[aria-selected=true] .n{color:var(--teal)}
+  main{max-width:620px;margin:0 auto;padding:8px 16px 0}
+  .view{display:none}.view.active{display:block;animation:rise .35s ease both}@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .vhead{padding:8px 2px 12px}.vhead h2{font-family:var(--disp);font-size:21px;font-weight:600;letter-spacing:-.02em;margin:0 0 5px}.vhead p{margin:0;color:var(--text2);font-size:13.5px}
+  .btn{appearance:none;border:1px solid var(--line);background:var(--surface2);color:var(--text);border-radius:11px;padding:10px 14px;font-size:13.5px;font-weight:600;cursor:pointer;transition:.16s;display:inline-flex;align-items:center;justify-content:center;gap:8px}.btn:hover{background:var(--surface3)}.btn.sm{padding:8px 12px;font-size:12px}
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:500;padding:3px 7px;border-radius:999px;border:1px solid transparent;font-family:var(--mono);white-space:nowrap}
+  .pill .dot{width:5px;height:5px;border-radius:50%}
+  .pill.teal{background:rgba(63,209,192,.1);color:#8fe7da;border-color:#23514b}.pill.teal .dot{background:var(--teal)}
+  .pill.indigo{background:rgba(141,140,242,.1);color:#b9b8f7;border-color:#3a3a73}.pill.indigo .dot{background:var(--indigo)}
+  .pill.green{background:rgba(90,209,154,.1);color:#9be3c0;border-color:#235140}.pill.green .dot{background:var(--green)}
+  .note{font-family:var(--mono);font-size:11px;color:var(--text3);display:flex;gap:8px;align-items:flex-start;line-height:1.55;margin:14px 2px 0}
+
+  /* pivot */
+  .entity{border:1px solid #3a3a73;border-radius:15px;background:linear-gradient(180deg,#16162e,#141823);padding:15px;margin-bottom:14px;display:flex;align-items:center;gap:13px}
+  .entity .ei{width:42px;height:42px;border-radius:11px;background:rgba(141,140,242,.12);border:1px solid #3a3a73;display:grid;place-items:center;flex:0 0 auto}
+  .entity .nm{flex:1;min-width:0}.entity .nm .a{font-family:var(--disp);font-weight:600;font-size:16px}.entity .nm .b{font-family:var(--mono);font-size:11px;color:var(--text3);margin-top:2px}
+  .entity .ct{font-family:var(--disp);font-weight:600;font-size:20px;color:var(--indigo);text-align:right}.entity .ct .l{font-family:var(--mono);font-size:9px;color:var(--text3);font-weight:400}
+  .pivchips{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:13px}
+  .pivchip{font-family:var(--mono);font-size:11px;padding:6px 11px;border-radius:999px;border:1px solid var(--line-soft);background:var(--surface);color:var(--text3);cursor:pointer}
+  .pivchip[aria-pressed=true]{background:var(--surface3);color:var(--text);border-color:#39434f}
+  .glabel{font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);margin:14px 2px 8px;display:flex;gap:8px;align-items:center}.glabel .ln{height:1px;flex:1;background:var(--line-soft)}.glabel .ex{color:var(--text2)}
+  .hit{display:flex;gap:11px;border:1px solid var(--line-soft);border-radius:12px;background:var(--surface);padding:11px;margin-bottom:8px;align-items:flex-start}
+  .hit .ic{width:26px;height:26px;border-radius:7px;background:var(--surface2);border:1px solid var(--line);display:grid;place-items:center;flex:0 0 auto;color:var(--teal)}
+  .hit .c{flex:1;min-width:0}.hit .c .a{font-size:13px;font-weight:500;line-height:1.35}.hit .c .b{font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:3px}
+  .hit .t{font-family:var(--mono);font-size:9.5px;color:var(--text3);white-space:nowrap}
+
+  /* conversation */
+  .convhead{display:flex;align-items:center;gap:11px;border:1px solid var(--line-soft);border-radius:13px;background:var(--surface);padding:11px 12px;margin-bottom:14px}
+  .convhead .av{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#2a3550,#3a3a73);display:grid;place-items:center;font-family:var(--disp);font-weight:600;font-size:14px;color:#cdd5df;flex:0 0 auto}
+  .convhead .a{font-weight:600;font-size:14px}.convhead .b{font-family:var(--mono);font-size:10.5px;color:var(--text3);margin-top:1px}
+  .daysep{text-align:center;font-family:var(--mono);font-size:10px;color:var(--text3);margin:12px 0}
+  .bubble{max-width:78%;padding:9px 12px;border-radius:15px;font-size:13.5px;line-height:1.4;margin-bottom:4px;position:relative}
+  .bubble .meta{font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:5px}
+  .recv{background:var(--surface2);border:1px solid var(--line-soft);border-bottom-left-radius:5px;margin-right:auto}
+  .sent{background:rgba(63,209,192,.14);border:1px solid #23514b;border-bottom-right-radius:5px;margin-left:auto;color:#dffaf5}
+  .sent .meta{text-align:right;color:#6aa39c}
+
+  /* map */
+  .mapwrap{border:1px solid var(--line-soft);border-radius:15px;overflow:hidden;margin-bottom:13px;position:relative;background:#0c1118}
+  .maptop{position:absolute;top:10px;left:10px;right:10px;display:flex;gap:7px;z-index:2}
+  .maplist .mr{display:flex;gap:11px;border:1px solid var(--line-soft);border-radius:11px;background:var(--surface);padding:10px 11px;margin-bottom:8px;align-items:center}
+  .maplist .mr .pin{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;flex:0 0 auto;font-family:var(--mono);font-size:10px;font-weight:600;color:#06140f}
+  .maplist .mr .a{flex:1;min-width:0}.maplist .mr .a .t1{font-size:13px;font-weight:500}.maplist .mr .a .t2{font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:2px}
+  .maplist .mr .tm{font-family:var(--mono);font-size:9.5px;color:var(--text3)}
+
+  /* media gallery */
+  .ggrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .gtile{aspect-ratio:1;border-radius:11px;overflow:hidden;position:relative;cursor:pointer;border:1px solid var(--line-soft)}
+  .gtile .badge{position:absolute;bottom:5px;left:5px;font-family:var(--mono);font-size:8.5px;background:rgba(0,0,0,.55);padding:2px 5px;border-radius:5px;color:#cde}
+  .gtile .gps{position:absolute;top:5px;right:5px;width:16px;height:16px;border-radius:50%;background:rgba(90,209,154,.85);display:grid;place-items:center}
+  .lightbox{display:none;position:fixed;inset:0;background:rgba(7,9,13,.92);z-index:60;padding:20px;overflow:auto}
+  .lightbox.show{display:block}
+  .lbinner{max-width:420px;margin:20px auto}
+  .lbimg{aspect-ratio:4/3;border-radius:14px;border:1px solid var(--line);margin-bottom:12px;position:relative;overflow:hidden}
+  .lbclose{position:absolute;top:8px;right:8px;width:30px;height:30px;border-radius:50%;background:rgba(0,0,0,.5);border:0;color:#fff;font-size:18px;cursor:pointer;z-index:2}
+  .exif{border:1px solid var(--line-soft);border-radius:12px;background:var(--surface);overflow:hidden}
+  .exif .r{display:flex;justify-content:space-between;gap:10px;padding:9px 12px;border-bottom:1px solid var(--line-soft);font-size:12.5px}.exif .r:last-child{border-bottom:0}
+  .exif .r .k{font-family:var(--mono);font-size:10.5px;color:var(--text3)}.exif .r .v{font-family:var(--mono);font-size:11px;color:var(--text2);text-align:right}
+
+  /* hex / sqlite */
+  .vt{display:flex;gap:8px;margin-bottom:13px}
+  .vt button{font-family:var(--mono);font-size:12px;padding:8px 13px;border-radius:9px;border:1px solid var(--line-soft);background:var(--surface);color:var(--text3);cursor:pointer}.vt button.on{background:var(--surface3);color:var(--text)}
+  .filebar{font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .hex{background:#0a0d0c;border:1px solid #1c2620;border-radius:12px;padding:12px;font-family:var(--mono);font-size:11px;line-height:1.75;overflow-x:auto;white-space:pre;color:#9fb3a6}
+  .hex .off{color:#4d5d54}.hex .as{color:#cdd5df}
+  .sqlite{border:1px solid var(--line-soft);border-radius:12px;overflow:hidden;display:none}
+  .sqlite.show{display:block}.hex.hide{display:none}
+  .tbl{overflow-x:auto}
+  table{border-collapse:collapse;font-family:var(--mono);font-size:11px;min-width:560px;width:100%}
+  th{background:var(--surface2);color:var(--text2);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap;font-weight:500}
+  td{padding:8px 10px;border-bottom:1px solid var(--line-soft);color:var(--text2);white-space:nowrap}
+  tr:hover td{background:var(--surface)}
+  td.hl{color:#8fe7da}
+  @media(prefers-reduced-motion:reduce){*{transition-duration:.001ms!important;animation-duration:.001ms!important}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute"><defs>
+  <symbol id="mark" viewBox="0 0 28 28"><rect x="3" y="4" width="22" height="4" rx="1.4" fill="#7f8aa0"/><rect x="5" y="10" width="20" height="4" rx="1.4" fill="#3fd1c0"/><rect x="3" y="16" width="18" height="4" rx="1.4" fill="#8d8cf2"/><rect x="6" y="22" width="16" height="3.4" rx="1.4" fill="#f0b45c"/></symbol>
+</defs></svg>
+
+<header class="appbar"><svg width="29" height="29"><use href="#mark"/></svg>
+  <div class="brand"><span class="name">Strata</span><span class="sub">analysis views</span></div><span class="sp"></span><span class="ver">5 screens</span></header>
+
+<nav class="tabs" role="tablist">
+  <button class="tab" role="tab" aria-selected="true" data-go="p"><span class="n">01</span> Pivot</button>
+  <button class="tab" role="tab" aria-selected="false" data-go="c"><span class="n">02</span> Conversation</button>
+  <button class="tab" role="tab" aria-selected="false" data-go="m"><span class="n">03</span> Map</button>
+  <button class="tab" role="tab" aria-selected="false" data-go="g"><span class="n">04</span> Media</button>
+  <button class="tab" role="tab" aria-selected="false" data-go="h"><span class="n">05</span> Hex / SQLite</button>
+</nav>
+
+<main>
+<!-- PIVOT -->
+<section class="view active" id="p">
+  <div class="vhead"><h2>Cross-artifact pivot</h2><p>Tap any entity — number, IP, hash, email — to see everywhere it appears, across artifacts and exhibits. The highest-value move in analysis.</p></div>
+  <div class="entity">
+    <div class="ei"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M5 4h3l1.5 4-2 1.5a11 11 0 005 5l1.5-2 4 1.5v3a2 2 0 01-2 2C10 22 2 14 2 6a2 2 0 012-2z" stroke="#b9b8f7" stroke-width="1.5" fill="none" stroke-linejoin="round"/></svg></div>
+    <div class="nm"><div class="a">+356 9988 7766</div><div class="b">number · alias “Broker” · first seen 2026-06-01</div></div>
+    <div class="ct">9<div class="l">references</div></div>
+  </div>
+  <div class="pivchips"><button class="pivchip" aria-pressed="true">All 9</button><button class="pivchip">Messages 4</button><button class="pivchip">Calls 3</button><button class="pivchip">Contacts 1</button><button class="pivchip">Web 1</button></div>
+
+  <div class="glabel">suspect-iphone.tar <span class="ln"></span><span class="ex pill teal"><span class="dot"></span>iOS</span></div>
+  <div class="hit"><div class="ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M4 5.5h16v11H9l-5 4z" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linejoin="round"/></svg></div><div class="c"><div class="a">“moved the funds, account is clean now”</div><div class="b">sms.db · iMessage · sent</div></div><div class="t">06-08 21:04</div></div>
+  <div class="hit"><div class="ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M5 4h3l1.5 4-2 1.5a11 11 0 005 5l1.5-2 4 1.5v3a2 2 0 01-2 2C10 22 2 14 2 6a2 2 0 012-2z" stroke="currentColor" stroke-width="1.5" fill="none"/></svg></div><div class="c"><div class="a">Outgoing call — 6m 12s</div><div class="b">CallHistory.storedata</div></div><div class="t">06-08 20:51</div></div>
+  <div class="hit"><div class="ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="1.5"/><path d="M5 20c1.4-3.5 4-5 7-5s5.6 1.5 7 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div><div class="c"><div class="a">Contact “Broker”</div><div class="b">AddressBook.sqlitedb</div></div><div class="t">06-01</div></div>
+
+  <div class="glabel">pixel-7.img <span class="ln"></span><span class="ex pill green"><span class="dot"></span>Android</span></div>
+  <div class="hit"><div class="ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M4 5.5h16v11H9l-5 4z" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linejoin="round"/></svg></div><div class="c"><div class="a">“wallet seed sent, burn the device”</div><div class="b">mmssms.db · SMS · received</div></div><div class="t">06-08 22:11</div></div>
+  <div class="hit"><div class="ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M5 4h3l1.5 4-2 1.5a11 11 0 005 5l1.5-2 4 1.5v3a2 2 0 01-2 2C10 22 2 14 2 6a2 2 0 012-2z" stroke="currentColor" stroke-width="1.5" fill="none"/></svg></div><div class="c"><div class="a">Incoming call — 2m 41s</div><div class="b">calllog.db</div></div><div class="t">06-08 22:05</div></div>
+  <div class="note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="#69727f" stroke-width="1.6"/><path d="M20 20l-3.2-3.2" stroke="#69727f" stroke-width="1.6" stroke-linecap="round"/></svg><span>The same number links two seized devices — the pivot surfaces the connection no single artifact list would.</span></div>
+</section>
+
+<!-- CONVERSATION -->
+<section class="view" id="c">
+  <div class="vhead"><h2>Conversation</h2><p>Comms reconstructed as a thread, not table rows — with service, direction, and per-message source.</p></div>
+  <div class="convhead"><div class="av">B</div><div style="flex:1"><div class="a">Broker · +356 9988 7766</div><div class="b">iMessage + SMS · sms.db · 14 messages</div></div><button class="btn sm">★ Flag</button></div>
+  <div class="daysep">8 June 2026</div>
+  <div class="bubble recv">You still good for tonight?<div class="meta">SMS · 19:31</div></div>
+  <div class="bubble sent">yeah. moving it through the holding co first<div class="meta">iMessage · 20:02 · read</div></div>
+  <div class="bubble recv">how long<div class="meta">SMS · 20:03</div></div>
+  <div class="bubble sent">moved the funds, account is clean now<div class="meta">iMessage · 21:04 · read · ★ finding</div></div>
+  <div class="bubble recv">delete this chat after<div class="meta">SMS · 21:06</div></div>
+  <div class="note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M4 5.5h16v11H9l-5 4z" stroke="#69727f" stroke-width="1.5" fill="none" stroke-linejoin="round"/></svg><span>Each bubble retains its row provenance; long-press to bookmark a single message as a finding.</span></div>
+</section>
+
+<!-- MAP -->
+<section class="view" id="m">
+  <div class="vhead"><h2>Map</h2><p>Location artifacts plotted and time-ordered — significant locations, photo GPS, Wi-Fi fixes.</p></div>
+  <div class="mapwrap">
+    <div class="maptop"><span class="pill teal"><span class="dot"></span>5 points</span><span class="pill indigo"><span class="dot"></span>06-08 evening</span></div>
+    <svg viewBox="0 0 360 220" width="100%" style="display:block">
+      <defs><pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" fill="none" stroke="#161d27" stroke-width="1"/></pattern></defs>
+      <rect width="360" height="220" fill="#0c1118"/><rect width="360" height="220" fill="url(#grid)"/>
+      <path d="M30 150 Q120 120 180 140 T330 120 L330 220 L30 220 Z" fill="#10171f"/>
+      <path d="M0 90 Q90 80 150 95 T360 70" fill="none" stroke="#1a2430" stroke-width="2"/>
+      <path d="M70 60 L150 95 L210 150 L260 130 L300 175" fill="none" stroke="#3fd1c0" stroke-width="2" stroke-dasharray="5 5" opacity=".8"/>
+      <g font-family="IBM Plex Mono" font-size="9" fill="#06140f" font-weight="600">
+        <circle cx="70" cy="60" r="9" fill="#5ad19a"/><text x="70" y="63" text-anchor="middle">1</text>
+        <circle cx="150" cy="95" r="9" fill="#5ad19a"/><text x="150" y="98" text-anchor="middle">2</text>
+        <circle cx="210" cy="150" r="9" fill="#f0b45c"/><text x="210" y="153" text-anchor="middle">3</text>
+        <circle cx="260" cy="130" r="9" fill="#5ad19a"/><text x="260" y="133" text-anchor="middle">4</text>
+        <circle cx="300" cy="175" r="10" fill="#f06a5d"/><text x="300" y="178" text-anchor="middle">5</text>
+      </g>
+    </svg>
+  </div>
+  <div class="maplist">
+    <div class="mr"><div class="pin" style="background:#5ad19a">1</div><div class="a"><div class="t1">Valletta waterfront</div><div class="t2">35.8975, 14.5126 · significant locations · ±12 m</div></div><div class="tm">20:48</div></div>
+    <div class="mr"><div class="pin" style="background:#5ad19a">2</div><div class="a"><div class="t1">Floriana</div><div class="t2">35.8901, 14.5012 · Wi-Fi fix “FLR-Guest”</div></div><div class="tm">21:48</div></div>
+    <div class="mr"><div class="pin" style="background:#f0b45c">3</div><div class="a"><div class="t1">Photo IMG_4821.HEIC</div><div class="t2">35.8989, 14.5146 · EXIF GPS</div></div><div class="tm">16:22</div></div>
+    <div class="mr"><div class="pin" style="background:#f06a5d">5</div><div class="a"><div class="t1">Last known fix</div><div class="t2">35.8830, 14.4990 · before device off</div></div><div class="tm">22:31</div></div>
+  </div>
+  <div class="note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 21s7-6 7-11a7 7 0 10-14 0c0 5 7 11 7 11z" stroke="#69727f" stroke-width="1.5"/><circle cx="12" cy="10" r="2.5" stroke="#69727f" stroke-width="1.4"/></svg><span>Map is illustrative here; production uses MapKit. Points are time-scrubbed and tappable back to their source records.</span></div>
+</section>
+
+<!-- MEDIA -->
+<section class="view" id="g">
+  <div class="vhead"><h2>Media gallery</h2><p>Photo &amp; video review — thumbnails with capture time and a GPS marker; tap for EXIF.</p></div>
+  <div class="ggrid" id="ggrid">
+    <div class="gtile" style="background:linear-gradient(135deg,#2a3b4d,#3d5366)"><span class="gps"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><path d="M12 21s7-6 7-11a7 7 0 10-14 0c0 5 7 11 7 11z" stroke="#06140f" stroke-width="2"/></svg></span><span class="badge">06-07 16:22</span></div>
+    <div class="gtile" style="background:linear-gradient(135deg,#4d3a3a,#664a4a)"><span class="badge">06-07 18:03</span></div>
+    <div class="gtile" style="background:linear-gradient(135deg,#33424d,#46606b)"><span class="gps"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><path d="M12 21s7-6 7-11a7 7 0 10-14 0c0 5 7 11 7 11z" stroke="#06140f" stroke-width="2"/></svg></span><span class="badge">06-08 09:12</span></div>
+    <div class="gtile" style="background:linear-gradient(135deg,#3a4d42,#4f6b59)"><span class="badge">06-08 12:40</span></div>
+    <div class="gtile" style="background:linear-gradient(135deg,#454060,#5a5380)"><span class="gps"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><path d="M12 21s7-6 7-11a7 7 0 10-14 0c0 5 7 11 7 11z" stroke="#06140f" stroke-width="2"/></svg></span><span class="badge">06-08 20:55</span></div>
+    <div class="gtile" style="background:linear-gradient(135deg,#4d4733,#6b6346)"><span class="badge">06-08 21:30</span></div>
+  </div>
+  <div class="note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="14" rx="2.5" stroke="#69727f" stroke-width="1.5"/><circle cx="8.5" cy="10" r="1.8" stroke="#69727f" stroke-width="1.4"/></svg><span>Tap a thumbnail for full EXIF/GPS. Hashed for de-duplication; CSAM-scan hooks run on import (out of scope for the mock).</span></div>
+</section>
+
+<!-- HEX / SQLITE -->
+<section class="view" id="h">
+  <div class="vhead"><h2>Hex / SQLite viewer</h2><p>Raw inspection for the Files mode — switch between a hex dump and a parsed database table.</p></div>
+  <div class="vt" id="vt"><button class="on" data-v="hex">Hex</button><button data-v="sql">SQLite</button></div>
+  <div class="filebar"><span>sms.db</span><span>·</span><span>58 MB</span><span>·</span><span>SHA-256 7e1c…0a9b3f</span></div>
+  <div class="hex" id="hexv">
+<span class="off">00000000</span>  53 51 4c 69 74 65 20 66  6f 72 6d 61 74 20 33 00  <span class="as">SQLite format 3.</span>
+<span class="off">00000010</span>  10 00 01 01 00 40 20 20  00 00 0e 21 00 00 00 48  <span class="as">.....@  ...!...H</span>
+<span class="off">00000020</span>  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 04  <span class="as">................</span>
+<span class="off">00000030</span>  00 00 00 01 00 00 00 00  00 00 00 00 00 00 00 00  <span class="as">................</span>
+<span class="off">00000040</span>  00 00 00 00 00 00 00 00  00 00 00 00 00 00 0e 21  <span class="as">...............!</span>
+<span class="off">00000050</span>  0d 0f 38 00 0a 01 7b 01  6d 6f 76 65 64 20 74 68  <span class="as">..8...{.moved th</span>
+<span class="off">00000060</span>  65 20 66 75 6e 64 73 2c  20 61 63 63 6f 75 6e 74  <span class="as">e funds, account</span>
+<span class="off">00000070</span>  20 69 73 20 63 6c 65 61  6e 20 6e 6f 77 00 00 00  <span class="as"> is clean now...</span>
+  </div>
+  <div class="sqlite" id="sqlv">
+    <div class="tbl"><table>
+      <thead><tr><th>ROWID</th><th>text</th><th>handle_id</th><th>date</th><th>is_from_me</th><th>service</th></tr></thead>
+      <tbody>
+        <tr><td>4471</td><td>You still good for tonight?</td><td>18</td><td>2026-06-08 19:31</td><td>0</td><td>SMS</td></tr>
+        <tr><td>4472</td><td class="hl">moved the funds, account is clean now</td><td>18</td><td>2026-06-08 21:04</td><td class="hl">1</td><td>iMessage</td></tr>
+        <tr><td>4473</td><td>delete this chat after</td><td>18</td><td>2026-06-08 21:06</td><td>0</td><td>SMS</td></tr>
+        <tr><td>4474</td><td>[attachment: IMG_4821.HEIC]</td><td>18</td><td>2026-06-08 21:07</td><td>0</td><td>iMessage</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="6" rx="7" ry="2.8" stroke="#69727f" stroke-width="1.5"/><path d="M5 6v12c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8V6" stroke="#69727f" stroke-width="1.5"/></svg><span>Deleted rows recovered from freelist pages are shown struck-through (not mocked here). Cells pivot to the conversation view.</span></div>
+</section>
+</main>
+
+<div class="lightbox" id="lightbox">
+  <div class="lbinner">
+    <div class="lbimg" style="background:linear-gradient(135deg,#2a3b4d,#3d5366)"><button class="lbclose" id="lbclose">×</button></div>
+    <div class="exif">
+      <div class="r"><span class="k">File</span><span class="v">IMG_4821.HEIC</span></div>
+      <div class="r"><span class="k">Captured</span><span class="v">2026-06-07 16:22:09</span></div>
+      <div class="r"><span class="k">Device</span><span class="v">iPhone 15 Pro · 48 MP</span></div>
+      <div class="r"><span class="k">GPS</span><span class="v">35.8989, 14.5146</span></div>
+      <div class="r"><span class="k">Dimensions</span><span class="v">8064 × 6048</span></div>
+      <div class="r"><span class="k">SHA-256</span><span class="v">a1d0…b3c9e4</span></div>
+      <div class="r"><span class="k">Source</span><span class="v">Photos.sqlite · DCIM/100APPLE</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var tabs=[].slice.call(document.querySelectorAll(".tab"));
+  tabs.forEach(function(t){t.onclick=function(){tabs.forEach(function(x){x.setAttribute("aria-selected",x===t?"true":"false");});document.querySelectorAll(".view").forEach(function(v){v.classList.toggle("active",v.id===t.dataset.go);});window.scrollTo({top:0,behavior:"smooth"});};});
+  document.querySelectorAll(".pivchip").forEach(function(c){c.onclick=function(){document.querySelectorAll(".pivchip").forEach(function(x){x.setAttribute("aria-pressed","false");});c.setAttribute("aria-pressed","true");};});
+  // media lightbox
+  var lb=document.getElementById("lightbox");
+  document.querySelectorAll("#ggrid .gtile").forEach(function(t){t.onclick=function(){lb.classList.add("show");};});
+  document.getElementById("lbclose").onclick=function(){lb.classList.remove("show");};
+  lb.onclick=function(e){if(e.target===lb)lb.classList.remove("show");};
+  // hex/sqlite
+  document.querySelectorAll("#vt button").forEach(function(b){b.onclick=function(){
+    document.querySelectorAll("#vt button").forEach(function(x){x.classList.toggle("on",x===b);});
+    var sql=b.dataset.v==="sql";document.getElementById("hexv").classList.toggle("hide",sql);document.getElementById("sqlv").classList.toggle("show",sql);
+  };});
+})();
+</script>
+</body>
+</html>

@@ -73,5 +73,17 @@ public nonisolated struct AnalysisEngine: Sendable {
         UnifiedLogAnalyzer(),
         TCCAnalyzer(),
         KnowledgeCAnalyzer(),
+        MacSecurityAnalyzer(),
+        MacRecentItemsAnalyzer(),
+        MacKextAnalyzer(),
+        MacBackgroundItemAnalyzer(),
+        MacMessagesAnalyzer(),
+        MacMailAnalyzer(),
+        MacNetworkAnalyzer(),
+        MacActivityAnalyzer(),
+        PowerlogAnalyzer(),
+        MacConfigAnalyzer(),
+        MacInstallAnalyzer(),
+        MacWhereFromsAnalyzer(),
     ]
 }

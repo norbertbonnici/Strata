@@ -38,10 +38,30 @@ public nonisolated enum MarkdownReportRenderer {
 
         // AI executive summary - on-device generated, ahead of the analyst's
         // own narrative.
-        if !model.executiveSummary.isEmpty {
+        // The section renders when there's an overview OR validated claims, so a
+        // (rare) whitespace-only overview never drops the evidence-anchored claims.
+        if !model.executiveSummary.isEmpty || !model.summaryClaims.isEmpty {
             out += "## Executive summary\n\n"
-            out += model.executiveSummary + "\n\n"
-            out += "_Generated on-device by Apple Intelligence. Examiner review recommended._\n\n"
+            if !model.executiveSummary.isEmpty {
+                out += model.executiveSummary + "\n\n"
+            }
+            // Validated, evidence-anchored claims (mirror of the HTML renderer).
+            for claim in model.summaryClaims {
+                out += "- **[\(claim.severity.label)]** \(claim.statement)"
+                if !claim.citations.isEmpty {
+                    out += " (" + claim.citations.map { "`\($0)`" }.joined(separator: ", ") + ")"
+                }
+                out += "\n"
+            }
+            if !model.summaryClaims.isEmpty { out += "\n" }
+            if let v = model.summaryValidation, v.hadIssues {
+                var parts = ["\(v.claimsKept) claim(s) kept"]
+                if v.claimsDroppedUnsupported > 0 { parts.append("\(v.claimsDroppedUnsupported) dropped citing no evidence") }
+                if v.phantomRefsDropped > 0 { parts.append("\(v.phantomRefsDropped) phantom reference(s) stripped") }
+                if !v.flaggedPathTokens.isEmpty { parts.append("\(v.flaggedPathTokens.count) unverified path(s) flagged") }
+                out += "_Validation: \(parts.joined(separator: "; "))._\n\n"
+            }
+            out += "_\(model.summaryProvenanceNote)_\n\n"
         }
 
         // Analyst narrative + bookmarked items - the case story as the analyst

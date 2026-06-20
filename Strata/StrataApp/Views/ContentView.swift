@@ -38,6 +38,19 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case knowledgeC = "KnowledgeC"
     case macRecentItems = "Recent Items"
     case macSecurity = "macOS Security"
+    case carvedFiles = "Carved Files"
+    case kexts = "Extensions"
+    case backgroundItems = "Background Items"
+    case messages = "Messages"
+    case mail = "Mail"
+    case network = "Network & Devices"
+    case quickLookTrash = "QuickLook & Trash"
+    case documentVersions = "Document Versions"
+    case notifications = "Notifications"
+    case powerlog = "Powerlog"
+    case macConfig = "Configuration"
+    case installHistory = "Installs"
+    case whereFroms = "Download Origins"
     case lateral = "Lateral"
     case killChain = "Kill Chain"
     case iocs = "IOCs"
@@ -85,6 +98,19 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .knowledgeC: return "brain"
         case .macRecentItems: return "clock.arrow.circlepath"
         case .macSecurity: return "checkmark.shield"
+        case .carvedFiles: return "doc.badge.arrow.up"
+        case .kexts: return "puzzlepiece.extension"
+        case .backgroundItems: return "person.badge.clock"
+        case .messages: return "message"
+        case .mail: return "envelope"
+        case .network: return "wifi"
+        case .quickLookTrash: return "eye.trianglebadge.exclamationmark"
+        case .documentVersions: return "doc.on.doc"
+        case .notifications: return "bell.badge"
+        case .powerlog:  return "bolt.batteryblock"
+        case .macConfig: return "gearshape.2"
+        case .installHistory: return "app.badge.checkmark"
+        case .whereFroms: return "arrow.down.circle"
         case .lateral:   return "point.3.connected.trianglepath.dotted"
         case .killChain: return "link"
         case .iocs:      return "scope"
@@ -107,7 +133,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .linuxLogs, .shellHistory, .linuxPersistence, .linuxAccess, .webLogs,
              .packages, .journald, .audit, .syslog, .lastlog:
             return .linux
-        case .launchItems, .quarantine, .macPersistence, .fsEvents, .unifiedLog, .tcc, .knowledgeC, .macRecentItems, .macSecurity:
+        case .launchItems, .quarantine, .macPersistence, .fsEvents, .unifiedLog, .tcc, .knowledgeC, .macRecentItems, .macSecurity, .carvedFiles, .kexts, .backgroundItems, .messages, .mail, .network, .quickLookTrash, .documentVersions, .notifications, .powerlog, .macConfig, .installHistory, .whereFroms:
             return .macos
         case .overview, .search, .evidence, .timeline, .browser, .lateral,
              .killChain, .iocs, .annotations, .designUI, .activity, .custody:
@@ -167,6 +193,24 @@ struct ContentView: View {
             case .annotationEditor(let draft):
                 #if os(macOS)
                 AnnotationEditorSheet(draft: draft).environmentObject(model)
+                #else
+                EmptyView()
+                #endif
+            case .fileVaultUnlock(let id):
+                #if os(macOS)
+                FileVaultUnlockSheet(evidenceID: id).environmentObject(model)
+                #else
+                EmptyView()
+                #endif
+            case .inferenceSettings:
+                #if os(macOS)
+                InferenceSettingsSheet().environmentObject(model)
+                #else
+                EmptyView()
+                #endif
+            case .cloudInferenceConfirm(let action):
+                #if os(macOS)
+                CloudInferenceConfirmSheet(action: action).environmentObject(model)
                 #else
                 EmptyView()
                 #endif
@@ -244,6 +288,19 @@ struct ContentView: View {
                 case .knowledgeC: KnowledgeCView()
                 case .macRecentItems: MacRecentItemsView()
                 case .macSecurity: MacSecurityView()
+                case .carvedFiles: CarvedFilesView()
+                case .kexts: MacKextsView()
+                case .backgroundItems: MacBackgroundItemsView()
+                case .messages: MessagesView()
+                case .mail: MailView()
+                case .network: MacNetworkView()
+                case .quickLookTrash: MacActivityView()
+                case .documentVersions: MacDocumentRevisionsView()
+                case .notifications: MacNotificationsView()
+                case .powerlog: PowerlogView()
+                case .macConfig: MacConfigView()
+                case .installHistory: MacInstallHistoryView()
+                case .whereFroms: MacWhereFromsView()
                 case .lateral:   LateralMovementView()
                 case .killChain: KillChainView()
                 case .iocs:      IOCView()

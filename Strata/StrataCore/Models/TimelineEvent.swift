@@ -48,6 +48,14 @@ public enum TimelineSource: String, CaseIterable, Sendable, Codable {
     case knowledgeC = "KNOW"
     case macRecent  = "MREC"
     case macSecurity = "MSEC"
+    case messages   = "MSG"
+    case mail       = "MAIL"
+    case network    = "NET"
+    case userActivity = "ACT"
+    case docRevisions = "DOCV"
+    case notifications = "NOTE"
+    case powerlog   = "PWR"
+    case install    = "INST"
 
     public nonisolated var label: String {
         switch self {
@@ -77,6 +85,14 @@ public enum TimelineSource: String, CaseIterable, Sendable, Codable {
         case .knowledgeC: return "KnowledgeC"
         case .macRecent:  return "macOS Recent Items"
         case .macSecurity: return "macOS Security"
+        case .messages:   return "Messages"
+        case .mail:       return "Mail"
+        case .network:    return "Network & Devices"
+        case .userActivity: return "QuickLook & Trash"
+        case .docRevisions: return "Document Versions"
+        case .notifications: return "Notifications"
+        case .powerlog:   return "Powerlog"
+        case .install:    return "Installs"
         }
     }
 }

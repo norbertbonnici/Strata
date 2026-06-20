@@ -40,9 +40,16 @@ struct ImpactDestructionAnalyzerTests {
     }
 
     private func ctx(events: [EventLogRecord] = [], shell: [ShellHistoryEntry] = [],
-                     files: [FileEntry] = []) -> AnalysisContext {
+                     files: [FileEntry] = [],
+                     entropy: [String: EncryptionEntropyStat] = [:]) -> AnalysisContext {
         AnalysisContext(files: files, events: events, timeline: [], registryValues: [],
-                        shellHistory: shell)
+                        shellHistory: shell, encryptionEntropy: entropy)
+    }
+
+    private func entropyStat(_ mean: Double, files: Int = 6, high: Int? = nil) -> EncryptionEntropyStat {
+        EncryptionEntropyStat(sampledFiles: files,
+                              highEntropyFiles: high ?? (mean >= EncryptionEntropyStat.encryptedThreshold ? files : 0),
+                              meanEntropy: mean, maxEntropy: mean)
     }
 
     // MARK: - Inhibit System Recovery (T1490)
@@ -135,6 +142,52 @@ struct ImpactDestructionAnalyzerTests {
         let files = (0..<10).map { file("f\($0).locked") }
         let findings = ImpactDestructionAnalyzer().analyze(context: ctx(files: files))
         #expect(findings.contains { $0.title.contains("mass file encryption") } == false)
+    }
+
+    // MARK: - Ransomware entropy verification (T1486)
+
+    @Test func entropyHighCorroboratesAndKeepsCritical() throws {
+        // High-entropy sampled content corroborates that the '.locked' batch was
+        // encrypted - stays critical, with a "consistent with encryption" note.
+        let files = (0..<40).map { file("report\($0).docx.locked") }
+        let findings = ImpactDestructionAnalyzer()
+            .analyze(context: ctx(files: files, entropy: ["locked": entropyStat(7.97)]))
+        let f = try #require(findings.first { $0.title.contains("Possible mass file encryption") })
+        #expect(f.severity == .critical)
+        #expect(f.detail.contains("consistent with encryption"))
+    }
+
+    @Test func lowEntropyDoesNotRefuteNovelBurst() throws {
+        // Low head/window entropy can NEITHER confirm nor refute - partial /
+        // append encryptors leave plaintext - so a novel-extension burst must
+        // stay critical, NOT be demoted to a "false positive".
+        let files = (0..<40).map { file("data\($0).xyz") }
+        let findings = ImpactDestructionAnalyzer()
+            .analyze(context: ctx(files: files, entropy: ["xyz": entropyStat(4.2)]))
+        let f = try #require(findings.first { $0.technique?.attackID == "T1486" })
+        #expect(f.severity == .critical)
+        #expect(f.title.contains("Possible mass file encryption"))
+        #expect(f.detail.contains("neither confirms nor refutes"))
+    }
+
+    @Test func lowEntropyKeepsKnownRansomCritical() throws {
+        // '.locked' but low entropy: still critical (could be partial encryption
+        // or a renamed/destroyed batch - either way a known ransom marker burst).
+        let files = (0..<40).map { file("f\($0).locked") }
+        let findings = ImpactDestructionAnalyzer()
+            .analyze(context: ctx(files: files, entropy: ["locked": entropyStat(3.5)]))
+        let f = try #require(findings.first { $0.technique?.attackID == "T1486" })
+        #expect(f.severity == .critical)
+    }
+
+    @Test func noEntropyVerdictStaysCriticalUnverified() throws {
+        // No bytes sampled (content unavailable) → preserve the metadata-only
+        // critical, but mark it unverified rather than silently claiming proof.
+        let files = (0..<40).map { file("report\($0).docx.locked") }
+        let findings = ImpactDestructionAnalyzer().analyze(context: ctx(files: files))
+        let f = try #require(findings.first { $0.title.contains("Possible mass file encryption") })
+        #expect(f.severity == .critical)
+        #expect(f.detail.contains("not verified"))
     }
 
     @Test func flagsRansomNote() throws {

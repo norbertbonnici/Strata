@@ -48,6 +48,19 @@ public nonisolated enum CaseStore {
     private static let tccFilename        = "tcc.json"
     private static let knowledgeCFilename = "knowledgec.json"
     private static let macRecentItemsFilename = "macrecentitems.json"
+    private static let carvedFilename = "carved.json"
+    private static let kextsFilename = "kexts.json"
+    private static let backgroundItemsFilename = "backgrounditems.json"
+    private static let messagesFilename = "messages.json"
+    private static let mailFilename = "mail.json"
+    private static let networkFilename = "network.json"
+    private static let userActivityFilename = "useractivity.json"
+    private static let documentVersionsFilename = "docrevisions.json"
+    private static let notificationsFilename = "notifications.json"
+    private static let powerlogFilename = "powerlog.json"
+    private static let macConfigFilename = "macconfig.json"
+    private static let installHistoryFilename = "installhistory.json"
+    private static let whereFromsFilename = "wherefroms.json"
     private static let macSecurityFilename = "macsecurity.json"
     private static let auditFilename      = "audit.json"
     private static let syslogFilename     = "syslog.json"
@@ -590,6 +603,129 @@ public nonisolated enum CaseStore {
                                               forHostID id: UUID, in bundle: URL) throws {
         try writeArray(events, at: hostDirectory(forHostID: id, in: bundle)
             .appendingPathComponent(macSecurityFilename))
+    }
+
+    public static func readCarved(forHostID id: UUID, in bundle: URL) throws -> [CarvedFile]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(carvedFilename))
+    }
+    public static func writeCarved(_ files: [CarvedFile], forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(files, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(carvedFilename))
+    }
+
+    public static func readKexts(forHostID id: UUID, in bundle: URL) throws -> [MacKextEntry]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(kextsFilename))
+    }
+    public static func writeKexts(_ kexts: [MacKextEntry], forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(kexts, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(kextsFilename))
+    }
+
+    public static func readBackgroundItems(forHostID id: UUID, in bundle: URL) throws -> [MacBackgroundItem]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(backgroundItemsFilename))
+    }
+    public static func writeBackgroundItems(_ items: [MacBackgroundItem], forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(items, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(backgroundItemsFilename))
+    }
+
+    public static func readMessages(forHostID id: UUID, in bundle: URL) throws -> [MessageEntry]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(messagesFilename))
+    }
+    public static func writeMessages(_ messages: [MessageEntry], forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(messages, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(messagesFilename))
+    }
+    public static func messagesScratchDirectory(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle).appendingPathComponent("messages", isDirectory: true)
+    }
+
+    public static func readMail(forHostID id: UUID, in bundle: URL) throws -> [MailMessageEntry]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(mailFilename))
+    }
+    public static func writeMail(_ mail: [MailMessageEntry], forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(mail, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(mailFilename))
+    }
+    public static func mailScratchDirectory(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle).appendingPathComponent("mail", isDirectory: true)
+    }
+
+    public static func readNetwork(forHostID id: UUID, in bundle: URL) throws -> [MacNetworkItem]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(networkFilename))
+    }
+    public static func writeNetwork(_ items: [MacNetworkItem], forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(items, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(networkFilename))
+    }
+
+    public static func readUserActivity(forHostID id: UUID, in bundle: URL) throws -> [MacActivityItem]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(userActivityFilename))
+    }
+    public static func writeUserActivity(_ items: [MacActivityItem], forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(items, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(userActivityFilename))
+    }
+
+    public static func readDocumentVersions(forHostID id: UUID, in bundle: URL) throws -> [MacDocumentVersion]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(documentVersionsFilename))
+    }
+    public static func writeDocumentVersions(_ items: [MacDocumentVersion], forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(items, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(documentVersionsFilename))
+    }
+
+    public static func readNotifications(forHostID id: UUID, in bundle: URL) throws -> [MacNotification]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(notificationsFilename))
+    }
+    public static func writeNotifications(_ items: [MacNotification], forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(items, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(notificationsFilename))
+    }
+
+    public static func readPowerlog(forHostID id: UUID, in bundle: URL) throws -> [PowerlogEntry]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(powerlogFilename))
+    }
+    public static func writePowerlog(_ items: [PowerlogEntry], forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(items, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(powerlogFilename))
+    }
+
+    public static func readMacConfig(forHostID id: UUID, in bundle: URL) throws -> [MacConfigSetting]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(macConfigFilename))
+    }
+    public static func writeMacConfig(_ items: [MacConfigSetting], forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(items, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(macConfigFilename))
+    }
+
+    public static func readInstallHistory(forHostID id: UUID, in bundle: URL) throws -> [MacInstallEntry]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(installHistoryFilename))
+    }
+    public static func writeInstallHistory(_ items: [MacInstallEntry], forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(items, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(installHistoryFilename))
+    }
+
+    public static func readWhereFroms(forHostID id: UUID, in bundle: URL) throws -> [MacWhereFrom]? {
+        try readArrayIfPresent(at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(whereFromsFilename))
+    }
+    public static func writeWhereFroms(_ items: [MacWhereFrom], forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(items, at: hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent(whereFromsFilename))
     }
 
     public static func readAudit(forHostID id: UUID, in bundle: URL) throws -> [AuditEvent]? {

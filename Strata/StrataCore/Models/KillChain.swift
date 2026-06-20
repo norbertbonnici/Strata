@@ -74,4 +74,10 @@ public nonisolated struct Finding: Identifiable, Hashable, Sendable, Codable {
         self.severity = severity; self.phase = phase; self.technique = technique
         self.timestamp = timestamp; self.evidencePaths = evidencePaths
     }
+
+    /// The technique-bucket key used to group findings into one ATT&CK bucket:
+    /// the ATT&CK ID when tagged, else the title. Single source of truth so the
+    /// summary validator (which records it per kept claim) and the self-eval
+    /// scorer can't drift on how a claim's techniques are identified.
+    public var techniqueBucketKey: String { technique?.attackID ?? title }
 }

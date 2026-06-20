@@ -33,6 +33,10 @@ public actor FsApfsIngestor {
         /// conversion of an E01). Retained so a later content-extraction step can
         /// reuse it; nil if it was the original source.
         public let rawScratchURL: URL?
+        /// Volumes that appear FileVault-encrypted and produced no readable
+        /// metadata with the credential supplied (empty if all volumes read).
+        /// `ApfsLockedVolume` lives in StrataCore so the UI can use it on iOS.
+        public let lockedVolumes: [ApfsLockedVolume]
     }
 
     /// Run the APFS ingest. `imageType` is the TSK image-type hint
@@ -40,6 +44,7 @@ public actor FsApfsIngestor {
     /// else (e.g. "ewf") ⇒ convert to raw via `ewfexport` first.
     public func ingest(imageAt imageURL: URL, imageType: String?,
                        scratchDirectory: URL,
+                       credential: FileVaultCredential? = nil,
                        progress: ((String) -> Void)? = nil) async throws -> Result {
         try FileManager.default.createDirectory(at: scratchDirectory, withIntermediateDirectories: true)
 
@@ -74,6 +79,7 @@ public actor FsApfsIngestor {
         // 3. Per volume: bodyfile → FileEntry.
         var files: [FileEntry] = []
         var volumes: [VolumeInfo] = []
+        var locked: [ApfsLockedVolume] = []
         var nextID: Int64 = 1
         // fsapfsinfo's -f / Volume display are 1-based; fsID stays 0-based.
         for index in 1...volumeCount {
@@ -81,18 +87,41 @@ public actor FsApfsIngestor {
             let label = (try? await volumeName(rawURL: rawURL, offset: apfsOffset, index: index)) ?? "Volume \(index)"
             progress?("Reading APFS volume \(index)/\(volumeCount): \(label)…")
             let bodyfile = scratchDirectory.appendingPathComponent("vol\(index).body")
-            try await runBodyfile(rawURL: rawURL, offset: apfsOffset, index: index, output: bodyfile)
-            let text = (try? String(contentsOf: bodyfile, encoding: .utf8)) ?? ""
-            for e in BodyfileParser.parse(text) {
-                guard let mapped = Self.fileEntry(from: e, id: nextID, fsID: fsID) else { continue }
-                files.append(mapped)
-                nextID += 1
+            var produced = false
+            do {
+                try await runBodyfile(rawURL: rawURL, offset: apfsOffset, index: index,
+                                      output: bodyfile, credential: credential)
+                let text = (try? String(contentsOf: bodyfile, encoding: .utf8)) ?? ""
+                for e in BodyfileParser.parse(text) {
+                    guard let mapped = Self.fileEntry(from: e, id: nextID, fsID: fsID) else { continue }
+                    files.append(mapped)
+                    nextID += 1
+                    produced = true
+                }
+            } catch {
+                // A FileVault-encrypted volume can't be read without the secret;
+                // record it as locked and keep going rather than failing the whole
+                // ingest. A non-encryption tool error (only when a credential was
+                // supplied, so we expected success) is surfaced.
+                if credential != nil, !Self.looksEncrypted(error) { throw error }
             }
+            // An empty (or encryption-failed) volume with no usable secret is
+            // treated as FileVault-locked so the UI can prompt + re-ingest.
+            if !produced { locked.append(ApfsLockedVolume(index: index, name: label)) }
             volumes.append(VolumeInfo(id: fsID, fsType: "APFS",
                                       offsetBytes: Int64(apfsOffset), sizeBytes: 0))
         }
-        guard !files.isEmpty else { throw FsApfsError.noApfsContainer }
-        return Result(files: files, volumes: volumes, rawScratchURL: scratchRaw)
+        guard !files.isEmpty || !locked.isEmpty else { throw FsApfsError.noApfsContainer }
+        return Result(files: files, volumes: volumes, rawScratchURL: scratchRaw, lockedVolumes: locked)
+    }
+
+    /// Heuristic: does this `fsapfsinfo` failure look like a missing/wrong
+    /// FileVault secret rather than a genuine tool error?
+    static func looksEncrypted(_ error: Error) -> Bool {
+        let s = (error as? FsApfsError)?.errorDescription?.lowercased()
+            ?? error.localizedDescription.lowercased()
+        return s.contains("encrypt") || s.contains("password") || s.contains("unlock")
+            || s.contains("unable to read") || s.contains("key")
     }
 
     // MARK: - BodyfileEntry → FileEntry
@@ -127,12 +156,16 @@ public actor FsApfsIngestor {
                               progress: progress)
     }
 
-    private func runBodyfile(rawURL: URL, offset: UInt64, index: Int, output: URL) async throws {
+    private func runBodyfile(rawURL: URL, offset: UInt64, index: Int, output: URL,
+                             credential: FileVaultCredential?) async throws {
         // -H (hierarchy) + -B yields full *paths* + MACB; -E all gives leaf names
         // only (no parent path), so the tree can't be rebuilt from it.
-        _ = try await runTool("fsapfsinfo",
-                              ["-o", "\(offset)", "-f", "\(index)", "-H", "-B", output.path, rawURL.path],
-                              progress: nil)
+        // -p / -r unlock a FileVault-encrypted volume's metadata.
+        var args = ["-o", "\(offset)", "-f", "\(index)"]
+        if let password = credential?.password { args.append(contentsOf: ["-p", password]) }
+        if let recovery = credential?.recovery { args.append(contentsOf: ["-r", recovery]) }
+        args.append(contentsOf: ["-H", "-B", output.path, rawURL.path])
+        _ = try await runTool("fsapfsinfo", args, progress: nil)
     }
 
     /// Partition start byte-offsets parsed from `mmls`.
