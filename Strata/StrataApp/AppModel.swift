@@ -2485,7 +2485,7 @@ final class AppModel: ObservableObject {
 
         do {
             let tskEnv = try TSKEnvironment.discover()
-            let evtxEnv = try EVTXEnvironment.discover()
+            let evtxEnv = try VendoredTool.discover(primaryBinary: "evtxexport", library: "libevtx")
             let parser = EVTXParser(environment: evtxEnv)
 
             for evidence in evidenceList {
@@ -2601,7 +2601,7 @@ final class AppModel: ObservableObject {
 
         do {
             let tskEnv = try TSKEnvironment.discover()
-            let lnkEnv = try LnkEnvironment.discover()
+            let lnkEnv = try VendoredTool.discover(primaryBinary: "lnkinfo", library: "liblnk")
             let parser = LnkParser(environment: lnkEnv)
 
             for evidence in evidenceList {
@@ -2729,8 +2729,8 @@ final class AppModel: ObservableObject {
 
         do {
             let tskEnv = try TSKEnvironment.discover()
-            let lnkEnv = try LnkEnvironment.discover()
-            let jlEnv = try JumpListEnvironment.discover()
+            let lnkEnv = try VendoredTool.discover(primaryBinary: "lnkinfo", library: "liblnk")
+            let jlEnv = try VendoredTool.discover(primaryBinary: "olecfexport", library: "libolecf")
             let parser = JumpListParser(environment: jlEnv, lnkParser: LnkParser(environment: lnkEnv))
 
             for evidence in evidenceList {
@@ -2986,7 +2986,7 @@ final class AppModel: ObservableObject {
 
         do {
             let tskEnv = try TSKEnvironment.discover()
-            let srumEnv = try SRUMEnvironment.discover()
+            let srumEnv = try VendoredTool.discover(primaryBinary: "esedbexport", library: "libesedb")
             let parser = SrumParser(environment: srumEnv)
 
             for evidence in evidenceList {
@@ -3884,7 +3884,7 @@ final class AppModel: ObservableObject {
 
         do {
             let tskEnv = try TSKEnvironment.discover()
-            let regEnv = try RegistryEnvironment.discover()
+            let regEnv = try VendoredTool.discover(primaryBinary: "regfexport", library: "libregf")
             let parser = RegistryHiveParser(environment: regEnv)
 
             var hostsTouched = 0
@@ -5147,7 +5147,7 @@ final class AppModel: ObservableObject {
 
         do {
             let tskEnv = try TSKEnvironment.discover()
-            let prefetchEnv = try PrefetchEnvironment.discover()
+            let prefetchEnv = try VendoredTool.discover(primaryBinary: "sccainfo", library: "libscca")
             let parser = PrefetchParser(environment: prefetchEnv)
 
             for evidence in evidenceList {

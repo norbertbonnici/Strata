@@ -12,10 +12,10 @@ import Foundation
 /// - `.customDestinations-ms` is a flat sequence of LNKs: `ShellLinkCarver` splits
 ///   it and each blob is parsed by `LnkParser`. No DestList.
 public actor JumpListParser {
-    private let environment: JumpListEnvironment   // olecfexport
+    private let environment: VendoredTool   // olecfexport
     private let lnkParser: LnkParser               // reused lnkinfo wrapper
 
-    public init(environment: JumpListEnvironment, lnkParser: LnkParser) {
+    public init(environment: VendoredTool, lnkParser: LnkParser) {
         self.environment = environment
         self.lnkParser = lnkParser
     }
@@ -64,7 +64,7 @@ public actor JumpListParser {
         try await process.runAndWait()
         stderrPipe.fileHandleForReading.readabilityHandler = nil
         guard process.terminationStatus == 0 else {
-            throw JumpListError.exportFailed(exitCode: process.terminationStatus, stderr: collector.text)
+            throw VendoredToolError.parseFailed(tool: "olecfexport", exitCode: process.terminationStatus, stderr: collector.text)
         }
 
         let application = JumpListAppID.application(for: appID)
