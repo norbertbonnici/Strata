@@ -144,6 +144,20 @@ struct ImpactDestructionAnalyzerTests {
         #expect(findings.contains { $0.title.contains("mass file encryption") } == false)
     }
 
+    @Test func ignoresSlackPseudoEntries() {
+        // TSK emits a `<name>-slack` pseudo-entry per allocated file; its
+        // pathExtension is "slack". A normal image has thousands of them, which
+        // must NOT form a burst - otherwise the analyzer fabricates a bogus
+        // T1486 finding AND the AppModel entropy sampler (which reads the same
+        // `encryptionBursts`) extracts and reads slack-space bytes for no signal.
+        let files = (0..<40).map { file("payload\($0).png-slack") }
+        // The shared burst source the sampler consumes yields nothing...
+        #expect(ImpactDestructionAnalyzer.encryptionBursts(files: files, usn: [], mft: []).isEmpty)
+        // ...hence no mass-encryption finding.
+        let findings = ImpactDestructionAnalyzer().analyze(context: ctx(files: files))
+        #expect(findings.contains { $0.title.contains("mass file encryption") } == false)
+    }
+
     // MARK: - Ransomware entropy verification (T1486)
 
     @Test func entropyHighCorroboratesAndKeepsCritical() throws {
