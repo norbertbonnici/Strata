@@ -90,16 +90,24 @@ struct OverviewView: View {
     /// host-info files (os-release/hostname/passwd) when the registry walk
     /// yields nothing - a Linux host has no hives.
     private func profile(for evidence: Evidence) -> HostProfile {
-        let registryProfile = HostProfile.derive(
-            from: model.states[evidence.id]?.registryValues ?? [])
-        if registryProfile.hasAnyData { return registryProfile }
-        if let info = model.states[evidence.id]?.linuxInfo {
-            return HostProfile.derive(fromLinux: info)
+        let state = model.states[evidence.id]
+        var profile = HostProfile.derive(from: state?.registryValues ?? [])
+        if !profile.hasAnyData {
+            if let info = state?.linuxInfo {
+                profile = HostProfile.derive(fromLinux: info)
+            } else if let mac = state?.macInfo {
+                profile = HostProfile.derive(fromMac: mac)
+            }
         }
-        if let mac = model.states[evidence.id]?.macInfo {
-            return HostProfile.derive(fromMac: mac)
+        // A macOS DHCP host's assigned IP isn't in the static config plists that
+        // MacHostInfo reads — it's in the DHCP leases. Fold those addresses in so
+        // the Overview shows an IP for macOS like it does for Windows/Linux.
+        for item in state?.network ?? [] where item.kind == .dhcpLease {
+            if MacHostInfoParser.isRoutableIPv4(item.name), !profile.ipAddresses.contains(item.name) {
+                profile.ipAddresses.append(item.name)
+            }
         }
-        return registryProfile
+        return profile
     }
 
     @ViewBuilder

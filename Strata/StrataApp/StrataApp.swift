@@ -82,6 +82,18 @@ private struct ToolsCommands: Commands {
             }
             .disabled(model.currentCase == nil || model.iocs.isEmpty || model.isWorking)
 
+            Button("Unlock FileVault Volume...") { model.requestFileVaultUnlock() }
+                .disabled(!model.hasLockedApfsVolumes || model.isWorking)
+
+            Button("Carve Deleted Files") { Task { await model.carveArtifacts() } }
+                .disabled(!model.hasApfsHost || model.isWorking)
+
+            Button("Run Summary Self-Eval") { model.requestSummaryEval() }
+                .disabled(model.isWorking || !model.summaryAvailability.isAvailable)
+
+            Button("AI Inference Settings...") { model.activeSheet = .inferenceSettings }
+                .disabled(model.isWorking)
+
             Divider()
 
             Button("Export...") { model.requestExport() }

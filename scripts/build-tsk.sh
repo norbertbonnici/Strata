@@ -258,7 +258,7 @@ SHIM
     # libfsapfs bundles libbfio into libfsapfs.a but doesn't install its
     # aggregator header, so we generate a one-line stub for the BFIO-gated
     # container-open prototype that fsapfscat.c needs.
-    if [ ! -f "$prefix/bin/fsapfscat" ]; then
+    if [ ! -f "$prefix/bin/fsapfscat" ] || [ "$ROOT/scripts/fsapfscat.c" -nt "$prefix/bin/fsapfscat" ]; then
         local stub="$BUILD/fsapfscat-include-$arch"
         mkdir -p "$stub"
         printf '#ifndef _STRATA_STUB_LIBBFIO_H\n#define _STRATA_STUB_LIBBFIO_H\n#include <stdint.h>\ntypedef intptr_t libbfio_handle_t;\n#endif\n' > "$stub/libbfio.h"

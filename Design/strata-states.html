@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/><meta name="color-scheme" content="dark"/>
+<title>Strata · States &amp; onboarding</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#0b0e13;--bg2:#0e131a;--surface:#151b23;--surface2:#1b222c;--surface3:#222a36;--line:#2a323f;--line-soft:#212934;--inbg:#10151c;
+    --text:#e9edf3;--text2:#a7b1bf;--text3:#69727f;--teal:#3fd1c0;--amber:#f0b45c;--indigo:#8d8cf2;--coral:#f06a5d;--green:#5ad19a;--steel:#8b97ab;
+    --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;--disp:"Space Grotesk",system-ui,sans-serif;--body:"Inter",system-ui,sans-serif;--sh:0 14px 40px -18px rgba(0,0,0,.7)}
+  *{box-sizing:border-box}html,body{margin:0}
+  body{background:radial-gradient(1200px 500px at 50% -10%,#131a24,rgba(19,26,36,0) 60%),var(--bg);color:var(--text);font-family:var(--body);-webkit-font-smoothing:antialiased;line-height:1.5;padding-bottom:40px}
+  button{font-family:inherit}
+  .appbar{display:flex;align-items:center;gap:12px;padding:max(14px,env(safe-area-inset-top)) 16px 10px;max-width:620px;margin:0 auto}
+  .brand{display:flex;flex-direction:column;line-height:1.1}.brand .name{font-family:var(--disp);font-weight:700;font-size:19px;letter-spacing:-.01em}.brand .sub{font-size:11.5px;color:var(--text3);font-family:var(--mono);margin-top:2px}
+  .sp{flex:1}.ver{font-family:var(--mono);font-size:11px;color:var(--text3);border:1px solid var(--line-soft);padding:4px 8px;border-radius:999px}
+  .tabs{max-width:620px;margin:10px auto 4px;display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;padding:0 16px}.tabs::-webkit-scrollbar{display:none}
+  .tab{flex:0 0 auto;cursor:pointer;border:1px solid var(--line-soft);background:var(--surface);color:var(--text2);border-radius:999px;padding:8px 13px;display:flex;gap:8px;align-items:center;font-size:13px;font-weight:500;white-space:nowrap;transition:.16s}
+  .tab .n{font-family:var(--mono);font-size:11px;color:var(--text3)}.tab[aria-selected=true]{background:var(--surface3);color:var(--text);border-color:#39434f}.tab[aria-selected=true] .n{color:var(--teal)}
+  main{max-width:620px;margin:0 auto;padding:8px 16px 0}
+  .view{display:none}.view.active{display:block;animation:rise .35s ease both}@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .vhead{padding:8px 2px 12px}.vhead h2{font-family:var(--disp);font-size:21px;font-weight:600;letter-spacing:-.02em;margin:0 0 5px}.vhead p{margin:0;color:var(--text2);font-size:13.5px}
+  .btn{appearance:none;border:1px solid var(--line);background:var(--surface2);color:var(--text);border-radius:11px;padding:11px 15px;font-size:14px;font-weight:600;cursor:pointer;transition:.16s;display:inline-flex;align-items:center;justify-content:center;gap:8px}.btn:hover{background:var(--surface3)}.btn.primary{background:var(--teal);color:#062420;border-color:transparent}.btn.block{width:100%}.btn.sm{padding:9px 13px;font-size:12.5px}.btn.ghost{background:transparent}.btn.danger{background:var(--coral);color:#2a0d0a;border-color:transparent}
+  .lbl{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin:18px 2px 9px}
+
+  /* empty state */
+  .empty{border:1px dashed #38424f;border-radius:16px;background:radial-gradient(160px 90px at 50% 30%,#15202b,transparent);padding:34px 22px;text-align:center}
+  .empty .ic{width:52px;height:52px;border-radius:14px;margin:0 auto 14px;background:var(--surface2);border:1px solid var(--line);display:grid;place-items:center;color:var(--text3)}
+  .empty h3{font-family:var(--disp);font-weight:600;font-size:16px;margin:0 0 6px}
+  .empty p{margin:0 0 16px;color:var(--text3);font-size:13px;max-width:300px;margin-left:auto;margin-right:auto;line-height:1.5}
+  .empty.sm{padding:24px 18px}.empty.sm .ic{width:42px;height:42px}
+
+  /* skeleton */
+  .sk{border:1px solid var(--line-soft);border-radius:13px;background:var(--surface);padding:12px;margin-bottom:9px;display:flex;gap:11px;align-items:center}
+  .sk .a{width:34px;height:34px;border-radius:9px;flex:0 0 auto}
+  .sk .lines{flex:1}.sk .ln{height:10px;border-radius:5px;margin-bottom:8px}.sk .ln.s{width:55%}.sk .ln:last-child{margin-bottom:0}
+  .shimmer{background:linear-gradient(90deg,#1b222c 25%,#222b37 37%,#1b222c 63%);background-size:400% 100%;animation:sh 1.4s ease infinite}
+  @keyframes sh{0%{background-position:100% 0}100%{background-position:-100% 0}}
+  .proc{border:1px solid var(--line-soft);border-radius:14px;background:linear-gradient(180deg,var(--bg2),var(--surface));padding:22px;text-align:center}
+  .spin{width:34px;height:34px;border-radius:50%;border:3px solid var(--surface3);border-top-color:var(--teal);margin:0 auto 13px;animation:rot .8s linear infinite}@keyframes rot{to{transform:rotate(360deg)}}
+  .proc h3{font-family:var(--disp);font-weight:600;font-size:15px;margin:0 0 4px}.proc p{margin:0;font-family:var(--mono);font-size:11px;color:var(--text3)}
+  .pbar{height:6px;border-radius:6px;background:#10161d;overflow:hidden;margin-top:14px}.pbar .f{height:100%;width:42%;border-radius:6px;background:linear-gradient(90deg,var(--teal),#69e6d7);animation:grow 2.4s ease-in-out infinite}@keyframes grow{0%{width:8%}50%{width:70%}100%{width:8%}}
+
+  /* error */
+  .err{border:1px solid #5a2b26;border-radius:14px;background:linear-gradient(180deg,#1f1311,#1a1210);padding:15px;margin-bottom:11px}
+  .err .top{display:flex;gap:11px;align-items:flex-start}
+  .err .ei{width:34px;height:34px;border-radius:9px;background:rgba(240,106,93,.12);border:1px solid #5a2b26;display:grid;place-items:center;flex:0 0 auto}
+  .err .a{flex:1}.err .a .t{font-family:var(--disp);font-weight:600;font-size:14px;color:#f3a299}.err .a .d{font-size:12.5px;color:#e6c0bb;margin-top:4px;line-height:1.5}
+  .err .a .code{font-family:var(--mono);font-size:10px;color:#c08;color:#caa;margin-top:6px}
+  .err .acts{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+  .err.warn{border-color:#52401f;background:linear-gradient(180deg,#1f1a10,#1a160e)}.err.warn .ei{background:rgba(240,180,92,.12);border-color:#52401f}.err.warn .a .t{color:#f3c987}.err.warn .a .d{color:#e6d3b3}
+
+  /* dialog */
+  .dlgdemo{border:1px solid var(--line-soft);border-radius:16px;background:#0c1016;padding:20px;position:relative;overflow:hidden;min-height:170px;display:grid;place-items:center}
+  .dlg{background:linear-gradient(180deg,var(--surface),var(--surface2));border:1px solid var(--line);border-radius:16px;box-shadow:var(--sh);max-width:330px;width:100%;padding:20px;text-align:center}
+  .dlg .di{width:46px;height:46px;border-radius:50%;margin:0 auto 13px;background:rgba(240,106,93,.1);border:1px solid #5a2b26;display:grid;place-items:center}
+  .dlg h3{font-family:var(--disp);font-weight:600;font-size:16px;margin:0 0 6px}.dlg p{margin:0 0 17px;font-size:12.5px;color:var(--text2);line-height:1.5}
+  .dlg .row{display:flex;gap:9px}.dlg .row .btn{flex:1}
+  .dlg .confirm-field{margin-bottom:14px;text-align:left}.dlg .confirm-field label{display:block;font-family:var(--mono);font-size:10.5px;color:var(--text3);margin-bottom:6px}.dlg .confirm-field input{width:100%;background:var(--inbg);border:1px solid var(--line);color:var(--text);border-radius:9px;padding:9px 11px;font-family:var(--mono);font-size:12px}
+
+  /* onboarding */
+  .onb{border:1px solid var(--line);border-radius:24px;background:linear-gradient(180deg,var(--bg2),var(--surface));box-shadow:var(--sh);max-width:380px;margin:0 auto;overflow:hidden}
+  .onb .hero{height:170px;display:grid;place-items:center;background:radial-gradient(220px 120px at 50% 40%,#16242f,transparent);position:relative}
+  .onb .body{padding:20px 22px 22px}
+  .onb h3{font-family:var(--disp);font-weight:600;font-size:19px;margin:0 0 7px;letter-spacing:-.01em}
+  .onb p{margin:0;color:var(--text2);font-size:13.5px;line-height:1.55}
+  .dots{display:flex;gap:7px;justify-content:center;margin:18px 0}
+  .dots .d{width:7px;height:7px;border-radius:50%;background:var(--surface3);transition:.18s}.dots .d.on{background:var(--teal);width:20px;border-radius:4px}
+  .onb .nav{display:flex;gap:10px;padding:0 22px 22px}.onb .nav .btn{flex:1}
+  .feat{display:flex;gap:11px;align-items:flex-start;margin-top:11px}.feat .fi{width:30px;height:30px;border-radius:8px;background:var(--surface2);border:1px solid var(--line);display:grid;place-items:center;flex:0 0 auto;color:var(--teal)}.feat .ft{font-size:12.5px;color:var(--text2);line-height:1.4}.feat .ft b{color:var(--text);font-weight:600}
+  .note{font-family:var(--mono);font-size:11px;color:var(--text3);display:flex;gap:8px;align-items:flex-start;line-height:1.55;margin:14px 2px 0}
+  @media(prefers-reduced-motion:reduce){*{transition-duration:.001ms!important;animation-duration:.001ms!important;animation-iteration-count:1!important}.shimmer,.spin,.pbar .f{animation:none}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute"><defs>
+  <symbol id="mark" viewBox="0 0 28 28"><rect x="3" y="4" width="22" height="4" rx="1.4" fill="#7f8aa0"/><rect x="5" y="10" width="20" height="4" rx="1.4" fill="#3fd1c0"/><rect x="3" y="16" width="18" height="4" rx="1.4" fill="#8d8cf2"/><rect x="6" y="22" width="16" height="3.4" rx="1.4" fill="#f0b45c"/></symbol>
+</defs></svg>
+
+<header class="appbar"><svg width="29" height="29"><use href="#mark"/></svg>
+  <div class="brand"><span class="name">Strata</span><span class="sub">states &amp; onboarding</span></div><span class="sp"></span><span class="ver">4 screens</span></header>
+
+<nav class="tabs" role="tablist">
+  <button class="tab" role="tab" aria-selected="true" data-go="e"><span class="n">01</span> Empty &amp; loading</button>
+  <button class="tab" role="tab" aria-selected="false" data-go="r"><span class="n">02</span> Errors</button>
+  <button class="tab" role="tab" aria-selected="false" data-go="d"><span class="n">03</span> Dialogs</button>
+  <button class="tab" role="tab" aria-selected="false" data-go="o"><span class="n">04</span> Onboarding</button>
+</nav>
+
+<main>
+<!-- EMPTY & LOADING -->
+<section class="view active" id="e">
+  <div class="vhead"><h2>Empty &amp; loading</h2><p>Empty screens are invitations to act; loading shows shape, not spinners-only.</p></div>
+  <div class="lbl">Empty — no cases yet</div>
+  <div class="empty">
+    <div class="ic"><svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linejoin="round"/><path d="M4 7.5l8 4.5 8-4.5" stroke="currentColor" stroke-width="1.3"/></svg></div>
+    <h3>No cases yet</h3>
+    <p>Open a case to start collecting evidence and building a chain of custody.</p>
+    <button class="btn primary">+ New case</button>
+  </div>
+  <div class="lbl">Empty — no findings (in viewer)</div>
+  <div class="empty sm">
+    <div class="ic">★</div>
+    <h3>No findings bookmarked</h3>
+    <p>Star records in the evidence viewer and they'll collect here for the report.</p>
+  </div>
+  <div class="lbl">Loading — skeleton list</div>
+  <div class="sk"><div class="a shimmer"></div><div class="lines"><div class="ln shimmer"></div><div class="ln s shimmer"></div></div></div>
+  <div class="sk"><div class="a shimmer"></div><div class="lines"><div class="ln shimmer"></div><div class="ln s shimmer"></div></div></div>
+  <div class="sk"><div class="a shimmer"></div><div class="lines"><div class="ln shimmer"></div><div class="ln s shimmer"></div></div></div>
+  <div class="lbl">Loading — indeterminate task</div>
+  <div class="proc"><div class="spin"></div><h3>Parsing evidence</h3><p>app-prod-02.qcow2 · reading journald…</p><div class="pbar"><div class="f"></div></div></div>
+  <div class="note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 6v6l4 2" stroke="#69727f" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="12" r="9" stroke="#69727f" stroke-width="1.5"/></svg><span>Skeletons mirror the real row shape so the layout doesn't jump when data lands.</span></div>
+</section>
+
+<!-- ERRORS -->
+<section class="view" id="r">
+  <div class="vhead"><h2>Error states</h2><p>Say what went wrong and how to fix it, in the interface's voice — never vague, never blaming the user.</p></div>
+  <div class="err">
+    <div class="top"><div class="ei"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 3l9 16H3z" stroke="#f3a299" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 10v4M12 16.5v.5" stroke="#f3a299" stroke-width="1.6" stroke-linecap="round"/></svg></div>
+    <div class="a"><div class="t">Image won't open</div><div class="d">WIN10-HR-03.dd appears truncated — the last segment is missing or corrupt, so the volume can't be mounted.</div><div class="code">err: APFS/NTFS superblock unreadable at offset 0x0</div></div></div>
+    <div class="acts"><button class="btn sm">Re-import segments</button><button class="btn sm ghost">Verify acquisition hash</button></div>
+  </div>
+  <div class="err warn">
+    <div class="top"><div class="ei"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="5" y="11" width="14" height="9" rx="2" stroke="#f3c987" stroke-width="1.6"/><path d="M8 11V8a4 4 0 018 0v3" stroke="#f3c987" stroke-width="1.6"/></svg></div>
+    <div class="a"><div class="t">Decryption failed</div><div class="d">The BitLocker recovery key didn't unlock this volume. Filesystem and system artifacts will still parse; user data stays sealed.</div></div></div>
+    <div class="acts"><button class="btn sm">Try another key</button><button class="btn sm ghost">Continue, metadata only</button></div>
+  </div>
+  <div class="err warn">
+    <div class="top"><div class="ei"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h16M4 18h10" stroke="#f3c987" stroke-width="1.6" stroke-linecap="round"/></svg></div>
+    <div class="a"><div class="t">A parser failed — others finished</div><div class="d">The SRUM parser hit a malformed page and stopped; 8 of 9 parsers completed. The partial output is available.</div><div class="code">strata.srum · ESE page 0x4a1 checksum</div></div></div>
+    <div class="acts"><button class="btn sm">Retry parser</button><button class="btn sm ghost">View partial results</button><button class="btn sm ghost">View log</button></div>
+  </div>
+  <div class="err">
+    <div class="top"><div class="ei"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="#f3a299" stroke-width="1.5"/><path d="M5 5l14 14" stroke="#f3a299" stroke-width="1.6"/></svg></div>
+    <div class="a"><div class="t">No permission</div><div class="d">Your role (Reviewer) can view evidence but can't start processing. Ask a case admin to run ingest.</div></div></div>
+    <div class="acts"><button class="btn sm ghost">Request access</button></div>
+  </div>
+  <div class="note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="#69727f" stroke-width="1.5"/><path d="M12 8v5M12 16v.5" stroke="#69727f" stroke-width="1.6" stroke-linecap="round"/></svg><span>The integrity-mismatch alert (from the custody screen) is the one error that blocks rather than offers a workaround.</span></div>
+</section>
+
+<!-- DIALOGS -->
+<section class="view" id="d">
+  <div class="vhead"><h2>Confirmation dialogs</h2><p>Destructive or irreversible actions ask first — and the heavy ones require typing to confirm.</p></div>
+  <div class="lbl">Standard destructive confirm</div>
+  <div class="dlgdemo">
+    <div class="dlg">
+      <div class="di"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5h6v2M7 7l1 13h8l1-13" stroke="#f3a299" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <h3>Remove exhibit from queue?</h3>
+      <p>WIN10-HR-03.dd will be removed from the intake queue. The acquired image and its hash are not deleted.</p>
+      <div class="row"><button class="btn ghost">Cancel</button><button class="btn danger">Remove</button></div>
+    </div>
+  </div>
+  <div class="lbl">High-stakes — type to confirm</div>
+  <div class="dlgdemo">
+    <div class="dlg">
+      <div class="di"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="5" y="11" width="14" height="9" rx="2" stroke="#f3a299" stroke-width="1.6"/><path d="M8 11V8a4 4 0 018 0v3" stroke="#f3a299" stroke-width="1.6"/></svg></div>
+      <h3>Close &amp; lock case</h3>
+      <p>This freezes FIAU-2026-0114 read-only. Custody and findings can no longer change. This is logged.</p>
+      <div class="confirm-field"><label>Type the case reference to confirm</label><input placeholder="FIAU-2026-0114"></div>
+      <div class="row"><button class="btn ghost">Cancel</button><button class="btn danger">Close case</button></div>
+    </div>
+  </div>
+  <div class="note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 3l8 4v5c0 5-3.4 8-8 9-4.6-1-8-4-8-9V7z" stroke="#69727f" stroke-width="1.5"/></svg><span>Confirm copy names the exact thing affected and what survives — never a generic "Are you sure?".</span></div>
+</section>
+
+<!-- ONBOARDING -->
+<section class="view" id="o">
+  <div class="vhead"><h2>First-run onboarding</h2><p>A short, skippable intro that sets up the org and explains the integrity model.</p></div>
+  <div class="onb">
+    <div class="hero" id="onbHero">
+      <svg width="74" height="74" viewBox="0 0 28 28"><use href="#mark"/></svg>
+    </div>
+    <div class="body">
+      <div id="onbContent">
+        <h3>Welcome to Strata</h3>
+        <p>A forensics workspace for examining disk images across macOS, Windows, Linux, iOS and Android — from acquisition to court-ready report.</p>
+      </div>
+      <div class="dots" id="dots"><span class="d on"></span><span class="d"></span><span class="d"></span><span class="d"></span></div>
+    </div>
+    <div class="nav"><button class="btn ghost" id="onbSkip">Skip</button><button class="btn primary" id="onbNext">Next</button></div>
+  </div>
+  <div class="note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M5 12l5 5L20 7" stroke="#69727f" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Step 3 seeds Settings (unit, examiners, tools); step 4 explains the hash-chained custody &amp; audit model up front.</span></div>
+</section>
+</main>
+
+<script>
+(function(){
+  var tabs=[].slice.call(document.querySelectorAll(".tab"));
+  tabs.forEach(function(t){t.onclick=function(){tabs.forEach(function(x){x.setAttribute("aria-selected",x===t?"true":"false");});document.querySelectorAll(".view").forEach(function(v){v.classList.toggle("active",v.id===t.dataset.go);});window.scrollTo({top:0,behavior:"smooth"});};});
+  // onboarding
+  var steps=[
+    {h:"Welcome to Strata",p:"A forensics workspace for examining disk images across macOS, Windows, Linux, iOS and Android — from acquisition to court-ready report."},
+    {h:"Ingest any platform",p:"Drop an image and Strata detects the OS, filesystem and encryption, then lines exhibits up for batch processing.",feat:["<b>Auto-detection</b> across 5 platforms","<b>BitLocker / FileVault / LUKS</b> handled"]},
+    {h:"Set up your unit",p:"Add your examiners, collaborating agencies and available tools. These populate every form in the app.",feat:["<b>Settings</b> drives all dropdowns","Add people &amp; agencies now or later"]},
+    {h:"Integrity, built in",p:"Every custody entry is SHA-256 hash-chained and the audit log is append-only — tamper-evident by design.",feat:["<b>Verifiable</b> chain of custody","<b>Append-only</b> audit trail"]}
+  ];
+  var i=0;
+  function feathtml(arr){return (arr||[]).map(function(f){return '<div class="feat"><div class="fi"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M5 12l5 5L20 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div><div class="ft">'+f+'</div></div>';}).join("");}
+  function render(){
+    var s=steps[i];
+    document.getElementById("onbContent").innerHTML="<h3>"+s.h+"</h3><p>"+s.p+"</p>"+feathtml(s.feat);
+    var dots=document.getElementById("dots").children;for(var k=0;k<dots.length;k++)dots[k].classList.toggle("on",k===i);
+    document.getElementById("onbNext").textContent=i===steps.length-1?"Get started":"Next";
+    document.getElementById("onbSkip").style.visibility=i===steps.length-1?"hidden":"visible";
+  }
+  document.getElementById("onbNext").onclick=function(){if(i<steps.length-1){i++;render();}else{i=0;render();}};
+  document.getElementById("onbSkip").onclick=function(){i=steps.length-1;render();};
+  render();
+})();
+</script>
+</body>
+</html>

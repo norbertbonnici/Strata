@@ -276,54 +276,90 @@ public nonisolated struct ImpactDestructionAnalyzer: Analyzer {
 
     // MARK: - Ransomware mass-encryption (T1486)
 
-    private func ransomwareFindings(_ context: AnalysisContext) -> [Finding] {
-        var out: [Finding] = []
+    /// One extension whose file population meets the mass-encryption burst bar.
+    struct EncryptionBurst { let ext: String; let names: Set<String>; let evidence: String }
 
-        // 1. Mass same-extension burst across files / USN / MFT.
-        //    Count *distinct* leaf names per extension so a single file touched
-        //    repeatedly in USN can't inflate the count.
+    /// Extensions whose files look like a mass-encryption burst: at least the
+    /// distinct-file threshold, and either a known ransom extension or a novel
+    /// (not benign-bulk) one. Counts *distinct* leaf names so a single file
+    /// touched repeatedly in USN can't inflate the count. Shared by `analyze`
+    /// and the AppModel entropy sampler so both agree on exactly which files to
+    /// look at.
+    static func encryptionBursts(files: [FileEntry], usn: [UsnRecord], mft: [MftEntry]) -> [EncryptionBurst] {
         var byExtension: [String: Set<String>] = [:]
         var evidenceByExtension: [String: String] = [:]
-
         func note(_ name: String, ext: String, evidence: String) {
             guard !ext.isEmpty else { return }
             byExtension[ext, default: []].insert(name.lowercased())
             if evidenceByExtension[ext] == nil { evidenceByExtension[ext] = evidence }
         }
-
-        for f in context.files where !f.isDirectory {
+        for f in files where !f.isDirectory {
             note(f.name, ext: f.fileExtension, evidence: f.fullPath)
         }
-        for r in context.usn where !r.isDirectory {
+        for r in usn where !r.isDirectory {
             // Only newly-appearing names: a create or a rename-to-new-name.
             guard r.isCreate || (r.reasonRaw & UsnReason.renameNewName != 0) else { continue }
             note(r.fileName, ext: r.fileExtension, evidence: r.sourceFile)
         }
-        for m in context.mft where !m.isDirectory {
+        for m in mft where !m.isDirectory {
             if let name = m.fileName { note(name, ext: m.fileExtension, evidence: m.displayPath) }
         }
+        var bursts: [EncryptionBurst] = []
+        for (ext, names) in byExtension where names.count >= ransomBurstThreshold {
+            let isKnownRansom = knownRansomExtensions.contains(ext)
+            guard isKnownRansom || !benignBulkExtensions.contains(ext) else { continue }
+            bursts.append(EncryptionBurst(ext: ext, names: names,
+                                          evidence: evidenceByExtension[ext] ?? ".\(ext)"))
+        }
+        return bursts
+    }
 
-        for (ext, names) in byExtension where names.count >= Self.ransomBurstThreshold {
-            // A novel extension is one not on the benign-bulk allow-list. A known
-            // ransom extension always qualifies even if (somehow) bulk-ish.
-            let isKnownRansom = Self.knownRansomExtensions.contains(ext)
-            guard isKnownRansom || !Self.benignBulkExtensions.contains(ext) else { continue }
+    /// Build the T1486 finding for one qualifying burst. Entropy is used purely
+    /// as a **corroborating** signal in the detail - it never changes the
+    /// severity. A mass novel-extension burst is critical on its own; high
+    /// entropy strengthens the case (consistent with encryption), while a low or
+    /// absent reading can neither confirm nor refute it - partial/intermittent
+    /// encryptors leave plaintext regions, so we must not demote a real attack on
+    /// a low reading.
+    private func ransomBurstFinding(_ burst: EncryptionBurst, entropy stat: EncryptionEntropyStat?) -> Finding {
+        let isKnownRansom = Self.knownRansomExtensions.contains(burst.ext)
+        let qualifier = isKnownRansom
+            ? "Extension '.\(burst.ext)' is a known ransomware marker."
+            : "Extension '.\(burst.ext)' is not a common archive/media/document type - a uniform extension applied to this many files is the fingerprint of bulk encryption."
 
-            let qualifier = isKnownRansom
-                ? "Extension '.\(ext)' is a known ransomware marker."
-                : "Extension '.\(ext)' is not a common archive/media/document type - a uniform extension applied to this many files is the fingerprint of bulk encryption."
-            out.append(Finding(
-                title: "Possible mass file encryption: \(names.count) files with extension '.\(ext)'",
-                detail: """
-                \(names.count) distinct files share the extension '.\(ext)'.
-                \(qualifier)
-                Sample: \(names.sorted().prefix(5).joined(separator: ", ")).
-                """,
-                severity: .critical,
-                phase: .actionsOnObjectives,
-                technique: AttackTechnique(attackID: "T1486", name: "Data Encrypted for Impact"),
-                timestamp: nil,
-                evidencePaths: [evidenceByExtension[ext] ?? ".\(ext)"]))
+        let verifyLine: String
+        if let stat, stat.looksEncrypted {
+            verifyLine = "Content entropy: \(stat.highEntropyFiles) of \(stat.sampledFiles) sampled file(s) contain high-entropy regions (max \(stat.maxString) bits/byte) - consistent with encryption. (Compression yields the same signature, so this corroborates rather than proves encryption.)"
+        } else if let stat {
+            verifyLine = "Content entropy: \(stat.sampledFiles) sampled file(s) are not high-entropy (mean \(stat.meanString) bits/byte). This neither confirms nor refutes encryption - partial / intermittent / append-based encryptors (e.g. LockBit, BlackCat, Black Basta) leave plaintext regions, and the files may instead have been renamed without encryption. Manual review recommended."
+        } else {
+            verifyLine = "Content entropy not verified (file bytes unavailable)."
+        }
+
+        return Finding(
+            title: "Possible mass file encryption: \(burst.names.count) files with extension '.\(burst.ext)'",
+            detail: """
+            \(burst.names.count) distinct files share the extension '.\(burst.ext)'.
+            \(qualifier)
+            \(verifyLine)
+            Sample: \(burst.names.sorted().prefix(5).joined(separator: ", ")).
+            """,
+            severity: .critical,
+            phase: .actionsOnObjectives,
+            technique: AttackTechnique(attackID: "T1486", name: "Data Encrypted for Impact"),
+            timestamp: nil,
+            evidencePaths: [burst.evidence])
+    }
+
+    private func ransomwareFindings(_ context: AnalysisContext) -> [Finding] {
+        var out: [Finding] = []
+
+        // 1. Mass same-extension burst across files / USN / MFT, entropy-verified.
+        //    The burst (>= threshold distinct novel-extension files) is the
+        //    metadata signal; `context.encryptionEntropy` (sampled from real bytes
+        //    upstream) is what confirms the files were actually *encrypted*.
+        for burst in Self.encryptionBursts(files: context.files, usn: context.usn, mft: context.mft) {
+            out.append(ransomBurstFinding(burst, entropy: context.encryptionEntropy[burst.ext]))
         }
 
         // 2. Ransom notes - dropped instruction files. De-duplicate by lowercased

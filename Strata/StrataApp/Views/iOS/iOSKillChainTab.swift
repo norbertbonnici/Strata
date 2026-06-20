@@ -59,6 +59,43 @@ struct KillChainTab: View {
                 .lineSpacing(2)
                 .textSelection(.enabled)
 
+            // Validated, evidence-anchored claims (read-only on iOS).
+            if !summary.claims.isEmpty {
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(Array(summary.claims.prefix(4).enumerated()), id: \.offset) { _, claim in
+                        HStack(alignment: .top, spacing: 7) {
+                            SeverityDot(color: Theme.severityColor(claim.severity)).padding(.top, 3)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(claim.statement)
+                                    .font(.system(size: 12.5)).foregroundStyle(Theme.text)
+                                if let first = claim.citations.first {
+                                    Text(first)
+                                        .font(.system(size: 10.5).monospaced())
+                                        .foregroundStyle(Theme.text3)
+                                        .lineLimit(1).truncationMode(.middle)
+                                }
+                            }
+                        }
+                    }
+                    if summary.claims.count > 4 {
+                        Text("+\(summary.claims.count - 4) more")
+                            .font(.system(size: 10.5)).foregroundStyle(Theme.text3)
+                    }
+                }
+            }
+
+            if let v = summary.validation, !summary.claims.isEmpty || v.hadIssues {
+                HStack(spacing: 6) {
+                    Image(systemName: v.hadIssues ? "exclamationmark.triangle.fill" : "checkmark.seal")
+                        .foregroundStyle(v.hadIssues ? Color.orange : Theme.text3)
+                    Text(v.hadIssues
+                         ? "\(v.claimsKept) claim(s) validated · \(v.issuesSummary)"
+                         : "\(v.claimsKept) claim(s) validated against evidence")
+                        .foregroundStyle(Theme.text3)
+                }
+                .font(.system(size: 11))
+            }
+
             Text("\(summary.modelLabel) · \(summary.generatedAt.formatted(date: .abbreviated, time: .shortened))")
                 .font(.system(size: 11))
                 .foregroundStyle(Theme.text3)

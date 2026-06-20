@@ -52,6 +52,20 @@ nonisolated struct EvidenceState: Sendable {
     var knowledgeC: [KnowledgeEntry] = []
     var macRecentItems: [MacRecentItem] = []
     var macSecurityEvents: [MacSecurityEvent] = []
+    // Files recovered by raw-image signature carving (no filesystem, no times).
+    var carvedFiles: [CarvedFile] = []
+    var kexts: [MacKextEntry] = []
+    var backgroundItems: [MacBackgroundItem] = []
+    var messages: [MessageEntry] = []
+    var mail: [MailMessageEntry] = []
+    var network: [MacNetworkItem] = []
+    var userActivity: [MacActivityItem] = []
+    var documentVersions: [MacDocumentVersion] = []
+    var notifications: [MacNotification] = []
+    var powerlog: [PowerlogEntry] = []
+    var macConfig: [MacConfigSetting] = []
+    var installHistory: [MacInstallEntry] = []
+    var whereFroms: [MacWhereFrom] = []
     // macOS host identity (empty on non-macOS evidence).
     var macInfo: MacHostInfo?
     var findings: [Finding] = []
@@ -127,6 +141,14 @@ final class AppModel: ObservableObject {
     /// SwiftUI when their bindings transition in the same render pass; one
     /// .sheet(item:) is the safe pattern.
     @Published var activeSheet: ActiveSheet?
+    /// FileVault unlock secrets supplied for encrypted APFS volumes, keyed by
+    /// evidence id. **In-memory only — never persisted** (forensic
+    /// confidentiality); used by the APFS metadata + content-extraction paths.
+    @Published var fileVaultCredentials: [UUID: FileVaultCredential] = [:]
+    /// APFS volumes that came back FileVault-locked at ingest, keyed by evidence
+    /// id, so the UI can prompt for a password and re-ingest. Cleared on a
+    /// successful unlock.
+    @Published private(set) var lockedApfsVolumes: [UUID: [ApfsLockedVolume]] = [:]
     /// IOCs the analyst has loaded for the current case. Persisted to
     /// iocs.json inside the bundle. Empty by default - IOC matching never
     /// runs unless the user has loaded at least one.
@@ -230,7 +252,20 @@ final class AppModel: ObservableObject {
         case export
         case acquisitionEditor(UUID)
         case annotationEditor(AnnotationDraft)
+        case fileVaultUnlock(UUID)
+        /// Where summary inference runs (on-device ↔ cloud) + cloud credentials.
+        case inferenceSettings
+        /// First-run "evidence-derived data will leave this Mac" confirmation,
+        /// carrying the action to run once the analyst acknowledges it.
+        case cloudInferenceConfirm(PendingCloudAction)
         var id: Int { hashValue }
+    }
+
+    /// A summary action deferred behind the cloud-egress confirmation, so the
+    /// confirm sheet knows what to resume.
+    enum PendingCloudAction: Hashable {
+        case generateSummary
+        case runEval
     }
 
     /// Ingested evidence in the order it was added. Drives the toolbar picker.
@@ -410,6 +445,17 @@ final class AppModel: ObservableObject {
             RecentCases.record(bundleURL)
             recentCases = RecentCases.load()
             statusMessage = "Loaded case '\(theCase.name)' (\(hosts.count) host\(hosts.count == 1 ? "" : "s"))."
+            #if os(macOS)
+            // Resolve the configured inference backend's status now, so the Tools
+            // menu's summary actions reflect the real backend even if the analyst
+            // never opens the Overview card (which also refreshes this).
+            refreshInferenceConfig()
+            // Backfill artifact types an older build never produced (e.g. kexts /
+            // BTM / Messages added after this case was last parsed), so the newest
+            // tabs populate without a manual re-parse. Off the open path; no-op +
+            // cheap when nothing is missing.
+            Task { await self.backfillOnOpen() }
+            #endif
         } catch {
             errorMessage = "Failed to open case: \(error.localizedDescription)"
         }
@@ -502,34 +548,179 @@ final class AppModel: ObservableObject {
             // Source filter work without re-parsing on every case open.
             if !state.events.isEmpty {
                 timeline.append(contentsOf: TimelineBuilder.build(from: state.events))
-                timeline.sort { $0.date < $1.date }
             }
-            state.timeline = timeline
-            state.registryValues = (try? CaseStore.readRegistry(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.prefetch = (try? CaseStore.readPrefetch(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.amcache = (try? CaseStore.readAmcache(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.shimcache = (try? CaseStore.readShimcache(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.timeline = timeline   // one final sort happens after all splices
+            // Every remaining cached collection is an independent file read +
+            // JSON decode (CaseStore.jsonDecoder is a fresh instance per call, so
+            // this is thread-safe), so fan them out across cores — each job writes
+            // its own local, joined by the concurrentPerform barrier, no locking.
+            // The file listing + events above stay on this thread.
+            let id = evidence.id
+            var registry: [RegistryValue] = []
+            var prefetch: [PrefetchEntry] = []
+            var amcache: [AmcacheEntry] = []
+            var shimcache: [ShimcacheEntry] = []
+            var lnk: [LnkEntry] = []
+            var jumpList: [JumpListEntry] = []
+            var usn: [UsnRecord] = []
+            var recycleBin: [RecycleBinEntry] = []
+            var srum: [SrumEntry] = []
+            var browserHistory: [BrowserHistoryEntry] = []
+            var mft: [MftEntry] = []
+            var wmi: [WmiPersistenceEntry] = []
+            var launchItems: [LaunchItemEntry] = []
+            var quarantine: [QuarantineEvent] = []
+            var macPersistence: [MacPersistenceItem] = []
+            var fsEvents: [FSEventRecord] = []
+            var unifiedLog: [UnifiedLogEntry] = []
+            var tcc: [TCCAccess] = []
+            var knowledgeC: [KnowledgeEntry] = []
+            var macRecentItems: [MacRecentItem] = []
+            var macSecurityEvents: [MacSecurityEvent] = []
+            var carvedFiles: [CarvedFile] = []
+            var kexts: [MacKextEntry] = []
+            var backgroundItems: [MacBackgroundItem] = []
+            var messages: [MessageEntry] = []
+            var mail: [MailMessageEntry] = []
+            var network: [MacNetworkItem] = []
+            var userActivity: [MacActivityItem] = []
+            var documentVersions: [MacDocumentVersion] = []
+            var notifications: [MacNotification] = []
+            var powerlog: [PowerlogEntry] = []
+            var macConfig: [MacConfigSetting] = []
+            var installHistory: [MacInstallEntry] = []
+            var whereFroms: [MacWhereFrom] = []
+            var macInfo: MacHostInfo?
+            var authLog: [AuthLogEntry] = []
+            var logins: [UtmpRecord] = []
+            var shellHistory: [ShellHistoryEntry] = []
+            var linuxPersistence: [LinuxPersistenceEntry] = []
+            var linuxInfo: LinuxHostInfo?
+            var linuxAccess: LinuxAccessInfo?
+            var webAccess: [WebAccessLogEntry] = []
+            var packages: [PackageEvent] = []
+            var journald: [JournaldEntry] = []
+            var audit: [AuditEvent] = []
+            var syslog: [SyslogEntry] = []
+            var lastlog: [LastlogEntry] = []
+            var findings: [Finding] = []
+            var iocMatches: [IOCMatch] = []
+            let jobs: [() -> Void] = [
+                { registry = (try? CaseStore.readRegistry(forHostID: id, in: bundleURL)) ?? [] },
+                { prefetch = (try? CaseStore.readPrefetch(forHostID: id, in: bundleURL)) ?? [] },
+                { amcache = (try? CaseStore.readAmcache(forHostID: id, in: bundleURL)) ?? [] },
+                { shimcache = (try? CaseStore.readShimcache(forHostID: id, in: bundleURL)) ?? [] },
+                { lnk = (try? CaseStore.readLnk(forHostID: id, in: bundleURL)) ?? [] },
+                { jumpList = (try? CaseStore.readJumpList(forHostID: id, in: bundleURL)) ?? [] },
+                { usn = (try? CaseStore.readUsn(forHostID: id, in: bundleURL)) ?? [] },
+                { recycleBin = (try? CaseStore.readRecycleBin(forHostID: id, in: bundleURL)) ?? [] },
+                { srum = (try? CaseStore.readSrum(forHostID: id, in: bundleURL)) ?? [] },
+                { browserHistory = (try? CaseStore.readBrowserHistory(forHostID: id, in: bundleURL)) ?? [] },
+                { mft = (try? CaseStore.readMft(forHostID: id, in: bundleURL)) ?? [] },
+                { wmi = (try? CaseStore.readWmi(forHostID: id, in: bundleURL)) ?? [] },
+                { launchItems = (try? CaseStore.readLaunchItems(forHostID: id, in: bundleURL)) ?? [] },
+                { quarantine = (try? CaseStore.readQuarantine(forHostID: id, in: bundleURL)) ?? [] },
+                { macPersistence = (try? CaseStore.readMacPersistence(forHostID: id, in: bundleURL)) ?? [] },
+                { fsEvents = (try? CaseStore.readFSEvents(forHostID: id, in: bundleURL)) ?? [] },
+                { unifiedLog = (try? CaseStore.readUnifiedLog(forHostID: id, in: bundleURL)) ?? [] },
+                { tcc = (try? CaseStore.readTCC(forHostID: id, in: bundleURL)) ?? [] },
+                { knowledgeC = (try? CaseStore.readKnowledgeC(forHostID: id, in: bundleURL)) ?? [] },
+                { macRecentItems = (try? CaseStore.readMacRecentItems(forHostID: id, in: bundleURL)) ?? [] },
+                { macSecurityEvents = (try? CaseStore.readMacSecurityEvents(forHostID: id, in: bundleURL)) ?? [] },
+                { carvedFiles = (try? CaseStore.readCarved(forHostID: id, in: bundleURL)) ?? [] },
+                { kexts = (try? CaseStore.readKexts(forHostID: id, in: bundleURL)) ?? [] },
+                { backgroundItems = (try? CaseStore.readBackgroundItems(forHostID: id, in: bundleURL)) ?? [] },
+                { messages = (try? CaseStore.readMessages(forHostID: id, in: bundleURL)) ?? [] },
+                { mail = (try? CaseStore.readMail(forHostID: id, in: bundleURL)) ?? [] },
+                { network = (try? CaseStore.readNetwork(forHostID: id, in: bundleURL)) ?? [] },
+                { userActivity = (try? CaseStore.readUserActivity(forHostID: id, in: bundleURL)) ?? [] },
+                { documentVersions = (try? CaseStore.readDocumentVersions(forHostID: id, in: bundleURL)) ?? [] },
+                { notifications = (try? CaseStore.readNotifications(forHostID: id, in: bundleURL)) ?? [] },
+                { powerlog = (try? CaseStore.readPowerlog(forHostID: id, in: bundleURL)) ?? [] },
+                { macConfig = (try? CaseStore.readMacConfig(forHostID: id, in: bundleURL)) ?? [] },
+                { installHistory = (try? CaseStore.readInstallHistory(forHostID: id, in: bundleURL)) ?? [] },
+                { whereFroms = (try? CaseStore.readWhereFroms(forHostID: id, in: bundleURL)) ?? [] },
+                { macInfo = try? CaseStore.readMacInfo(forHostID: id, in: bundleURL) },
+                { authLog = (try? CaseStore.readAuthLog(forHostID: id, in: bundleURL)) ?? [] },
+                { logins = (try? CaseStore.readLogins(forHostID: id, in: bundleURL)) ?? [] },
+                { shellHistory = (try? CaseStore.readShellHistory(forHostID: id, in: bundleURL)) ?? [] },
+                { linuxPersistence = (try? CaseStore.readLinuxPersistence(forHostID: id, in: bundleURL)) ?? [] },
+                { linuxInfo = try? CaseStore.readLinuxInfo(forHostID: id, in: bundleURL) },
+                { linuxAccess = try? CaseStore.readLinuxAccess(forHostID: id, in: bundleURL) },
+                { webAccess = (try? CaseStore.readWebAccess(forHostID: id, in: bundleURL)) ?? [] },
+                { packages = (try? CaseStore.readPackages(forHostID: id, in: bundleURL)) ?? [] },
+                { journald = (try? CaseStore.readJournald(forHostID: id, in: bundleURL)) ?? [] },
+                { audit = (try? CaseStore.readAudit(forHostID: id, in: bundleURL)) ?? [] },
+                { syslog = (try? CaseStore.readSyslog(forHostID: id, in: bundleURL)) ?? [] },
+                { lastlog = (try? CaseStore.readLastlog(forHostID: id, in: bundleURL)) ?? [] },
+                { findings = (try? CaseStore.readFindings(forHostID: id, in: bundleURL)) ?? [] },
+                { iocMatches = (try? CaseStore.readIOCMatches(forHostID: id, in: bundleURL)) ?? [] },
+            ]
+            DispatchQueue.concurrentPerform(iterations: jobs.count) { jobs[$0]() }
+
+            state.registryValues = registry
+            state.prefetch = prefetch
             // Backfill the registry-derived artifacts: a case whose registry was
             // parsed before Amcache/Shimcache existed (or before they were
             // persisted) has registry values but no amcache/shimcache JSON. Both
-            // reconstruct purely from the loaded registry values, so regenerate
-            // them here rather than forcing a re-parse. (Amcache still needs a
-            // forced re-parse on pre-feature cases whose registry.json never
-            // captured Amcache.hve - there are simply no AMCACHE values to map.)
-            if state.amcache.isEmpty {
-                state.amcache = AmcacheEntry.reconstruct(from: state.registryValues)
-            }
-            if state.shimcache.isEmpty {
-                state.shimcache = ShimcacheParser.fromRegistry(state.registryValues)
-            }
-            state.lnk = (try? CaseStore.readLnk(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.jumpList = (try? CaseStore.readJumpList(forHostID: evidence.id, in: bundleURL)) ?? []
-            // Fold the registry/prefetch/LNK/JumpList-derived timestamps back
-            // into the timeline (mirrors the evtx splice): registry key writes,
-            // prefetch runs, shimcache/amcache presence, LNK target MACs, and
-            // JumpList accesses. One sort at the end covers the lot. The
-            // registry slice is macOS-only, like the FS MACB timeline - a big
-            // SOFTWARE hive expands to a phone-hostile row count.
+            // reconstruct purely from the loaded registry values. (Amcache still
+            // needs a forced re-parse on pre-feature cases whose registry.json
+            // never captured Amcache.hve - there are no AMCACHE values to map.)
+            state.amcache = amcache.isEmpty ? AmcacheEntry.reconstruct(from: registry) : amcache
+            state.shimcache = shimcache.isEmpty ? ShimcacheParser.fromRegistry(registry) : shimcache
+            state.lnk = lnk
+            state.jumpList = jumpList
+            state.usn = usn
+            state.recycleBin = recycleBin
+            state.srum = srum
+            state.browserHistory = browserHistory
+            state.mft = mft
+            state.wmi = wmi
+            state.launchItems = launchItems
+            state.quarantine = quarantine
+            state.macPersistence = macPersistence
+            state.fsEvents = fsEvents
+            state.unifiedLog = unifiedLog
+            state.tcc = tcc
+            state.knowledgeC = knowledgeC
+            state.macRecentItems = macRecentItems
+            state.macSecurityEvents = macSecurityEvents
+            state.carvedFiles = carvedFiles
+            state.kexts = kexts
+            state.backgroundItems = backgroundItems
+            state.messages = messages
+            state.mail = mail
+            state.network = network
+            state.userActivity = userActivity
+            state.documentVersions = documentVersions
+            state.notifications = notifications
+            state.powerlog = powerlog
+            state.macConfig = macConfig
+            state.installHistory = installHistory
+            state.whereFroms = whereFroms
+            state.macInfo = macInfo
+            state.authLog = authLog
+            state.logins = logins
+            state.shellHistory = shellHistory
+            state.linuxPersistence = linuxPersistence
+            state.linuxInfo = linuxInfo
+            state.linuxAccess = linuxAccess
+            state.webAccess = webAccess
+            state.packages = packages
+            state.journald = journald
+            state.audit = audit
+            state.syslog = syslog
+            state.lastlog = lastlog
+            state.findings = findings
+            state.iocMatches = iocMatches
+
+            // Splice every timestamped source onto the timeline (which already
+            // holds the FS-MACB + evtx rows), then sort once instead of after each
+            // group. Gating mirrors the parsers: the registry slice is macOS-only
+            // (a big hive is phone-hostile), and the $MFT $SI MACB is loose-folder
+            // only (an image's TSK FS source already carries it). recycleBin / wmi
+            // / carved / launch items / quarantine / persistence / fsEvents have no
+            // timestamps, so they aren't spliced.
             #if os(macOS)
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.registryValues))
             #endif
@@ -538,86 +729,36 @@ final class AppModel: ObservableObject {
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.shimcache))
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.lnk))
             state.timeline.append(contentsOf: TimelineBuilder.build(from: state.jumpList))
-            state.timeline.sort { $0.date < $1.date }
-            state.usn = (try? CaseStore.readUsn(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.recycleBin = (try? CaseStore.readRecycleBin(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.launchItems = (try? CaseStore.readLaunchItems(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.quarantine = (try? CaseStore.readQuarantine(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.macPersistence = (try? CaseStore.readMacPersistence(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.fsEvents = (try? CaseStore.readFSEvents(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.unifiedLog = (try? CaseStore.readUnifiedLog(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.tcc = (try? CaseStore.readTCC(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.knowledgeC = (try? CaseStore.readKnowledgeC(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.macRecentItems = (try? CaseStore.readMacRecentItems(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.macSecurityEvents = (try? CaseStore.readMacSecurityEvents(forHostID: evidence.id, in: bundleURL)) ?? []
-            if !state.unifiedLog.isEmpty || !state.tcc.isEmpty || !state.knowledgeC.isEmpty
-                || !state.macRecentItems.isEmpty || !state.macSecurityEvents.isEmpty {
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.unifiedLog))
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.tcc))
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.knowledgeC))
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.macRecentItems))
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.macSecurityEvents))
-                state.timeline.sort { $0.date < $1.date }
-            }
-            state.macInfo = try? CaseStore.readMacInfo(forHostID: evidence.id, in: bundleURL)
-            // Fold USN journal rows back into the timeline so the Source filter
-            // works without re-parsing on every case open (mirrors the evtx splice).
-            if !state.usn.isEmpty {
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.usn))
-                state.timeline.sort { $0.date < $1.date }
-            }
-            state.srum = (try? CaseStore.readSrum(forHostID: evidence.id, in: bundleURL)) ?? []
-            // Fold SRUM rows back into the timeline so the Source filter works
-            // without re-parsing on every case open (mirrors the USN splice).
-            if !state.srum.isEmpty {
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.srum))
-                state.timeline.sort { $0.date < $1.date }
-            }
-            state.browserHistory = (try? CaseStore.readBrowserHistory(forHostID: evidence.id, in: bundleURL)) ?? []
-            // Fold browser-history rows back into the timeline (mirrors the SRUM splice).
-            if !state.browserHistory.isEmpty {
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.browserHistory))
-                state.timeline.sort { $0.date < $1.date }
-            }
-            state.mft = (try? CaseStore.readMft(forHostID: evidence.id, in: bundleURL)) ?? []
-            // Fold $MFT $SI MACB onto the timeline only for loose folders (an
-            // image's FS source already carries those TSK times); mirrors parseMft.
-            if !state.mft.isEmpty, evidence.kind == .kapeLooseFolder {
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.usn))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.srum))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.browserHistory))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.messages))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.mail))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.network))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.userActivity))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.documentVersions))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.notifications))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.powerlog))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.installHistory))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.unifiedLog))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.tcc))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.knowledgeC))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.macRecentItems))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.macSecurityEvents))
+            if evidence.kind == .kapeLooseFolder {
                 state.timeline.append(contentsOf: TimelineBuilder.build(from: state.mft))
-                state.timeline.sort { $0.date < $1.date }
             }
-            state.wmi = (try? CaseStore.readWmi(forHostID: evidence.id, in: bundleURL)) ?? []
-            // Linux artifacts: rehydrate + splice the timestamped ones onto the
-            // timeline (mirrors the evtx splice). Cheap on Windows hosts (all
-            // empty). One sort covers the three.
-            state.authLog = (try? CaseStore.readAuthLog(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.logins = (try? CaseStore.readLogins(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.shellHistory = (try? CaseStore.readShellHistory(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.linuxPersistence = (try? CaseStore.readLinuxPersistence(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.linuxInfo = try? CaseStore.readLinuxInfo(forHostID: evidence.id, in: bundleURL)
-            state.linuxAccess = try? CaseStore.readLinuxAccess(forHostID: evidence.id, in: bundleURL)
-            state.webAccess = (try? CaseStore.readWebAccess(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.packages = (try? CaseStore.readPackages(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.journald = (try? CaseStore.readJournald(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.audit = (try? CaseStore.readAudit(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.syslog = (try? CaseStore.readSyslog(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.lastlog = (try? CaseStore.readLastlog(forHostID: evidence.id, in: bundleURL)) ?? []
-            if !state.authLog.isEmpty || !state.logins.isEmpty || !state.shellHistory.isEmpty
-                || !state.webAccess.isEmpty || !state.packages.isEmpty || !state.journald.isEmpty
-                || !state.audit.isEmpty || !state.syslog.isEmpty || !state.lastlog.isEmpty {
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.authLog))
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.logins))
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.shellHistory))
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.webAccess))
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.packages))
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.journald))
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.audit))
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.syslog))
-                state.timeline.append(contentsOf: TimelineBuilder.build(from: state.lastlog))
-                state.timeline.sort { $0.date < $1.date }
-            }
-            state.findings = (try? CaseStore.readFindings(forHostID: evidence.id, in: bundleURL)) ?? []
-            state.iocMatches = (try? CaseStore.readIOCMatches(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.authLog))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.logins))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.shellHistory))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.webAccess))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.packages))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.journald))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.audit))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.syslog))
+            state.timeline.append(contentsOf: TimelineBuilder.build(from: state.lastlog))
+            state.timeline.sort { $0.date < $1.date }
+
             state.osFamilies = OSFamily.detect(volumes: state.volumes, files: state.files)
             return .loaded(state)
         } catch {
@@ -911,9 +1052,85 @@ final class AppModel: ObservableObject {
     }
 
 #if os(macOS)
-    /// Whether the on-device summarizer can run right now (so the UI can disable
-    /// the action and explain why). macOS-only - iOS is a read-only viewer.
-    var summaryAvailability: SummarizerAvailability { FindingsSummarizer.availability }
+    /// Cached inference status for the configured backend, so SwiftUI `body`
+    /// never rebuilds the backend or hits the Keychain (the "no heavy work in
+    /// body" rule). Refreshed by `refreshInferenceConfig()` on the summary card's
+    /// appearance / a config change - never per render.
+    @Published private(set) var summaryAvailability: SummarizerAvailability = FindingsSummarizer.availability
+    @Published private(set) var summaryIsSovereign: Bool = true
+    /// The configured backend's sovereignty tier, for three-way UI labeling
+    /// (on-device / Apple Private Cloud / third-party cloud). `summaryIsSovereign`
+    /// stays as the binary "nothing leaves the host" used by prewarm/help text.
+    @Published private(set) var summarySovereignty: SovereigntyTier = .onDevice
+    @Published private(set) var summaryBackendLabel: String = FindingsSummarizer.modelLabel
+    /// Last summary self-eval report (markdown), for display / the talk.
+    @Published private(set) var summaryEvalMarkdown: String?
+
+    /// Resolve the configured backend once and cache its status off the render
+    /// path. Building the backend can read the Keychain (cloud mode), so this
+    /// must not run in `body`.
+    func refreshInferenceConfig() {
+        let backend = InferenceConfiguration.load().makeBackend(credentials: KeychainCredentialStore())
+        summaryAvailability = backend.availability()
+        summaryIsSovereign = backend.isSovereign
+        summarySovereignty = backend.sovereignty
+        summaryBackendLabel = backend.label
+    }
+
+    // MARK: - Cloud-egress confirmation
+
+    /// The cloud destination (base URL + model) the analyst has already
+    /// acknowledged sending finding summaries to; nil until first confirmed.
+    /// Persisted in UserDefaults (examiner config, not case evidence).
+    private static let confirmedCloudDestinationKey = "com.bonnicilabs.strata.confirmedCloudDestination"
+
+    /// Gated entry point for the summary-card **Generate** button. Routes through
+    /// the first-run confirmation when the run would actually send evidence-derived
+    /// data off-host (cloud selected AND credentialed) to a destination the
+    /// analyst hasn't yet acknowledged.
+    func requestSummaryGeneration() { routeCloud(.generateSummary) }
+
+    /// Gated entry point for **Tools ▸ Run Summary Self-Eval** (the eval corpus
+    /// runs through the same configured backend, so it has the same egress
+    /// implications as a real summary).
+    func requestSummaryEval() { routeCloud(.runEval) }
+
+    /// Resume a deferred action after the analyst confirmed the cloud egress,
+    /// remembering the acknowledged destination so this prompt isn't shown again
+    /// for it. Builds the backend from the SAME config read it fingerprints, then
+    /// threads that exact instance to the runner (see `routeCloud`).
+    func proceedAfterCloudConfirm(_ action: PendingCloudAction) {
+        let cfg = InferenceConfiguration.load()
+        UserDefaults.standard.set(cfg.destinationFingerprint, forKey: Self.confirmedCloudDestinationKey)
+        dispatch(action, backend: cfg.makeBackend(credentials: KeychainCredentialStore()))
+    }
+
+    /// True when `action` would send finding summaries to a not-yet-acknowledged
+    /// cloud destination. Checks the *effective* backend (cloud mode without a
+    /// key fails safe to on-device, so nothing leaves and no prompt is needed).
+    ///
+    /// Resolves the effective backend **once** and threads that instance through
+    /// to the runner. `CloudInferenceBackend` captures baseURL/model/key at
+    /// construction, so "destination sent to == destination checked here" is
+    /// atomic: a settings change between this gate and the (deferred) run can't
+    /// silently redirect the egress.
+    private func routeCloud(_ action: PendingCloudAction) {
+        let cfg = InferenceConfiguration.load()
+        let backend = cfg.makeBackend(credentials: KeychainCredentialStore())
+        let confirmed = UserDefaults.standard.string(forKey: Self.confirmedCloudDestinationKey)
+        if !backend.isSovereign, cfg.destinationFingerprint != confirmed {
+            activeSheet = .cloudInferenceConfirm(action)
+        } else {
+            dispatch(action, backend: backend)
+        }
+    }
+
+    private func dispatch(_ action: PendingCloudAction, backend: any InferenceBackend) {
+        switch action {
+        case .generateSummary: Task { await generateSummary(backend: backend) }
+        case .runEval:         Task { await runSummaryEval(backend: backend) }
+        }
+    }
 
     /// Generate an on-device (Apple Intelligence) executive summary of the
     /// current case findings. Mirrors `enrichIndicators()`: opt-in, case-wide,
@@ -923,7 +1140,12 @@ final class AppModel: ObservableObject {
     /// Summarizes the combined "All" scope (per-host findings + correlation),
     /// independent of the active tab scope, so the persisted summary is the
     /// whole-case executive narrative.
-    func generateSummary() async {
+    ///
+    /// **Private on purpose**: callers must go through `requestSummaryGeneration()`
+    /// so a cloud run can never skip the egress confirmation. `backend` is the
+    /// instance resolved (and, for cloud, confirmed) at the gate — never
+    /// re-resolved here, so the destination can't shift between gate and run.
+    private func generateSummary(backend: any InferenceBackend) async {
         guard !isWorking else { return }
         guard let bundleURL = currentCaseBundleURL else { return }
 
@@ -933,41 +1155,130 @@ final class AppModel: ObservableObject {
             statusMessage = "No findings to summarize — run the analyzers first."
             return
         }
-        if case .unavailable(let reason) = FindingsSummarizer.availability {
+        if case .unavailable(let reason) = backend.availability() {
             errorMessage = reason
             return
         }
 
+        // Cheap COW snapshots on main; the heavy per-entry work is off-main below,
+        // like runIOCMatch.
+        let fileSnapshots = evidenceList.compactMap { states[$0.id]?.files }
+        let whereFromSnapshots = evidenceList.compactMap { states[$0.id]?.whereFroms }
+
         errorMessage = nil
         isWorking = true
         defer { isWorking = false }
-        statusMessage = "Generating on-device summary of \(allFindings.count) finding(s)…"
+        statusMessage = "Generating summary of \(allFindings.count) finding(s) via \(backend.label)…"
 
         do {
-            let text = try await FindingsSummarizer().summarize(findings: allFindings) { done, total in
+            // Off the main actor (`fullPath` allocates per entry): the path-set that
+            // widens the validator's recognition, and the artifact lookup index the
+            // model's tools query during generation.
+            let (fileIndex, lookupIndex) = await Task.detached(priority: .userInitiated) {
+                () -> (Set<String>, CaseLookupIndex) in
+                let allFiles = fileSnapshots.flatMap { $0 }
+                let index = Set(allFiles.map(\.fullPath))
+                let lookup = CaseLookupIndex.build(findings: allFindings, files: allFiles,
+                                                   whereFroms: whereFromSnapshots.flatMap { $0 })
+                return (index, lookup)
+            }.value
+
+            let validated = try await FindingsSummarizer().summarizeStructured(
+                findings: allFindings, fileIndex: fileIndex, lookupIndex: lookupIndex,
+                backend: backend) { done, total in
                 Task { @MainActor in
                     // Only show step counts for genuinely multi-call runs.
                     if total > 1 {
-                        self.statusMessage = "Generating on-device summary… (step \(done + 1) of \(total))"
+                        self.statusMessage = "Generating summary… (step \(done + 1) of \(total))"
                     }
                 }
             }
-            guard !text.isEmpty else {
+            // `text` stays the rendered narrative (the executive overview); the
+            // per-claim detail rides structured in `claims`/`validation`. Trim so
+            // "empty" agrees with the report builder (which also trims).
+            let text = validated.overview.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty || !validated.claims.isEmpty else {
                 statusMessage = "The model returned an empty summary. Try regenerating."
                 return
             }
             let summary = CaseSummary(text: text, generatedAt: Date(),
                                       findingCount: allFindings.count,
-                                      modelLabel: FindingsSummarizer.modelLabel)
+                                      modelLabel: backend.label,
+                                      sovereignty: backend.sovereignty,
+                                      claims: validated.claims,
+                                      validation: validated.report)
             caseSummary = summary
             try? CaseStore.writeSummary(summary, in: bundleURL)
-            statusMessage = "Generated on-device summary of \(allFindings.count) finding(s)."
-            appendCustody(.summarized,
-                          detail: "AI executive summary generated on-device (\(FindingsSummarizer.modelLabel)) from \(allFindings.count) finding\(allFindings.count == 1 ? "" : "s").")
+            statusMessage = "Generated summary of \(allFindings.count) finding(s) via \(backend.label)."
+            // Custody records the provenance (and whether evidence-derived data
+            // left the host) + what the evidence-ref validation actually did -
+            // including the worst case where every model claim was dropped
+            // (claimsProposed > 0 but claimsKept == 0). claimsProposed is 0 only
+            // when the model produced no claims at all (a bare entry then).
+            let v = validated.report
+            let sovereignty: String
+            switch backend.sovereignty {
+            case .onDevice:
+                sovereignty = "on-device"
+            case .applePrivateCloud:
+                sovereignty = "via Apple Private Cloud Compute (off-device; Apple-operated, attested, not retained)"
+            case .thirdPartyCloud:
+                sovereignty = "via third-party cloud (evidence-derived data left the host)"
+            }
+            var custodyDetail = "AI executive summary generated \(sovereignty) using \(backend.label) from \(allFindings.count) finding\(allFindings.count == 1 ? "" : "s")."
+            if v.claimsProposed > 0 {
+                custodyDetail += " \(v.claimsKept) of \(v.claimsProposed) model claim(s) validated"
+                if v.hadIssues {
+                    custodyDetail += "; \(v.claimsDroppedUnsupported) dropped, \(v.phantomRefsDropped) phantom ref(s) stripped, \(v.flaggedPathTokens.count) path(s) flagged"
+                }
+                custodyDetail += "."
+            }
+            appendCustody(.summarized, detail: custodyDetail)
         } catch {
             errorMessage = "Summary generation failed: \(error.localizedDescription)"
             statusMessage = ""
         }
+    }
+
+    /// Run the built-in labeled corpus through the configured backend and produce
+    /// a hit/miss report - the quantified numbers (technique recall, confabulation
+    /// rate, validator containment) for the talk. Opt-in (Tools menu), uses the
+    /// same validated pipeline, custody-logged.
+    ///
+    /// **Private on purpose**: callers go through `requestSummaryEval()` so a
+    /// cloud-backed eval run can never skip the egress confirmation. `backend` is
+    /// the instance resolved (and, for cloud, confirmed) at the gate.
+    private func runSummaryEval(backend: any InferenceBackend) async {
+        guard !isWorking else { return }
+        if case .unavailable(let reason) = backend.availability() { errorMessage = reason; return }
+
+        errorMessage = nil
+        isWorking = true
+        defer { isWorking = false }
+        statusMessage = "Running summary self-eval via \(backend.label)…"
+
+        let report = await SummaryEvalHarness().run(corpus: SummaryEvalCorpus.sample, backend: backend)
+        let markdown = report.markdown()
+        summaryEvalMarkdown = markdown
+        // A QA / methodology artifact, not case evidence - write to a temp file
+        // (never into the .strata package, whose layout is owned by CaseStore) so
+        // it can be opened; the in-memory copy above drives the in-app display.
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("strata-summary-self-eval.md")
+        try? markdown.data(using: .utf8)?.write(to: url, options: .atomic)
+
+        let pct = { (d: Double) in String(format: "%.0f%%", d * 100) }
+        let confab = report.confabulationRate.map(pct) ?? "n/a"
+        // Failures are excluded from the means; say so plainly rather than let a
+        // dragged-down number stand in for an infrastructure error.
+        let failedNote = report.failedCaseNames.isEmpty ? ""
+            : " (\(report.failedCaseCount) case\(report.failedCaseCount == 1 ? "" : "s") failed to run, excluded)"
+        statusMessage = "Summary self-eval: \(pct(report.meanRecall)) recall, \(confab) confabulation, "
+            + "\(report.totalClaimsDropped)/\(report.totalClaimsProposed) claims dropped — over \(report.caseCount) labeled case(s)\(failedNote)."
+        appendCustody(.summarized,
+                      detail: "Summary self-eval run via \(backend.label) over \(report.caseCount) labeled case(s)\(failedNote): "
+                            + "mean technique recall \(pct(report.meanRecall)), confabulation rate \(confab), "
+                            + "validator dropped \(report.totalClaimsDropped)/\(report.totalClaimsProposed) claim(s), "
+                            + "stripped \(report.totalPhantomRefsDropped) phantom ref(s).")
     }
 #endif
 
@@ -991,6 +1302,29 @@ final class AppModel: ObservableObject {
     func requestExport() {
         guard currentCase != nil else { return }
         activeSheet = .export
+    }
+
+    /// True when any loaded host has a FileVault-locked APFS volume awaiting a
+    /// secret (drives the Tools ▸ Unlock command's enabled state).
+    var hasLockedApfsVolumes: Bool {
+        lockedApfsVolumes.values.contains { !$0.isEmpty }
+    }
+
+    /// True when any loaded host is an APFS image (the carve target — drives the
+    /// Tools ▸ Carve command's enabled state).
+    var hasApfsHost: Bool {
+        evidenceList.contains { $0.kind == .apfs }
+    }
+
+    /// Triggered by Tools ▸ Unlock FileVault Volume (and auto-shown after an
+    /// ingest that found locked volumes). Prompts for the active host's secret,
+    /// falling back to the first host that has a locked volume.
+    func requestFileVaultUnlock() {
+        let id = (activeEvidenceID.flatMap { id in
+            (lockedApfsVolumes[id]?.isEmpty == false) ? id : nil
+        }) ?? lockedApfsVolumes.first(where: { !$0.value.isEmpty })?.key
+        guard let id else { return }
+        activeSheet = .fileVaultUnlock(id)
     }
 
     /// Generate the selected report/export artifacts and write them as one
@@ -1043,7 +1377,11 @@ final class AppModel: ObservableObject {
                                   hosts: hosts, custodyLog: custodyForExport,
                                   caseNotes: caseNotes.text,
                                   annotations: annotationsForExport,
-                                  executiveSummary: caseSummary?.text ?? "")
+                                  executiveSummary: caseSummary?.text ?? "",
+                                  summaryClaims: caseSummary?.claims ?? [],
+                                  summaryValidation: caseSummary?.validation,
+                                  summaryModelLabel: caseSummary?.modelLabel ?? "",
+                                  summarySovereignty: caseSummary?.sovereignty ?? .onDevice)
 
         let outcome = await Task.detached(priority: .userInitiated) { () -> ExportOutcome in
             let files = ExportGenerator.generate(inputs: inputs, selection: selection)
@@ -1137,6 +1475,19 @@ final class AppModel: ObservableObject {
         var knowledgeC: [KnowledgeEntry] = []
         var macRecentItems: [MacRecentItem] = []
         var macSecurityEvents: [MacSecurityEvent] = []
+        var carvedFiles: [CarvedFile] = []
+        var kexts: [MacKextEntry] = []
+        var backgroundItems: [MacBackgroundItem] = []
+        var messages: [MessageEntry] = []
+        var mail: [MailMessageEntry] = []
+        var network: [MacNetworkItem] = []
+        var userActivity: [MacActivityItem] = []
+        var documentVersions: [MacDocumentVersion] = []
+        var notifications: [MacNotification] = []
+        var powerlog: [PowerlogEntry] = []
+        var macConfig: [MacConfigSetting] = []
+        var installHistory: [MacInstallEntry] = []
+        var whereFroms: [MacWhereFrom] = []
         var iocMatches: [IOCMatch] = []
     }
     private var derivedCache: Derived?
@@ -1213,6 +1564,19 @@ final class AppModel: ObservableObject {
             d.knowledgeC = s.knowledgeC
             d.macRecentItems = s.macRecentItems
             d.macSecurityEvents = s.macSecurityEvents
+            d.carvedFiles = s.carvedFiles
+            d.kexts = s.kexts
+            d.backgroundItems = s.backgroundItems
+            d.messages = s.messages
+            d.mail = s.mail
+            d.network = s.network
+            d.userActivity = s.userActivity
+            d.documentVersions = s.documentVersions
+            d.notifications = s.notifications
+            d.powerlog = s.powerlog
+            d.macConfig = s.macConfig
+            d.installHistory = s.installHistory
+            d.whereFroms = s.whereFroms
             d.iocMatches = s.iocMatches
             return d
         }
@@ -1254,6 +1618,19 @@ final class AppModel: ObservableObject {
             d.knowledgeC.append(contentsOf: s.knowledgeC)
             d.macRecentItems.append(contentsOf: s.macRecentItems)
             d.macSecurityEvents.append(contentsOf: s.macSecurityEvents)
+            d.carvedFiles.append(contentsOf: s.carvedFiles)
+            d.kexts.append(contentsOf: s.kexts)
+            d.backgroundItems.append(contentsOf: s.backgroundItems)
+            d.messages.append(contentsOf: s.messages)
+            d.mail.append(contentsOf: s.mail)
+            d.network.append(contentsOf: s.network)
+            d.userActivity.append(contentsOf: s.userActivity)
+            d.documentVersions.append(contentsOf: s.documentVersions)
+            d.notifications.append(contentsOf: s.notifications)
+            d.powerlog.append(contentsOf: s.powerlog)
+            d.macConfig.append(contentsOf: s.macConfig)
+            d.installHistory.append(contentsOf: s.installHistory)
+            d.whereFroms.append(contentsOf: s.whereFroms)
             d.iocMatches.append(contentsOf: s.iocMatches)
         }
         d.events.sort { $0.writtenAt < $1.writtenAt }
@@ -1344,6 +1721,19 @@ final class AppModel: ObservableObject {
     var knowledgeC: [KnowledgeEntry] { derived().knowledgeC }
     var macRecentItems: [MacRecentItem] { derived().macRecentItems }
     var macSecurityEvents: [MacSecurityEvent] { derived().macSecurityEvents }
+    var carvedFiles: [CarvedFile] { derived().carvedFiles }
+    var kexts: [MacKextEntry] { derived().kexts }
+    var backgroundItems: [MacBackgroundItem] { derived().backgroundItems }
+    var messages: [MessageEntry] { derived().messages }
+    var mail: [MailMessageEntry] { derived().mail }
+    var network: [MacNetworkItem] { derived().network }
+    var userActivity: [MacActivityItem] { derived().userActivity }
+    var documentVersions: [MacDocumentVersion] { derived().documentVersions }
+    var notifications: [MacNotification] { derived().notifications }
+    var powerlog: [PowerlogEntry] { derived().powerlog }
+    var macConfig: [MacConfigSetting] { derived().macConfig }
+    var installHistory: [MacInstallEntry] { derived().installHistory }
+    var whereFroms: [MacWhereFrom] { derived().whereFroms }
     /// Linux host info for the active scope (tiny; not worth caching). In the
     /// combined scope the first host that has one wins.
     var linuxInfo: LinuxHostInfo? {
@@ -1399,6 +1789,19 @@ final class AppModel: ObservableObject {
     var knowledgeCCount: Int { scopedCount(\.knowledgeC.count) }
     var macRecentItemCount: Int { scopedCount(\.macRecentItems.count) }
     var macSecurityEventCount: Int { scopedCount(\.macSecurityEvents.count) }
+    var carvedFileCount: Int { scopedCount(\.carvedFiles.count) }
+    var kextCount: Int { scopedCount(\.kexts.count) }
+    var backgroundItemCount: Int { scopedCount(\.backgroundItems.count) }
+    var messageCount: Int { scopedCount(\.messages.count) }
+    var mailCount: Int { scopedCount(\.mail.count) }
+    var networkCount: Int { scopedCount(\.network.count) }
+    var userActivityCount: Int { scopedCount(\.userActivity.count) }
+    var documentVersionCount: Int { scopedCount(\.documentVersions.count) }
+    var notificationCount: Int { scopedCount(\.notifications.count) }
+    var powerlogCount: Int { scopedCount(\.powerlog.count) }
+    var macConfigCount: Int { scopedCount(\.macConfig.count) }
+    var installHistoryCount: Int { scopedCount(\.installHistory.count) }
+    var whereFromsCount: Int { scopedCount(\.whereFroms.count) }
     var iocMatchCount: Int { scopedCount(\.iocMatches.count) }
 
     /// True once the Linux log parse has produced *something* in the active
@@ -1447,6 +1850,14 @@ final class AppModel: ObservableObject {
         // Windows bounded execution / usage.
         if prefetchCount > 0 { s.insert(.prefetch) }
         if browserHistoryCount > 0 { s.insert(.browser) }
+        if messageCount > 0 { s.insert(.messages) }
+        if mailCount > 0 { s.insert(.mail) }
+        if networkCount > 0 { s.insert(.network) }
+        if userActivityCount > 0 { s.insert(.userActivity) }
+        if documentVersionCount > 0 { s.insert(.docRevisions) }
+        if notificationCount > 0 { s.insert(.notifications) }
+        if powerlogCount > 0 { s.insert(.powerlog) }
+        if installHistoryCount > 0 { s.insert(.install) }
         if srumCount > 0 { s.insert(.srum) }
         if s.isEmpty { s.insert(eventCount > 0 ? .evtx : .filesystem) }
         return s
@@ -1554,27 +1965,9 @@ final class AppModel: ObservableObject {
                     guard case .ingestionCrashed = tskError else { throw tskError }
                     try? FileManager.default.removeItem(at: dbURL)   // drop the partial DB
                     statusMessage = "The Sleuth Kit can't read this volume (likely APFS) — switching to fsapfsinfo…"
-                    let scratch = hostDir.appendingPathComponent("apfs")
-                    let apfs = FsApfsIngestor(environment: environment)
-                    let result = try await apfs.ingest(
-                        imageAt: evidence.sourceURL,
-                        imageType: TSKImageIngestor.imageType(for: evidence.sourceURL),
-                        scratchDirectory: scratch) { line in
-                            Task { @MainActor in self.statusMessage = line }
-                        }
-                    // Reclassify as an APFS image + record the raw the content
-                    // extractor reads from (the source if raw, else the ewfexport
-                    // scratch). Persist the tree + volumes since there is no
-                    // tsk.db to re-read them from on case open.
-                    evidence.kind = .apfs
-                    evidence.apfsRawURL = result.rawScratchURL ?? evidence.sourceURL
-                    var s = EvidenceState(dbURL: nil)   // no tsk.db on the APFS path
-                    s.files = result.files
-                    s.volumes = result.volumes
-                    s.timeline = TimelineBuilder.build(from: result.files)
-                    state = s
-                    try? CaseStore.writeApfsFiles(result.files, forHostID: evidence.id, in: bundleURL)
-                    try? CaseStore.writeApfsVolumes(result.volumes, forHostID: evidence.id, in: bundleURL)
+                    state = try await performApfsIngest(
+                        for: &evidence, environment: environment, hostDir: hostDir,
+                        bundleURL: bundleURL, credential: fileVaultCredentials[evidence.id])
                 }
 
                 // E01 carries acquisition metadata + acquisition hashes in its
@@ -1598,16 +1991,165 @@ final class AppModel: ObservableObject {
                           evidenceID: evidence.id)
             recordIngestIntegrityEvents(for: evidence)
             self.statusMessage = "Loaded \(state.files.count) files from \(evidence.displayName)."
-            // Offer post-ingest enrichments (currently just IOC matching).
-            // Skip the popup when there's nothing to opt into - prompting
-            // about an empty list is just friction.
-            if !iocs.isEmpty {
+            // An encrypted APFS volume blocks comprehension of the host, so the
+            // FileVault prompt takes priority over the enrichment offer. Skip the
+            // enrichment popup when there's nothing to opt into - prompting about
+            // an empty list is just friction.
+            if let locked = lockedApfsVolumes[evidence.id], !locked.isEmpty {
+                activeSheet = .fileVaultUnlock(evidence.id)
+            } else if !iocs.isEmpty {
                 activeSheet = .enrichment
             }
         } catch {
             self.errorMessage = error.localizedDescription
             self.statusMessage = ""
         }
+    }
+
+    /// Run (or re-run) the libfsapfs ingest for an APFS image: build the
+    /// `EvidenceState`, reclassify the evidence as `.apfs`, persist the tree +
+    /// volumes (there's no `tsk.db`), and record any FileVault-locked volumes on
+    /// `lockedApfsVolumes`. `credential` unlocks an encrypted volume's metadata.
+    /// Shared by the first-ingest fallback and `unlockFileVault`.
+    private func performApfsIngest(for evidence: inout Evidence,
+                                   environment: TSKEnvironment,
+                                   hostDir: URL, bundleURL: URL,
+                                   credential: FileVaultCredential?) async throws -> EvidenceState {
+        let scratch = hostDir.appendingPathComponent("apfs")
+        // A re-ingest of an already-converted E01 reuses the raw scratch so we
+        // don't run ewfexport again; a first ingest reads the source directly.
+        let imageURL: URL
+        let imageType: String?
+        if evidence.kind == .apfs, let raw = evidence.apfsRawURL,
+           FileManager.default.fileExists(atPath: raw.path) {
+            imageURL = raw
+            imageType = nil                       // already raw
+        } else {
+            imageURL = evidence.sourceURL
+            imageType = TSKImageIngestor.imageType(for: evidence.sourceURL)
+        }
+        let apfs = FsApfsIngestor(environment: environment)
+        let result = try await apfs.ingest(
+            imageAt: imageURL, imageType: imageType, scratchDirectory: scratch,
+            credential: credential) { line in
+                Task { @MainActor in self.statusMessage = line }
+            }
+        // Reclassify as an APFS image + record the raw the content extractor reads
+        // from (the source if raw, else the ewfexport scratch).
+        evidence.kind = .apfs
+        evidence.apfsRawURL = result.rawScratchURL ?? evidence.apfsRawURL ?? evidence.sourceURL
+        var s = EvidenceState(dbURL: nil)         // no tsk.db on the APFS path
+        s.files = result.files
+        s.volumes = result.volumes
+        s.timeline = TimelineBuilder.build(from: result.files)
+        try? CaseStore.writeApfsFiles(result.files, forHostID: evidence.id, in: bundleURL)
+        try? CaseStore.writeApfsVolumes(result.volumes, forHostID: evidence.id, in: bundleURL)
+        lockedApfsVolumes[evidence.id] = result.lockedVolumes.isEmpty ? nil : result.lockedVolumes
+        return s
+    }
+
+    /// Supply a FileVault secret for an encrypted APFS host and re-ingest so its
+    /// Data-volume artifacts become readable, then re-run the macOS / browser /
+    /// unified-log parsers. The secret is held in memory only (never persisted).
+    func unlockFileVault(evidenceID: UUID, password: String?, recovery: String?) async {
+        guard let bundleURL = currentCaseBundleURL,
+              var evidence = evidenceList.first(where: { $0.id == evidenceID }) else { return }
+        let credential = FileVaultCredential(password: password, recovery: recovery)
+        guard credential.hasSecret else { return }
+        fileVaultCredentials[evidenceID] = credential
+        errorMessage = nil
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let environment = try TSKEnvironment.discover()
+            let hostDir = CaseStore.hostDirectory(forHostID: evidenceID, in: bundleURL)
+            statusMessage = "Unlocking FileVault volume for \(evidence.displayName)…"
+            var state = try await performApfsIngest(
+                for: &evidence, environment: environment, hostDir: hostDir,
+                bundleURL: bundleURL, credential: credential)
+            state.osFamilies = OSFamily.detect(volumes: state.volumes, files: state.files)
+            // The kind / apfsRawURL may have changed; replace the host record too.
+            if let idx = evidenceList.firstIndex(where: { $0.id == evidenceID }) {
+                evidenceList[idx] = evidence
+            }
+            states[evidenceID] = state
+            saveHosts()
+            appendCustody(.analysed,
+                          detail: "Unlocked FileVault volume and re-ingested \(evidence.displayName)",
+                          evidenceID: evidenceID)
+            if let locked = lockedApfsVolumes[evidenceID], !locked.isEmpty {
+                statusMessage = "Some volumes are still locked — verify the password / recovery key."
+            } else {
+                statusMessage = "Unlocked \(state.files.count) files from \(evidence.displayName). Re-running analysis…"
+                await parseMac()
+                await parseBrowserHistory()
+                await parseMessages()
+                await parseMail()
+                await parseUnifiedLog()
+                statusMessage = "Unlocked and analysed \(evidence.displayName)."
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+            statusMessage = ""
+        }
+    }
+
+    /// Carve recoverable files directly out of each APFS host's raw image by
+    /// signature, bypassing the filesystem + libfsapfs — this reaches deleted
+    /// files in unallocated space and content libfsapfs won't surface (sealed
+    /// System snapshot, locked FileVault). Opt-in (Tools ▸ Carve Deleted Files);
+    /// results persist as `carved.json`. No timeline splice (carved files carry
+    /// no timestamps, like FSEvents / the WMI carve).
+    func carveArtifacts() async {
+        guard let bundleURL = currentCaseBundleURL else { return }
+        errorMessage = nil
+        isWorking = true
+        defer { isWorking = false; progress = nil }
+        var hostsTouched = 0
+        for evidence in evidenceList where evidence.kind == .apfs {
+            guard var state = states[evidence.id],
+                  let raw = evidence.apfsRawURL,
+                  FileManager.default.fileExists(atPath: raw.path) else { continue }
+            let name = evidence.displayName
+            statusMessage = "Carving \(name) (raw signature scan)…"
+            // A full-image scan can take minutes; stream a determinate progress
+            // bar (MB scanned) so the UI clearly shows it's working, not hung.
+            progress = ProgressInfo(current: 0, total: 0, label: "Carving \(name)")
+            let source = raw.lastPathComponent
+            let carved: [CarvedFile] = await Task.detached(priority: .userInitiated) {
+                (try? FileCarver.carveFile(at: raw, source: source) { scanned, total in
+                    Task { @MainActor in
+                        self.progress = ProgressInfo(current: scanned >> 20, total: total >> 20,
+                                                     label: "Carving \(name)")
+                    }
+                }) ?? []
+            }.value
+            state.carvedFiles = carved
+            states[evidence.id] = state
+            try? CaseStore.writeCarved(carved, forHostID: evidence.id, in: bundleURL)
+            appendCustody(.analysed,
+                          detail: "Carved \(carved.count) recoverable file(s) from \(evidence.displayName)",
+                          evidenceID: evidence.id)
+            hostsTouched += 1
+        }
+        statusMessage = hostsTouched == 0
+            ? "No APFS image to carve — carving runs on the macOS APFS ingest path."
+            : "Carving complete."
+    }
+
+    /// Re-read a carved file's bytes from its source image (offset + length), for
+    /// the macOS view's Save action. Matches the host by the carve's source name.
+    func carvedFileData(_ carved: CarvedFile) -> Data? {
+        for evidence in evidenceList where evidence.kind == .apfs {
+            guard let raw = evidence.apfsRawURL, raw.lastPathComponent == carved.source,
+                  let handle = try? FileHandle(forReadingFrom: raw) else { continue }
+            defer { try? handle.close() }
+            do {
+                try handle.seek(toOffset: UInt64(carved.offset))
+                return try handle.read(upToCount: Int(carved.size))
+            } catch { return nil }
+        }
+        return nil
     }
 
     #endif
@@ -1866,6 +2408,15 @@ final class AppModel: ObservableObject {
     /// One-stop button: parse event logs, registry hives, prefetch, and LNK
     /// shortcuts, then run the detection engine over the combined evidence.
     func parseArtifacts() async {
+        await runAllParsers()
+        await runAnalyzers()
+    }
+
+    /// Run every artifact parser once. Each self-gates (a no-op when its buckets
+    /// already hold data / there are no candidate files), so this is cheap on an
+    /// already-parsed case and backfills only what's missing. Shared by
+    /// `parseArtifacts` and the open-time backfill.
+    private func runAllParsers() async {
         await parseEventLogs()
         await parseRegistry()
         await parsePrefetch()
@@ -1875,12 +2426,30 @@ final class AppModel: ObservableObject {
         await parseRecycleBin()
         await parseSrum()
         await parseBrowserHistory()
+        await parseMessages()
+        await parseMail()
         await parseMft()
         await parseWmi()
         await parseLinux()
         await parseMac()
         await parseUnifiedLog()
-        await runAnalyzers()
+    }
+
+    /// Called after a case opens: backfill any artifact buckets an older build
+    /// never produced (newly-added artifact types) so an old case shows the newest
+    /// tabs without the analyst knowing to re-run Parse. Each parser self-gates,
+    /// so an up-to-date case only does cheap candidate scans and degrades silently
+    /// when the source media is gone (archived image). Analyzers re-run — *without*
+    /// a custody entry, since this is an automatic refresh, not an examiner action
+    /// — only when a parser actually added data.
+    func backfillOnOpen() async {
+        guard currentCase != nil, !evidenceList.isEmpty, !isWorking else { return }
+        let before = dataVersion
+        await runAllParsers()
+        if dataVersion != before {
+            await runAnalyzers(recordCustody: false)
+        }
+        statusMessage = ""
     }
 
     /// Parse every .evtx in every loaded evidence that doesn't already have
@@ -2560,7 +3129,8 @@ final class AppModel: ObservableObject {
                     scratch = dir
                     if isAPFS {
                         apfsExtractor = FsApfsExtractor(environment: tskEnv,
-                                                        rawURL: evidence.apfsRawURL ?? evidence.sourceURL)
+                                                        rawURL: evidence.apfsRawURL ?? evidence.sourceURL,
+                                                        credential: fileVaultCredentials[evidence.id])
                     } else {
                         guard let dbURL = state.dbURL else { continue }
                         database = try TSKDatabase(path: dbURL)
@@ -2668,6 +3238,310 @@ final class AppModel: ObservableObject {
                 // Only files *named* like browser stores that aren't parseable stores
                 // (common on Linux servers with no browser installed) - expected.
                 statusMessage = "No browser history stores found."
+            }
+        } catch {
+            self.errorMessage = error.localizedDescription
+            self.statusMessage = ""
+        }
+    }
+
+    // MARK: - Messages parsing
+
+    /// Parse the macOS Messages database (`chat.db`) for every loaded evidence
+    /// that doesn't already have results. `chat.db` is SQLite/WAL like browser
+    /// history, so this mirrors `parseBrowserHistory`: extract the DB (+ `-wal`/
+    /// `-shm` sidecars) via the loose / icat / `fsapfscat` path, parse off-main
+    /// with `MessagesParser`, splice onto the timeline, and persist.
+    func parseMessages() async {
+        guard !evidenceList.isEmpty else { return }
+        errorMessage = nil
+        isWorking = true
+        defer { isWorking = false; progress = nil }
+
+        func candidates(_ state: EvidenceState) -> [FileEntry] {
+            state.files.filter {
+                guard !$0.isDirectory, $0.size > 0, $0.name.lowercased() == "chat.db" else { return false }
+                // Gate on the canonical Messages directory so an unrelated app's
+                // chat.db (caches / app bundles) isn't extracted + probed.
+                return $0.fullPath.lowercased().contains("/library/messages/")
+            }
+        }
+        func macScope(_ path: String) -> String {
+            let comps = path.split(separator: "/").map(String.init)
+            if let i = comps.firstIndex(where: { $0.lowercased() == "users" }), i + 1 < comps.count { return comps[i + 1] }
+            return "system"
+        }
+
+        let totalCandidates = evidenceList.reduce(0) { acc, e in
+            guard let s = states[e.id], s.messages.isEmpty else { return acc }
+            return acc + candidates(s).count
+        }
+        guard totalCandidates > 0 else { statusMessage = "No new Messages database to parse."; return }
+        progress = ProgressInfo(current: 0, total: totalCandidates, label: "Parsing Messages")
+        var completed = 0
+        // Distinguish "chat.db found but couldn't be extracted to a readable DB"
+        // (source/volume unavailable) from "valid DB, 0 messages recovered".
+        var realStoresSeen = 0
+        var totalCollected = 0
+
+        do {
+            let tskEnv = try TSKEnvironment.discover()
+            for evidence in evidenceList {
+                guard var state = states[evidence.id], state.messages.isEmpty else { continue }
+                let found = candidates(state)
+                guard !found.isEmpty else { continue }
+
+                let isLoose = evidence.kind == .kapeLooseFolder
+                let isAPFS = evidence.kind == .apfs
+                var database: TSKDatabase?
+                var extractor: TSKFileExtractor?
+                var apfsExtractor: FsApfsExtractor?
+                var scratch: URL?
+                if !isLoose {
+                    guard let bundleURL = currentCaseBundleURL else { continue }
+                    let dir = CaseStore.messagesScratchDirectory(forHostID: evidence.id, in: bundleURL)
+                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    scratch = dir
+                    if isAPFS {
+                        apfsExtractor = FsApfsExtractor(environment: tskEnv,
+                                                        rawURL: evidence.apfsRawURL ?? evidence.sourceURL,
+                                                        credential: fileVaultCredentials[evidence.id])
+                    } else {
+                        guard let dbURL = state.dbURL else { continue }
+                        database = try TSKDatabase(path: dbURL)
+                        extractor = TSKFileExtractor(environment: tskEnv, imageURL: evidence.sourceURL,
+                                                     imageType: TSKImageIngestor.imageType(for: evidence.sourceURL))
+                    }
+                }
+
+                var collected: [MessageEntry] = []
+                for entry in found {
+                    progress = ProgressInfo(current: completed, total: totalCandidates,
+                                            label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    let fileURL: URL
+                    if isLoose {
+                        guard let disk = entry.diskURL,
+                              FileManager.default.fileExists(atPath: disk.path) else { continue }
+                        fileURL = disk
+                    } else if isAPFS {
+                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name)")
+                        let off = state.volumes.first { $0.id == entry.fsID }?.offsetBytes ?? 0
+                        try? await apfsExtractor!.extract(volumePath: entry.fullPath,
+                                                          volumeIndex: entry.fsID ?? 0, offsetBytes: off, to: outURL)
+                        for suffix in ["-wal", "-shm"] {
+                            guard let side = state.files.first(where: {
+                                !$0.isDirectory && $0.parentPath == entry.parentPath
+                                    && $0.name.caseInsensitiveCompare(entry.name + suffix) == .orderedSame
+                            }) else { continue }
+                            let soff = state.volumes.first { $0.id == side.fsID }?.offsetBytes ?? 0
+                            try? await apfsExtractor!.extract(volumePath: side.fullPath,
+                                                              volumeIndex: side.fsID ?? 0, offsetBytes: soff,
+                                                              to: URL(fileURLWithPath: outURL.path + suffix))
+                        }
+                        fileURL = outURL
+                    } else {
+                        guard let info = try database!.fetchExtractInfo(forFileID: entry.id) else { continue }
+                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name)")
+                        try await extractor!.extract(metaAddr: info.metaAddr,
+                                                     imageOffsetSectors: info.imageOffsetSectors, to: outURL)
+                        for suffix in ["-wal", "-shm"] {
+                            guard let side = state.files.first(where: {
+                                !$0.isDirectory && $0.parentPath == entry.parentPath
+                                    && $0.name.caseInsensitiveCompare(entry.name + suffix) == .orderedSame
+                            }), let sInfo = try? database!.fetchExtractInfo(forFileID: side.id) else { continue }
+                            try? await extractor!.extract(metaAddr: sInfo.metaAddr,
+                                                          imageOffsetSectors: sInfo.imageOffsetSectors,
+                                                          to: URL(fileURLWithPath: outURL.path + suffix))
+                        }
+                        fileURL = outURL
+                    }
+                    // A valid SQLite header means extraction produced a real DB;
+                    // its absence means the bytes never came across (missing source
+                    // image / sealed or locked APFS volume), not "no messages".
+                    if BrowserHistoryParser.isSQLiteDatabase(at: fileURL) { realStoresSeen += 1 }
+                    let source = entry.fullPath
+                    let scope = macScope(source)
+                    do {
+                        let parsed = try await Task.detached(priority: .userInitiated) {
+                            try MessagesParser.parse(fileAt: fileURL, sourceFile: source, scope: scope)
+                        }.value
+                        collected.append(contentsOf: parsed)
+                    } catch {
+                        statusMessage = "\(evidence.displayName): \(entry.name) failed (\(error.localizedDescription))"
+                    }
+                }
+
+                collected.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+                totalCollected += collected.count
+                state.messages = collected
+                state.timeline.removeAll { $0.source == .messages }
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: collected))
+                state.timeline.sort { $0.date < $1.date }
+                states[evidence.id] = state
+                if let bundleURL = currentCaseBundleURL {
+                    try? CaseStore.writeMessages(collected, forHostID: evidence.id, in: bundleURL)
+                }
+            }
+            progress = ProgressInfo(current: completed, total: totalCandidates, label: "Messages parse complete")
+            if totalCollected > 0 {
+                statusMessage = "Parsed \(totalCollected) message\(totalCollected == 1 ? "" : "s")."
+            } else if realStoresSeen == 0 {
+                errorMessage = "Found chat.db but couldn't read it as a database — confirm the source "
+                    + "image / APFS volume is available (a sealed System or locked FileVault volume "
+                    + "returns no bytes)."
+            } else {
+                statusMessage = "chat.db parsed but no messages recovered — the database is empty, or its "
+                    + "messages are in an uncheckpointed -wal that wasn't captured in the image."
+            }
+        } catch {
+            self.errorMessage = error.localizedDescription
+            self.statusMessage = ""
+        }
+    }
+
+    // MARK: - Mail parsing
+
+    /// Parse the macOS Mail `Envelope Index` for every loaded evidence that
+    /// doesn't already have results. The Envelope Index is SQLite/WAL like
+    /// Messages, so this mirrors `parseMessages`: extract the DB (+ `-wal`/`-shm`
+    /// sidecars) via the loose / icat / `fsapfscat` path, parse off-main with
+    /// `MailParser`, splice onto the timeline, and persist.
+    func parseMail() async {
+        guard !evidenceList.isEmpty else { return }
+        errorMessage = nil
+        isWorking = true
+        defer { isWorking = false; progress = nil }
+
+        func candidates(_ state: EvidenceState) -> [FileEntry] {
+            state.files.filter {
+                guard !$0.isDirectory, $0.size > 0 else { return false }
+                // Mail's Envelope Index: ~/Library/Mail/V*/MailData/Envelope Index.
+                return $0.name.lowercased() == "envelope index"
+                    && $0.fullPath.lowercased().contains("/library/mail/")
+            }
+        }
+        func macScope(_ path: String) -> String {
+            let comps = path.split(separator: "/").map(String.init)
+            if let i = comps.firstIndex(where: { $0.lowercased() == "users" }), i + 1 < comps.count { return comps[i + 1] }
+            return "system"
+        }
+
+        let totalCandidates = evidenceList.reduce(0) { acc, e in
+            guard let s = states[e.id], s.mail.isEmpty else { return acc }
+            return acc + candidates(s).count
+        }
+        guard totalCandidates > 0 else { statusMessage = "No new Mail to parse."; return }
+        progress = ProgressInfo(current: 0, total: totalCandidates, label: "Parsing Mail")
+        var completed = 0
+        var realStoresSeen = 0
+        var totalCollected = 0
+
+        do {
+            let tskEnv = try TSKEnvironment.discover()
+            for evidence in evidenceList {
+                guard var state = states[evidence.id], state.mail.isEmpty else { continue }
+                let found = candidates(state)
+                guard !found.isEmpty else { continue }
+
+                let isLoose = evidence.kind == .kapeLooseFolder
+                let isAPFS = evidence.kind == .apfs
+                var database: TSKDatabase?
+                var extractor: TSKFileExtractor?
+                var apfsExtractor: FsApfsExtractor?
+                var scratch: URL?
+                if !isLoose {
+                    guard let bundleURL = currentCaseBundleURL else { continue }
+                    let dir = CaseStore.mailScratchDirectory(forHostID: evidence.id, in: bundleURL)
+                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    scratch = dir
+                    if isAPFS {
+                        apfsExtractor = FsApfsExtractor(environment: tskEnv,
+                                                        rawURL: evidence.apfsRawURL ?? evidence.sourceURL,
+                                                        credential: fileVaultCredentials[evidence.id])
+                    } else {
+                        guard let dbURL = state.dbURL else { continue }
+                        database = try TSKDatabase(path: dbURL)
+                        extractor = TSKFileExtractor(environment: tskEnv, imageURL: evidence.sourceURL,
+                                                     imageType: TSKImageIngestor.imageType(for: evidence.sourceURL))
+                    }
+                }
+
+                var collected: [MailMessageEntry] = []
+                for entry in found {
+                    progress = ProgressInfo(current: completed, total: totalCandidates,
+                                            label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    let fileURL: URL
+                    if isLoose {
+                        guard let disk = entry.diskURL,
+                              FileManager.default.fileExists(atPath: disk.path) else { continue }
+                        fileURL = disk
+                    } else if isAPFS {
+                        let outURL = scratch!.appendingPathComponent("\(entry.id)-EnvelopeIndex")
+                        let off = state.volumes.first { $0.id == entry.fsID }?.offsetBytes ?? 0
+                        try? await apfsExtractor!.extract(volumePath: entry.fullPath,
+                                                          volumeIndex: entry.fsID ?? 0, offsetBytes: off, to: outURL)
+                        for suffix in ["-wal", "-shm"] {
+                            guard let side = state.files.first(where: {
+                                !$0.isDirectory && $0.parentPath == entry.parentPath
+                                    && $0.name.caseInsensitiveCompare(entry.name + suffix) == .orderedSame
+                            }) else { continue }
+                            let soff = state.volumes.first { $0.id == side.fsID }?.offsetBytes ?? 0
+                            try? await apfsExtractor!.extract(volumePath: side.fullPath,
+                                                              volumeIndex: side.fsID ?? 0, offsetBytes: soff,
+                                                              to: URL(fileURLWithPath: outURL.path + suffix))
+                        }
+                        fileURL = outURL
+                    } else {
+                        guard let info = try database!.fetchExtractInfo(forFileID: entry.id) else { continue }
+                        let outURL = scratch!.appendingPathComponent("\(entry.id)-EnvelopeIndex")
+                        try await extractor!.extract(metaAddr: info.metaAddr,
+                                                     imageOffsetSectors: info.imageOffsetSectors, to: outURL)
+                        for suffix in ["-wal", "-shm"] {
+                            guard let side = state.files.first(where: {
+                                !$0.isDirectory && $0.parentPath == entry.parentPath
+                                    && $0.name.caseInsensitiveCompare(entry.name + suffix) == .orderedSame
+                            }), let sInfo = try? database!.fetchExtractInfo(forFileID: side.id) else { continue }
+                            try? await extractor!.extract(metaAddr: sInfo.metaAddr,
+                                                          imageOffsetSectors: sInfo.imageOffsetSectors,
+                                                          to: URL(fileURLWithPath: outURL.path + suffix))
+                        }
+                        fileURL = outURL
+                    }
+                    if BrowserHistoryParser.isSQLiteDatabase(at: fileURL) { realStoresSeen += 1 }
+                    let source = entry.fullPath
+                    let scope = macScope(source)
+                    do {
+                        let parsed = try await Task.detached(priority: .userInitiated) {
+                            try MailParser.parse(fileAt: fileURL, sourceFile: source, scope: scope)
+                        }.value
+                        collected.append(contentsOf: parsed)
+                    } catch {
+                        statusMessage = "\(evidence.displayName): \(entry.name) failed (\(error.localizedDescription))"
+                    }
+                }
+
+                collected.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+                totalCollected += collected.count
+                state.mail = collected
+                state.timeline.removeAll { $0.source == .mail }
+                state.timeline.append(contentsOf: TimelineBuilder.build(from: collected))
+                state.timeline.sort { $0.date < $1.date }
+                states[evidence.id] = state
+                if let bundleURL = currentCaseBundleURL {
+                    try? CaseStore.writeMail(collected, forHostID: evidence.id, in: bundleURL)
+                }
+            }
+            progress = ProgressInfo(current: completed, total: totalCandidates, label: "Mail parse complete")
+            if totalCollected > 0 {
+                statusMessage = "Parsed \(totalCollected) mail message\(totalCollected == 1 ? "" : "s")."
+            } else if realStoresSeen == 0 {
+                errorMessage = "Found the Mail Envelope Index but couldn't read it as a database — "
+                    + "confirm the source image / APFS volume is available."
+            } else {
+                statusMessage = "Mail Envelope Index parsed but no messages recovered (empty index "
+                    + "or an unrecognised schema)."
             }
         } catch {
             self.errorMessage = error.localizedDescription
@@ -3421,6 +4295,144 @@ final class AppModel: ObservableObject {
                 return false
             }
         }
+        // Kernel extensions (Foo.kext/Contents/Info.plist under an Extensions
+        // dir) + the System Extensions database (/Library/SystemExtensions/db.plist).
+        func kextFiles(_ s: EvidenceState) -> [FileEntry] {
+            s.files.filter { entry in
+                guard !entry.isDirectory, entry.size > 0 else { return false }
+                let lower = entry.fullPath.lowercased()
+                if entry.name.lowercased() == "db.plist", lower.contains("/library/systemextensions/") { return true }
+                return lower.hasSuffix(".kext/contents/info.plist")
+                    && (lower.contains("/library/extensions/") || lower.contains("/system/library/extensions/"))
+            }
+        }
+        // Background Task Management store (login items / agents / daemons).
+        func btmFiles(_ s: EvidenceState) -> [FileEntry] {
+            s.files.filter { entry in
+                guard !entry.isDirectory, entry.size > 0 else { return false }
+                return entry.name.lowercased().hasSuffix(".btm")
+            }
+        }
+        // Network / device context plists: Wi-Fi known networks, DHCP leases,
+        // Bluetooth, Time Machine, and lockdown (iOS) pairing records.
+        func networkFiles(_ s: EvidenceState) -> [FileEntry] {
+            s.files.filter { entry in
+                guard !entry.isDirectory, entry.size > 0 else { return false }
+                let lower = entry.fullPath.lowercased()
+                let name = entry.name.lowercased()
+                if name == "com.apple.airport.preferences.plist" || name == "com.apple.wifi.known-networks.plist"
+                    || name == "com.apple.bluetooth.plist" || name == "com.apple.timemachine.plist" { return true }
+                if lower.contains("/dhcpclient/leases/") { return true }
+                if lower.contains("/var/db/lockdown/") && name.hasSuffix(".plist") { return true }
+                return false
+            }
+        }
+        // QuickLook thumbnail index (files previewed) + Trash (deletion intent).
+        func quickLookFiles(_ s: EvidenceState) -> [FileEntry] {
+            s.files.filter { entry in
+                guard !entry.isDirectory, entry.size > 0, entry.name.lowercased() == "index.sqlite" else { return false }
+                let lower = entry.fullPath.lowercased()
+                return lower.contains("/quicklook/") || lower.contains("thumbnailcache")
+            }
+        }
+        func trashEntries(_ s: EvidenceState) -> [FileEntry] {
+            s.files.filter { entry in
+                guard !entry.isDirectory, entry.size > 0 else { return false }
+                let lower = entry.fullPath.lowercased()
+                return lower.contains("/.trash/") || lower.contains("/.trashes/")
+            }
+        }
+        // Document Versions store (`/.DocumentRevisions-V100/db-V1/db.sqlite`).
+        func docRevisionFiles(_ s: EvidenceState) -> [FileEntry] {
+            s.files.filter { entry in
+                guard !entry.isDirectory, entry.size > 0, entry.name.lowercased() == "db.sqlite" else { return false }
+                return entry.fullPath.lowercased().contains("/.documentrevisions-v100/")
+            }
+        }
+        // Notification Center store (`…/group.com.apple.usernoted/db2/db` or the
+        // legacy `…/com.apple.notificationcenter/db2/db`).
+        func notificationFiles(_ s: EvidenceState) -> [FileEntry] {
+            s.files.filter { entry in
+                guard !entry.isDirectory, entry.size > 0, entry.name.lowercased() == "db" else { return false }
+                let lower = entry.fullPath.lowercased()
+                return (lower.contains("usernoted") || lower.contains("notificationcenter")) && lower.contains("/db2/")
+            }
+        }
+        // Powerlog store (`/private/var/db/powerlog/Library/BatteryLife/CurrentPowerlog.PLSQL`).
+        func powerlogFiles(_ s: EvidenceState) -> [FileEntry] {
+            s.files.filter { entry in
+                guard !entry.isDirectory, entry.size > 0 else { return false }
+                let name = entry.name.lowercased()
+                return name == "currentpowerlog.plsql"
+                    || (name.hasSuffix(".plsql") && entry.fullPath.lowercased().contains("/powerlog/"))
+            }
+        }
+        // System-configuration / security-posture files (curated set; the
+        // MacConfigParser dispatches on the path). System-scoped loginwindow only
+        // (per-user copies hold UI prefs, not the security keys).
+        func configFiles(_ s: EvidenceState) -> [FileEntry] {
+            s.files.filter { entry in
+                guard !entry.isDirectory else { return false }
+                let lower = entry.fullPath.lowercased()
+                let name = entry.name.lowercased()
+                if name == "kcpassword" { return true }
+                if name == "com.apple.vncsettings.txt" { return true }
+                if name == "systempolicy-prefs.plist" { return true }
+                if lower.contains("com.apple.xpc.launchd/disabled") && name.hasSuffix(".plist") { return true }
+                if name == "overrides.plist" && lower.contains("launchd") { return true }   // pre-10.10 legacy
+                guard lower.contains("/library/preferences/") else { return false }
+                switch name {
+                case "com.apple.alf.plist", "com.apple.softwareupdate.plist",
+                     "com.apple.commerce.plist", "com.apple.remotemanagement.plist":
+                    return true
+                case "com.apple.loginwindow.plist":
+                    return !lower.contains("/users/")   // system copy only
+                default:
+                    return name.hasPrefix("com.apple.screensaver")   // per-user (plain + ByHost)
+                }
+            }
+        }
+        // Software install history — InstallHistory.plist + PackageKit receipts.
+        func installFiles(_ s: EvidenceState) -> [FileEntry] {
+            s.files.filter { entry in
+                guard !entry.isDirectory, entry.size > 0 else { return false }
+                let lower = entry.fullPath.lowercased()
+                let name = entry.name.lowercased()
+                if name == "installhistory.plist" { return true }
+                return name.hasSuffix(".plist") && lower.contains("/db/receipts/")
+            }
+        }
+        // WhereFroms candidates — files whose kMDItemWhereFroms xattr is worth
+        // fetching. The xattr lands on files the *user* downloaded, so target the
+        // download landing zones (Downloads/Desktop/Documents, any file) plus
+        // disk-image/installer files (dmg/pkg/iso — rare, high-value) elsewhere
+        // under /Users. Crucially, EXCLUDE `/Library/` (caches, app-support,
+        // containers) and **bundle internals** (`.app/`, `.framework/`, `.bundle/`),
+        // which hold tens of thousands of .bin/.gz/.jar files that are never
+        // user downloads — that over-match ballooned the candidate set. Capped to
+        // bound the per-file xattr reads; landing-zone files kept first.
+        let whereFromCap = 2000
+        let installerExts: Set<String> = ["dmg", "pkg", "iso"]
+        func isLandingZone(_ lower: String) -> Bool {
+            lower.contains("/downloads/") || lower.contains("/desktop/") || lower.contains("/documents/")
+        }
+        func whereFromCandidates(_ s: EvidenceState) -> [FileEntry] {
+            let matched = s.files.filter { entry in
+                let lower = entry.fullPath.lowercased()
+                guard lower.contains("/users/"), !lower.contains("/library/") else { return false }
+                if lower.contains(".app/") || lower.contains(".framework/") || lower.contains(".bundle/") {
+                    return false
+                }
+                let ext = (entry.name as NSString).pathExtension.lowercased()
+                let isBundle = entry.isDirectory && (ext == "app" || ext == "appex")
+                guard isBundle || (!entry.isDirectory && entry.size > 0) else { return false }
+                if isLandingZone(lower) { return true }
+                return !entry.isDirectory && installerExts.contains(ext)
+            }
+            // Keep landing-zone candidates first so truncation drops the least-likely.
+            return matched.sorted { isLandingZone($0.fullPath.lowercased())
+                                    && !isLandingZone($1.fullPath.lowercased()) }
+        }
         // The owning scope for a macOS db path: "system" unless it lives under a
         // user home, in which case the user's name.
         func macScope(_ path: String) -> String {
@@ -3443,10 +4455,22 @@ final class AppModel: ObservableObject {
                 + (s.knowledgeC.isEmpty ? knowledgeFiles(s).count : 0)
                 + (s.macRecentItems.isEmpty ? recentItemFiles(s).count : 0)
                 + (s.macSecurityEvents.isEmpty ? securityEventFiles(s).count : 0)
+                + (s.kexts.isEmpty ? kextFiles(s).count : 0)
+                + (s.backgroundItems.isEmpty ? btmFiles(s).count : 0)
+                + (s.network.isEmpty ? networkFiles(s).count : 0)
+                + (s.userActivity.isEmpty ? quickLookFiles(s).count + trashEntries(s).count : 0)
+                + (s.documentVersions.isEmpty ? docRevisionFiles(s).count : 0)
+                + (s.notifications.isEmpty ? notificationFiles(s).count : 0)
+                + (s.powerlog.isEmpty ? powerlogFiles(s).count : 0)
+                + (s.macConfig.isEmpty ? configFiles(s).count : 0)
+                + (s.installHistory.isEmpty ? installFiles(s).count : 0)
+                + (e.kind == .apfs && s.whereFroms.isEmpty ? min(whereFromCandidates(s).count, whereFromCap) : 0)
         }
         guard total > 0 else { statusMessage = "No new macOS artifacts to parse."; return }
         progress = ProgressInfo(current: 0, total: total, label: "Parsing macOS artifacts")
         var completed = 0
+        var whereFromTruncations: [String] = []
+        var whereFromExtractFailures = 0
         do {
             let tskEnv = try TSKEnvironment.discover()
             for evidence in evidenceList {
@@ -3461,10 +4485,29 @@ final class AppModel: ObservableObject {
                 let foundKnowledge = state.knowledgeC.isEmpty ? knowledgeFiles(state) : []
                 let foundRecent = state.macRecentItems.isEmpty ? recentItemFiles(state) : []
                 let foundSecurity = state.macSecurityEvents.isEmpty ? securityEventFiles(state) : []
+                let foundKexts = state.kexts.isEmpty ? kextFiles(state) : []
+                let foundBTM = state.backgroundItems.isEmpty ? btmFiles(state) : []
+                let foundNetwork = state.network.isEmpty ? networkFiles(state) : []
+                let foundQuickLook = state.userActivity.isEmpty ? quickLookFiles(state) : []
+                let foundTrash = state.userActivity.isEmpty ? trashEntries(state) : []
+                let foundDocRev = state.documentVersions.isEmpty ? docRevisionFiles(state) : []
+                let foundNotif = state.notifications.isEmpty ? notificationFiles(state) : []
+                let foundPowerlog = state.powerlog.isEmpty ? powerlogFiles(state) : []
+                let foundConfig = state.macConfig.isEmpty ? configFiles(state) : []
+                let foundInstall = state.installHistory.isEmpty ? installFiles(state) : []
+                let allWhereFromCands = (evidence.kind == .apfs && state.whereFroms.isEmpty)
+                    ? whereFromCandidates(state) : []
+                let foundWhereFrom = Array(allWhereFromCands.prefix(whereFromCap))
+                if allWhereFromCands.count > whereFromCap {
+                    whereFromTruncations.append("\(evidence.displayName): \(whereFromCap) of \(allWhereFromCands.count)")
+                }
                 guard !foundPlists.isEmpty || !foundQuar.isEmpty || !foundInfo.isEmpty
                     || !foundPersist.isEmpty || !foundFSE.isEmpty || !foundShell.isEmpty
                     || !foundTCC.isEmpty || !foundKnowledge.isEmpty || !foundRecent.isEmpty
-                    || !foundSecurity.isEmpty else { continue }
+                    || !foundSecurity.isEmpty || !foundKexts.isEmpty || !foundBTM.isEmpty
+                    || !foundNetwork.isEmpty || !foundQuickLook.isEmpty || !foundTrash.isEmpty
+                    || !foundDocRev.isEmpty || !foundNotif.isEmpty || !foundPowerlog.isEmpty
+                    || !foundConfig.isEmpty || !foundInstall.isEmpty || !foundWhereFrom.isEmpty else { continue }
                 let isLoose = evidence.kind == .kapeLooseFolder
                 let isAPFS = evidence.kind == .apfs
                 var database: TSKDatabase?
@@ -3479,7 +4522,8 @@ final class AppModel: ObservableObject {
                     scratch = dir
                     if isAPFS {
                         apfsExtractor = FsApfsExtractor(environment: tskEnv,
-                                                        rawURL: evidence.apfsRawURL ?? evidence.sourceURL)
+                                                        rawURL: evidence.apfsRawURL ?? evidence.sourceURL,
+                                                        credential: fileVaultCredentials[evidence.id])
                     } else {
                         guard let dbURL = state.dbURL else { continue }
                         database = try TSKDatabase(path: dbURL)
@@ -3505,6 +4549,22 @@ final class AppModel: ObservableObject {
                     try? await extractor!.extract(metaAddr: info.metaAddr,
                                                   imageOffsetSectors: info.imageOffsetSectors, to: outURL)
                     return outURL
+                }
+                // Extract a named extended attribute's bytes (APFS only — loose
+                // collections strip xattrs and the TSK path doesn't surface them).
+                // Throws on a tool failure (rc 1, e.g. an fsapfscat without `-x`
+                // support) so the caller can distinguish "extraction failed" from
+                // "file has no such attribute" (rc 3, returns empty → nil here).
+                func extractAttribute(_ entry: FileEntry, _ attribute: String) async throws -> Data? {
+                    guard isAPFS, let apfsExtractor else { return nil }
+                    let outURL = scratch!.appendingPathComponent("xattr-\(entry.id)")
+                    let off = state.volumes.first { $0.id == entry.fsID }?.offsetBytes ?? 0
+                    try await apfsExtractor.extract(volumePath: entry.fullPath,
+                                                    volumeIndex: entry.fsID ?? 0,
+                                                    offsetBytes: off, to: outURL, attribute: attribute)
+                    defer { try? FileManager.default.removeItem(at: outURL) }
+                    guard let data = try? Data(contentsOf: outURL), !data.isEmpty else { return nil }
+                    return data
                 }
                 var launch: [LaunchItemEntry] = []
                 var quar: [QuarantineEvent] = []
@@ -3642,6 +4702,132 @@ final class AppModel: ObservableObject {
                 }
                 securityEvents.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
 
+                // Kernel + System extensions (kext Info.plist + SystemExtensions db).
+                var kexts: [MacKextEntry] = []
+                for entry in foundKexts {
+                    progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    guard let url = await extract(entry), let data = try? Data(contentsOf: url) else { continue }
+                    if entry.name.lowercased() == "db.plist" {
+                        kexts.append(contentsOf: MacKextParser.parseSystemExtensionsDB(
+                            data: data, sourceFile: entry.fullPath, scope: macScope(entry.fullPath)))
+                    } else if let k = MacKextParser.parseKextInfo(
+                        data: data, sourceFile: entry.fullPath, scope: macScope(entry.fullPath)) {
+                        kexts.append(k)
+                    }
+                }
+                kexts.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+
+                // Background Task Management (login items / agents / daemons).
+                var backgroundItems: [MacBackgroundItem] = []
+                for entry in foundBTM {
+                    progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    guard let url = await extract(entry), let data = try? Data(contentsOf: url) else { continue }
+                    backgroundItems.append(contentsOf: BTMParser.parse(
+                        data: data, sourceFile: entry.fullPath, scope: macScope(entry.fullPath)))
+                }
+                backgroundItems.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+
+                // Network / device context (Wi-Fi / DHCP / Bluetooth / Time Machine / pairings).
+                var network: [MacNetworkItem] = []
+                for entry in foundNetwork {
+                    progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    guard let url = await extract(entry), let data = try? Data(contentsOf: url) else { continue }
+                    network.append(contentsOf: MacNetworkParser.parse(
+                        data: data, sourceFile: entry.fullPath, scope: macScope(entry.fullPath)))
+                }
+
+                // QuickLook previews (SQLite, extracted) + Trash (a file-tree filter,
+                // no extraction — the FileEntry's own MACB is the deletion time).
+                var userActivity: [MacActivityItem] = []
+                for entry in foundTrash {
+                    progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    userActivity.append(MacActivityItem(
+                        kind: .trash, path: entry.fullPath,
+                        timestamp: entry.changed ?? entry.modified,
+                        detail: ByteCountFormatter.string(fromByteCount: entry.size, countStyle: .file),
+                        scope: macScope(entry.fullPath), sourceFile: entry.fullPath))
+                }
+                for entry in foundQuickLook {
+                    progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    guard let url = await extract(entry) else { continue }
+                    userActivity.append(contentsOf: (try? QuickLookParser.parse(
+                        fileAt: url, sourceFile: entry.fullPath, scope: macScope(entry.fullPath))) ?? [])
+                }
+
+                // Document Versions store (SQLite).
+                var documentVersions: [MacDocumentVersion] = []
+                for entry in foundDocRev {
+                    progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    guard let url = await extract(entry) else { continue }
+                    documentVersions.append(contentsOf: (try? DocumentRevisionsParser.parse(
+                        fileAt: url, sourceFile: entry.fullPath, scope: macScope(entry.fullPath))) ?? [])
+                }
+
+                // Notification Center store (SQLite).
+                var notifications: [MacNotification] = []
+                for entry in foundNotif {
+                    progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    guard let url = await extract(entry) else { continue }
+                    notifications.append(contentsOf: (try? NotificationParser.parse(
+                        fileAt: url, sourceFile: entry.fullPath, scope: macScope(entry.fullPath))) ?? [])
+                }
+
+                // Powerlog store (SQLite).
+                var powerlog: [PowerlogEntry] = []
+                for entry in foundPowerlog {
+                    progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    guard let url = await extract(entry) else { continue }
+                    powerlog.append(contentsOf: (try? PowerlogParser.parse(
+                        fileAt: url, sourceFile: entry.fullPath, scope: macScope(entry.fullPath))) ?? [])
+                }
+
+                // System-configuration / security-posture plists (pure parser).
+                var macConfig: [MacConfigSetting] = []
+                for entry in foundConfig {
+                    progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    guard let url = await extract(entry), let data = try? Data(contentsOf: url) else { continue }
+                    macConfig.append(contentsOf: MacConfigParser.parse(
+                        data, sourceFile: entry.fullPath, scope: macScope(entry.fullPath)))
+                }
+
+                // Software install history (pure parser).
+                var installHistory: [MacInstallEntry] = []
+                for entry in foundInstall {
+                    progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    guard let url = await extract(entry), let data = try? Data(contentsOf: url) else { continue }
+                    installHistory.append(contentsOf: MacInstallHistoryParser.parse(
+                        data, sourceFile: entry.fullPath, scope: macScope(entry.fullPath)))
+                }
+
+                // Download provenance — kMDItemWhereFroms xattrs (APFS only; one
+                // xattr read per candidate file, capped above).
+                var whereFroms: [MacWhereFrom] = []
+                var wfExtractErrors = 0
+                for entry in foundWhereFrom {
+                    progress = ProgressInfo(current: completed, total: total, label: "\(evidence.displayName): \(entry.name)")
+                    defer { completed += 1 }
+                    do {
+                        guard let data = try await extractAttribute(entry, "com.apple.metadata:kMDItemWhereFroms")
+                        else { continue }
+                        if let wf = WhereFromsParser.parse(data, path: entry.fullPath, scope: macScope(entry.fullPath)) {
+                            whereFroms.append(wf)
+                        }
+                    } catch {
+                        wfExtractErrors += 1
+                    }
+                }
+                if wfExtractErrors > 0 { whereFromExtractFailures += wfExtractErrors }
+
                 if !foundPlists.isEmpty { state.launchItems = launch }
                 if !foundQuar.isEmpty { state.quarantine = quar }
                 if !foundPersist.isEmpty { state.macPersistence = persist }
@@ -3650,13 +4836,31 @@ final class AppModel: ObservableObject {
                 if !foundKnowledge.isEmpty { state.knowledgeC = knowledge }
                 if !foundRecent.isEmpty { state.macRecentItems = recentItems }
                 if !foundSecurity.isEmpty { state.macSecurityEvents = securityEvents }
+                if !foundKexts.isEmpty { state.kexts = kexts }
+                if !foundBTM.isEmpty { state.backgroundItems = backgroundItems }
+                if !foundNetwork.isEmpty { state.network = network }
+                if !foundQuickLook.isEmpty || !foundTrash.isEmpty { state.userActivity = userActivity }
+                if !foundDocRev.isEmpty { state.documentVersions = documentVersions }
+                if !foundNotif.isEmpty { state.notifications = notifications }
+                if !foundPowerlog.isEmpty { state.powerlog = powerlog }
+                if !foundConfig.isEmpty { state.macConfig = macConfig }
+                if !foundInstall.isEmpty { state.installHistory = installHistory }
+                if !foundWhereFrom.isEmpty { state.whereFroms = whereFroms }
                 if !macShell.isEmpty { state.shellHistory.append(contentsOf: macShell) }
                 if !foundInfo.isEmpty { state.macInfo = info.isEmpty ? nil : info }
-                if !tcc.isEmpty || !knowledge.isEmpty || !recentItems.isEmpty || !securityEvents.isEmpty {
+                if !tcc.isEmpty || !knowledge.isEmpty || !recentItems.isEmpty || !securityEvents.isEmpty
+                    || !network.isEmpty || !userActivity.isEmpty || !documentVersions.isEmpty
+                    || !notifications.isEmpty || !powerlog.isEmpty || !installHistory.isEmpty {
                     state.timeline.append(contentsOf: TimelineBuilder.build(from: tcc))
                     state.timeline.append(contentsOf: TimelineBuilder.build(from: knowledge))
                     state.timeline.append(contentsOf: TimelineBuilder.build(from: recentItems))
                     state.timeline.append(contentsOf: TimelineBuilder.build(from: securityEvents))
+                    state.timeline.append(contentsOf: TimelineBuilder.build(from: network))
+                    state.timeline.append(contentsOf: TimelineBuilder.build(from: userActivity))
+                    state.timeline.append(contentsOf: TimelineBuilder.build(from: documentVersions))
+                    state.timeline.append(contentsOf: TimelineBuilder.build(from: notifications))
+                    state.timeline.append(contentsOf: TimelineBuilder.build(from: powerlog))
+                    state.timeline.append(contentsOf: TimelineBuilder.build(from: installHistory))
                     state.timeline.sort { $0.date < $1.date }
                 }
                 states[evidence.id] = state
@@ -3685,6 +4889,36 @@ final class AppModel: ObservableObject {
                     if !foundSecurity.isEmpty {
                         try? CaseStore.writeMacSecurityEvents(securityEvents, forHostID: evidence.id, in: bundleURL)
                     }
+                    if !foundKexts.isEmpty {
+                        try? CaseStore.writeKexts(kexts, forHostID: evidence.id, in: bundleURL)
+                    }
+                    if !foundBTM.isEmpty {
+                        try? CaseStore.writeBackgroundItems(backgroundItems, forHostID: evidence.id, in: bundleURL)
+                    }
+                    if !foundNetwork.isEmpty {
+                        try? CaseStore.writeNetwork(network, forHostID: evidence.id, in: bundleURL)
+                    }
+                    if !foundQuickLook.isEmpty || !foundTrash.isEmpty {
+                        try? CaseStore.writeUserActivity(userActivity, forHostID: evidence.id, in: bundleURL)
+                    }
+                    if !foundDocRev.isEmpty {
+                        try? CaseStore.writeDocumentVersions(documentVersions, forHostID: evidence.id, in: bundleURL)
+                    }
+                    if !foundNotif.isEmpty {
+                        try? CaseStore.writeNotifications(notifications, forHostID: evidence.id, in: bundleURL)
+                    }
+                    if !foundPowerlog.isEmpty {
+                        try? CaseStore.writePowerlog(powerlog, forHostID: evidence.id, in: bundleURL)
+                    }
+                    if !foundConfig.isEmpty {
+                        try? CaseStore.writeMacConfig(macConfig, forHostID: evidence.id, in: bundleURL)
+                    }
+                    if !foundInstall.isEmpty {
+                        try? CaseStore.writeInstallHistory(installHistory, forHostID: evidence.id, in: bundleURL)
+                    }
+                    if !foundWhereFrom.isEmpty {
+                        try? CaseStore.writeWhereFroms(whereFroms, forHostID: evidence.id, in: bundleURL)
+                    }
                     if !macShell.isEmpty {
                         try? CaseStore.writeShellHistory(state.shellHistory, forHostID: evidence.id, in: bundleURL)
                     }
@@ -3694,6 +4928,13 @@ final class AppModel: ObservableObject {
                 }
             }
             progress = ProgressInfo(current: completed, total: total, label: "macOS artifact parse complete")
+            if whereFromExtractFailures > 0 {
+                // Almost always: the bundled fsapfscat predates the `-x` xattr mode.
+                statusMessage = "WhereFroms: xattr extraction failed for \(whereFromExtractFailures) file(s) — "
+                    + "rebuild fsapfscat with `-x` support (scripts/build-tsk.sh) and re-bundle it into the app."
+            } else if !whereFromTruncations.isEmpty {
+                statusMessage = "WhereFroms coverage truncated to \(whereFromTruncations.joined(separator: ", ")) download-likely files."
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -3774,7 +5015,8 @@ final class AppModel: ObservableObject {
                     scratch = dir
                     if isAPFS {
                         apfsExtractor = FsApfsExtractor(environment: tskEnv,
-                                                        rawURL: evidence.apfsRawURL ?? evidence.sourceURL)
+                                                        rawURL: evidence.apfsRawURL ?? evidence.sourceURL,
+                                                        credential: fileVaultCredentials[evidence.id])
                     } else {
                         guard let dbURL = state.dbURL else { continue }
                         database = try TSKDatabase(path: dbURL)
@@ -4498,11 +5740,145 @@ final class AppModel: ObservableObject {
     /// Run analyzers against each evidence's own context, then store the
     /// findings on that evidence. "All" mode unions the per-evidence buckets
     /// via the computed `findings` property.
-    func runAnalyzers() async {
+    // MARK: - Ransomware entropy verification
+
+#if os(macOS)
+    private static let entropyMaxSamplesPerExt = 8
+    private static let entropyHeadBytes = 65_536
+    private static let entropyMinFileBytes: Int64 = 512
+    private static let entropyMaxFileBytes: Int64 = 16 * 1024 * 1024
+
+    /// Sample the real bytes of files caught in a ransomware mass-encryption
+    /// burst and compute their Shannon entropy, so `ImpactDestructionAnalyzer`
+    /// can confirm the files were actually encrypted (high entropy) rather than
+    /// merely renamed. Returns `[extension: stat]`; empty (and no I/O) when there
+    /// is no burst - the common case - so this costs nothing unless one is found.
+    private func sampleEncryptionEntropy(for evidence: Evidence,
+                                         state: EvidenceState) async -> [String: EncryptionEntropyStat] {
+        let bursts = ImpactDestructionAnalyzer.encryptionBursts(
+            files: state.files, usn: state.usn, mft: state.mft)
+        guard !bursts.isEmpty else { return [:] }
+
+        let isLoose = evidence.kind == .kapeLooseFolder
+        let isAPFS = evidence.kind == .apfs
+        var database: TSKDatabase?
+        var extractor: TSKFileExtractor?
+        var apfsExtractor: FsApfsExtractor?
+        var scratch: URL?
+        if !isLoose {
+            guard let env = try? TSKEnvironment.discover() else { return [:] }
+            let dir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("strata-entropy-\(evidence.id.uuidString)")
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            scratch = dir
+            if isAPFS {
+                apfsExtractor = FsApfsExtractor(environment: env,
+                                                rawURL: evidence.apfsRawURL ?? evidence.sourceURL,
+                                                credential: fileVaultCredentials[evidence.id])
+            } else {
+                guard let dbURL = state.dbURL, let db = try? TSKDatabase(path: dbURL) else { return [:] }
+                database = db
+                extractor = TSKFileExtractor(environment: env, imageURL: evidence.sourceURL,
+                                             imageType: TSKImageIngestor.imageType(for: evidence.sourceURL))
+            }
+        }
+        defer { if let scratch { try? FileManager.default.removeItem(at: scratch) } }
+
+        var result: [String: EncryptionEntropyStat] = [:]
+        for burst in bursts {
+            // Sample only LIVE files that are part of THIS burst (matched by the
+            // lowercased leaf name `encryptionBursts` counted), so the entropy
+            // reflects the burst population - not incidental same-extension files
+            // - and never a deleted entry whose runlist may point at reallocated
+            // (stale) clusters under icat.
+            let candidates = state.files
+                .filter { !$0.isDirectory && !$0.isDeleted
+                          && $0.fileExtension == burst.ext
+                          && burst.names.contains($0.name.lowercased())
+                          && $0.size >= Self.entropyMinFileBytes
+                          && $0.size <= Self.entropyMaxFileBytes }
+                .prefix(Self.entropyMaxSamplesPerExt)
+            var perFile: [Double] = []
+            for entry in candidates {
+                if let e = await fileMaxEntropy(of: entry, isLoose: isLoose, isAPFS: isAPFS,
+                                                state: state, database: database, extractor: extractor,
+                                                apfsExtractor: apfsExtractor, scratch: scratch) {
+                    perFile.append(e)
+                }
+            }
+            if let stat = EncryptionEntropyStat.from(fileMaxEntropies: perFile) { result[burst.ext] = stat }
+        }
+        return result
+    }
+
+    /// The maximum windowed entropy of one file's content, read via the right
+    /// path for the evidence kind (loose disk / APFS fsapfscat / TSK icat).
+    /// Best-effort: nil when the bytes can't be read (analyzer → "unverified").
+    private func fileMaxEntropy(of entry: FileEntry, isLoose: Bool, isAPFS: Bool,
+                               state: EvidenceState, database: TSKDatabase?,
+                               extractor: TSKFileExtractor?, apfsExtractor: FsApfsExtractor?,
+                               scratch: URL?) async -> Double? {
+        let url: URL
+        var cleanup: URL?
+        if isLoose {
+            guard let disk = entry.diskURL else { return nil }
+            url = disk
+        } else {
+            guard let scratch else { return nil }
+            let outURL = scratch.appendingPathComponent("\(entry.id)")
+            cleanup = outURL
+            if isAPFS {
+                guard let apfsExtractor else { return nil }
+                let off = state.volumes.first { $0.id == entry.fsID }?.offsetBytes ?? 0
+                try? await apfsExtractor.extract(volumePath: entry.fullPath, volumeIndex: entry.fsID ?? 0,
+                                                 offsetBytes: off, to: outURL)
+            } else {
+                guard let database, let extractor,
+                      let info = try? database.fetchExtractInfo(forFileID: entry.id) else { return nil }
+                try? await extractor.extract(metaAddr: info.metaAddr,
+                                             imageOffsetSectors: info.imageOffsetSectors, to: outURL)
+            }
+            url = outURL
+        }
+        defer { if let cleanup { try? FileManager.default.removeItem(at: cleanup) } }
+        return Self.windowedMaxEntropy(at: url, fileSize: entry.size)
+    }
+
+    /// Max Shannon entropy over up to three windows (head / middle / tail) of the
+    /// file. Sampling more than the head is what lets partial / intermittent /
+    /// append-based encryptors - which leave the head plaintext - still register
+    /// as encrypted.
+    private static func windowedMaxEntropy(at url: URL, fileSize: Int64) -> Double? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        let window = entropyHeadBytes
+        var offsets: [UInt64] = [0]
+        if fileSize > Int64(window) * 2 {
+            offsets.append(UInt64(Swift.max(0, fileSize / 2 - Int64(window / 2))))
+            offsets.append(UInt64(Swift.max(0, fileSize - Int64(window))))
+        }
+        var best: Double?
+        for off in offsets {
+            try? handle.seek(toOffset: off)
+            guard let data = try? handle.read(upToCount: window),
+                  data.count >= Int(entropyMinFileBytes) else { continue }
+            best = Swift.max(best ?? 0, FileEntropy.shannonEntropy(data))
+        }
+        return best
+    }
+#else
+    private func sampleEncryptionEntropy(for evidence: Evidence,
+                                         state: EvidenceState) async -> [String: EncryptionEntropyStat] { [:] }
+#endif
+
+    func runAnalyzers(recordCustody: Bool = true) async {
         statusMessage = "Running analyzers..."
         var total = 0
         for evidence in evidenceList {
             guard var state = states[evidence.id] else { continue }
+            // Verify any ransomware mass-encryption burst by sampling real file
+            // bytes (no-op / no I/O unless a burst is actually present).
+            let encryptionEntropy = await sampleEncryptionEntropy(for: evidence, state: state)
             let context = AnalysisContext(files: state.files,
                                           events: state.events,
                                           timeline: state.timeline,
@@ -4538,7 +5914,18 @@ final class AppModel: ObservableObject {
                                           tcc: state.tcc,
                                           knowledgeC: state.knowledgeC,
                                           macRecentItems: state.macRecentItems,
-                                          macSecurityEvents: state.macSecurityEvents)
+                                          macSecurityEvents: state.macSecurityEvents,
+                                          kexts: state.kexts,
+                                          backgroundItems: state.backgroundItems,
+                                          messages: state.messages,
+                                          mail: state.mail,
+                                          network: state.network,
+                                          userActivity: state.userActivity,
+                                          powerlog: state.powerlog,
+                                          config: state.macConfig,
+                                          installHistory: state.installHistory,
+                                          whereFroms: state.whereFroms,
+                                          encryptionEntropy: encryptionEntropy)
             let results = await analysisEngine.run(on: context)
             state.findings = results
             states[evidence.id] = state
@@ -4583,7 +5970,9 @@ final class AppModel: ObservableObject {
         } else {
             statusMessage = "Surfaced \(total) findings."
         }
-        appendCustody(.analysed,
-                      detail: "Ran detection analyzers across \(evidenceList.count) host\(evidenceList.count == 1 ? "" : "s") → \(total) finding\(total == 1 ? "" : "s").")
+        if recordCustody {
+            appendCustody(.analysed,
+                          detail: "Ran detection analyzers across \(evidenceList.count) host\(evidenceList.count == 1 ? "" : "s") → \(total) finding\(total == 1 ? "" : "s").")
+        }
     }
 }
