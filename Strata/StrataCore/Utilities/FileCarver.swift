@@ -15,7 +15,7 @@ import Foundation
 /// (`FFD9`), PDF (last `%%EOF`), and ZIP (end-of-central-directory) carry a
 /// recoverable length → `sizeExact == true`. bplist and gzip have no
 /// forward-recoverable length, so they're capped and flagged inexact.
-public enum FileCarver {
+public nonisolated enum FileCarver {
     /// Upper bound for an exact carve + the footer-scan window. A header field
     /// claiming more than this is treated as corrupt and the carve is capped.
     public static let defaultMaxFileSize = 256 * 1024 * 1024

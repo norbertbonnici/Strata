@@ -13,7 +13,7 @@ import Foundation
 /// "run on the performance cores" is: size the fan-out to `performanceCoreCount`
 /// and run at `.userInitiated` (or higher) QoS, which the scheduler biases onto
 /// P-cores.
-public enum CPUInfo {
+public nonisolated enum CPUInfo {
     /// Logical performance-core count: `hw.perflevel0.logicalcpu` on a
     /// heterogeneous machine (Apple Silicon, `hw.nperflevels > 1`), or the full
     /// active processor count on a uniform machine (Intel / older). Always ≥ 1.
