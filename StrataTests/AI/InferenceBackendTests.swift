@@ -153,4 +153,45 @@ struct InferenceBackendTests {
         #expect(pcc.destinationFingerprint != a.destinationFingerprint)
         #expect(pcc.destinationFingerprint != InferenceConfiguration(mode: .onDevice).destinationFingerprint)
     }
+
+    // MARK: - Configurable context window
+
+    @Test func contextWindowDefaultsRoundTripAndDecodeBackCompat() throws {
+        // Defaults match the backends' compiled-in defaults.
+        let def = InferenceConfiguration()
+        #expect(def.onDeviceContextWindow == InferenceConfiguration.defaultOnDeviceWindow)
+        #expect(def.privateCloudContextWindow == InferenceConfiguration.defaultPrivateCloudWindow)
+        #expect(def.cloudContextWindow == InferenceConfiguration.defaultCloudWindow)
+
+        // Custom windows survive a Codable round-trip.
+        let custom = InferenceConfiguration(mode: .privateCloud,
+                                            onDeviceContextWindow: 8_000,
+                                            privateCloudContextWindow: 24_000,
+                                            cloudContextWindow: 150_000)
+        let data = try JSONEncoder().encode(custom)
+        let back = try JSONDecoder().decode(InferenceConfiguration.self, from: data)
+        #expect(back == custom)
+        #expect(back.privateCloudContextWindow == 24_000)
+
+        // A config persisted before the window fields existed decodes to the
+        // defaults (not a throw that would reset the whole config).
+        let legacy = Data(#"{"mode":"cloud","cloudBaseURL":"https://x","cloudModel":"m"}"#.utf8)
+        let decoded = try JSONDecoder().decode(InferenceConfiguration.self, from: legacy)
+        #expect(decoded.mode == .cloud)                                   // preserved
+        #expect(decoded.cloudContextWindow == InferenceConfiguration.defaultCloudWindow)  // defaulted
+    }
+
+    @Test func makeBackendInjectsConfiguredWindow() {
+        let store = InMemoryCredentialStore()
+        // On-device window flows through to the backend.
+        let onDevice = InferenceConfiguration(mode: .onDevice, onDeviceContextWindow: 9_999)
+            .makeBackend(credentials: store)
+        #expect(onDevice.contextWindowTokens == 9_999)
+
+        // Cloud (credentialed) carries the configured cloud window.
+        store.save(CTICredentials(token: "key"), for: InferenceConfiguration.keychainService)
+        let cloud = InferenceConfiguration(mode: .cloud, cloudContextWindow: 123_456)
+            .makeBackend(credentials: store)
+        #expect(cloud.contextWindowTokens == 123_456)
+    }
 }

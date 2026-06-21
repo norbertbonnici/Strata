@@ -18,6 +18,9 @@ struct InferenceSettingsSheet: View {
     @State private var cloudBaseURL = ""
     @State private var cloudModel = ""
     @State private var apiKey = ""
+    @State private var onDeviceWindow = InferenceConfiguration.defaultOnDeviceWindow
+    @State private var privateCloudWindow = InferenceConfiguration.defaultPrivateCloudWindow
+    @State private var cloudWindow = InferenceConfiguration.defaultCloudWindow
 
     private let keychain = KeychainCredentialStore()
 
@@ -78,6 +81,8 @@ struct InferenceSettingsSheet: View {
                     .font(.caption).foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            Divider()
+            windowField($onDeviceWindow)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -100,6 +105,8 @@ struct InferenceSettingsSheet: View {
                     .font(.caption).foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            Divider()
+            windowField($privateCloudWindow)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -137,6 +144,8 @@ struct InferenceSettingsSheet: View {
                           systemImage: "exclamationmark.triangle")
                         .font(.caption2).foregroundStyle(.orange)
                 }
+                Divider()
+                windowField($cloudWindow)
             }
 
             Label("The API key is stored in the macOS Keychain, never in the case bundle.",
@@ -160,6 +169,29 @@ struct InferenceSettingsSheet: View {
         }
     }
 
+    /// Editable model **input** context window for the selected backend. Lets the
+    /// analyst tune the window at runtime (e.g. shrink Apple PCC's 32k if a run
+    /// still overflows, or raise the conservative on-device guess) — the
+    /// summarizer sizes its batches + group cap to this. Persisted per mode.
+    @ViewBuilder
+    private func windowField(_ value: Binding<Int>) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            labeledField("Context", systemImage: "ruler") {
+                HStack(spacing: 6) {
+                    TextField("", value: value, format: .number.grouping(.never))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 110)
+                        .multilineTextAlignment(.trailing)
+                    Text("input tokens").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                }
+            }
+            Text("Lower it if a run overflows the model; raise it to fit more findings per request. Sizes the summary's prompt batches and technique-group cap.")
+                .font(.caption2).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     // MARK: - Persistence
 
     private func load() {
@@ -167,16 +199,23 @@ struct InferenceSettingsSheet: View {
         mode = cfg.mode
         cloudBaseURL = cfg.cloudBaseURL
         cloudModel = cfg.cloudModel
+        onDeviceWindow = cfg.onDeviceContextWindow
+        privateCloudWindow = cfg.privateCloudContextWindow
+        cloudWindow = cfg.cloudContextWindow
         apiKey = keychain.load(for: InferenceConfiguration.keychainService)?.token ?? ""
     }
 
     private func save() {
         let base = cloudBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         let modelID = cloudModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let floor = InferenceConfiguration.minContextWindow
         let cfg = InferenceConfiguration(
             mode: mode,
             cloudBaseURL: base.isEmpty ? "https://api.anthropic.com" : base,
-            cloudModel: modelID.isEmpty ? "claude-opus-4-8" : modelID)
+            cloudModel: modelID.isEmpty ? "claude-opus-4-8" : modelID,
+            onDeviceContextWindow: max(floor, onDeviceWindow),
+            privateCloudContextWindow: max(floor, privateCloudWindow),
+            cloudContextWindow: max(floor, cloudWindow))
         cfg.save()
         // The token is written even in on-device mode so toggling to cloud later
         // doesn't lose it; it's only ever *read* when cloud is the active mode.

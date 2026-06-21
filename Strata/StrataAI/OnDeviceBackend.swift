@@ -10,12 +10,16 @@ public nonisolated struct OnDeviceBackend: InferenceBackend {
     public let sovereignty: SovereigntyTier = .onDevice
 
     /// Apple's on-device foundation model has the tightest window of the three
-    /// backends. Apple doesn't publish an exact figure, so this is deliberately
-    /// conservative — the summarizer reserves output/schema room on top, so a
-    /// too-high value here is what would surface as `LanguageModelError -1`.
-    public let contextWindowTokens = 4_096
+    /// backends. Apple doesn't publish an exact figure, so the default is
+    /// deliberately conservative — the summarizer reserves output/schema room on
+    /// top, so a too-high value is what would surface as `LanguageModelError -1`.
+    /// Injected from `InferenceConfiguration` so it's tunable from the settings
+    /// sheet without recompiling.
+    public let contextWindowTokens: Int
 
-    public init() {}
+    public init(contextWindowTokens: Int = InferenceConfiguration.defaultOnDeviceWindow) {
+        self.contextWindowTokens = contextWindowTokens
+    }
 
     public func availability() -> SummarizerAvailability { FindingsSummarizer.availability }
 
