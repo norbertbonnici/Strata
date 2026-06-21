@@ -24,6 +24,11 @@ public nonisolated struct CloudInferenceBackend: InferenceBackend {
     public var label: String { "Cloud · \(model)" }
     public let sovereignty: SovereigntyTier = .thirdPartyCloud
 
+    /// A third-party cloud model's window dwarfs the digest, so this is a safe
+    /// large default rather than a per-model lookup — the aggregated digest never
+    /// approaches it. (claude-opus-4-8 is 1M; 200k is conservative headroom.)
+    public let contextWindowTokens = 200_000
+
     public let baseURL: URL
     public let model: String
     private let apiKey: String?

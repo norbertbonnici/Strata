@@ -9,6 +9,12 @@ public nonisolated struct OnDeviceBackend: InferenceBackend {
     public let label = FindingsSummarizer.modelLabel   // "Apple Intelligence (on-device)"
     public let sovereignty: SovereigntyTier = .onDevice
 
+    /// Apple's on-device foundation model has the tightest window of the three
+    /// backends. Apple doesn't publish an exact figure, so this is deliberately
+    /// conservative — the summarizer reserves output/schema room on top, so a
+    /// too-high value here is what would surface as `LanguageModelError -1`.
+    public let contextWindowTokens = 4_096
+
     public init() {}
 
     public func availability() -> SummarizerAvailability { FindingsSummarizer.availability }

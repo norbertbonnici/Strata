@@ -28,6 +28,15 @@ public protocol InferenceBackend: Sendable {
     /// Whether this backend can run right now (model present / credentials set).
     func availability() -> SummarizerAvailability
 
+    /// Maximum **input** context this backend's model accepts, in tokens. The
+    /// summarizer sizes its per-request digest batches *and* its technique-group
+    /// cap to this so a large case fits the *selected* window — on-device is the
+    /// tightest, Apple Private Cloud Compute is 32k, a third-party cloud model is
+    /// far larger. It is the input budget only; each backend reserves its own
+    /// output allowance separately. Sizing to this is what lets a 60k-finding
+    /// case generate instead of overflowing the window.
+    var contextWindowTokens: Int { get }
+
     /// One-shot structured summary (overview + claims) from the whole digest.
     func proposeSummary(instructions: String, prompt: String,
                         context: InferenceContext) async throws -> ProposedSummary
