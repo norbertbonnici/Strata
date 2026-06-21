@@ -162,7 +162,9 @@ extension AppModel {
             }
             appendCustody(.summarized, detail: custodyDetail)
         } catch {
-            errorMessage = "Summary generation failed: \(error.localizedDescription)"
+            errorMessage = "Summary generation failed: "
+                + (FindingsSummarizer.describeGenerationFailure(error, backendLabel: backend.label)
+                   ?? error.localizedDescription)
             statusMessage = ""
         }
     }
