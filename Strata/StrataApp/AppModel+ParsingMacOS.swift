@@ -575,6 +575,13 @@ extension AppModel {
         }
         func whereFromCandidates(_ s: EvidenceState) -> [FileEntry] {
             let matched = s.files.filter { entry in
+                // TSK emits a `<name>-slack` pseudo-entry per allocated file; it's
+                // the unused tail of a cluster, not a real file. Unlike the other
+                // parseMac candidate filters (which match exact names/suffixes and
+                // so never match "-slack"), this one matches by location, so it
+                // must exclude slack explicitly — otherwise a download-zone slack
+                // entry triggers a pointless `fsapfscat -x` xattr read on every load.
+                guard !entry.isSlackEntry else { return false }
                 let lower = entry.fullPath.lowercased()
                 guard lower.contains("/users/"), !lower.contains("/library/") else { return false }
                 if lower.contains(".app/") || lower.contains(".framework/") || lower.contains(".bundle/") {
@@ -689,6 +696,7 @@ extension AppModel {
                     }
                 }
                 func extract(_ entry: FileEntry) async -> URL? {
+                    guard !entry.isSlackEntry else { return nil }   // never read a slack pseudo-entry's content
                     if isLoose {
                         guard let disk = entry.diskURL,
                               FileManager.default.fileExists(atPath: disk.path) else { return nil }
@@ -713,6 +721,7 @@ extension AppModel {
                 // support) so the caller can distinguish "extraction failed" from
                 // "file has no such attribute" (rc 3, returns empty → nil here).
                 func extractAttribute(_ entry: FileEntry, _ attribute: String) async throws -> Data? {
+                    guard !entry.isSlackEntry else { return nil }   // never read a slack pseudo-entry's xattrs
                     guard isAPFS, let apfsExtractor else { return nil }
                     let outURL = scratch!.appendingPathComponent("xattr-\(entry.id)")
                     let off = state.volumes.first { $0.id == entry.fsID }?.offsetBytes ?? 0
