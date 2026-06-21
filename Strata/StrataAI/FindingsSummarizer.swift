@@ -81,37 +81,68 @@ public nonisolated struct FindingsSummarizer: Sendable {
     /// such init), so it refuses such content regardless of context-window size —
     /// exactly the "PCC fails where on-device works, at any window" symptom.
     public static func describeGenerationFailure(_ error: Error, backendLabel: String) -> String? {
-        guard #available(macOS 27.0, iOS 27.0, visionOS 27.0, *),
-              let e = error as? LanguageModelError else { return nil }
-        switch e {
-        case .guardrailViolation, .refusal:
-            return "\(backendLabel) declined the case on content-safety grounds — the findings "
-                + "describe malware and attacker activity, which trips the model's default "
-                + "guardrails. Apple Private Cloud Compute can't relax these the way the on-device "
-                + "model does, so this is independent of the context window. Use On-device or a "
-                + "third-party cloud model for this case."
-        case .unsupportedGenerationGuide:
-            return "\(backendLabel) doesn't support the structured (guided) generation this summary "
-                + "uses. Use On-device or a third-party cloud model."
-        case .unsupportedCapability:
+        // 1. Typed path — cleanest messages when the error is the Swift enum.
+        if #available(macOS 27.0, iOS 27.0, visionOS 27.0, *), let e = error as? LanguageModelError {
+            switch e {
+            case .guardrailViolation, .refusal:       return guardrailAdvice(backendLabel)
+            case .unsupportedGenerationGuide:         return unsupportedGuideAdvice(backendLabel)
+            case .unsupportedCapability:
+                return "\(backendLabel) doesn't support a capability this summary needs (e.g. tool "
+                    + "calls). Use On-device or a third-party cloud model."
+            case .contextSizeExceeded(let info):
+                return "The case is too large for \(backendLabel)'s context window "
+                    + "(\(info.tokenCount) tokens vs \(info.contextSize)). Lower the Context window in "
+                    + "AI Inference settings, or use a backend with a larger window."
+            case .timeout:
+                return "\(backendLabel) timed out generating the summary. Try again, or lower the "
+                    + "Context window so each request is smaller."
+            case .rateLimited:                        return "\(backendLabel) is rate-limited right now — wait a moment and try again."
+            case .unsupportedLanguageOrLocale:        return "\(backendLabel) doesn't support the language or locale of this content."
+            case .unsupportedTranscriptContent:       return "\(backendLabel) rejected part of the prompt content."
+            @unknown default:                         break   // fall through to the heuristic
+            }
+        }
+
+        // 2. Heuristic path — FoundationModels can surface the failure as a bridged
+        //    NSError whose `localizedDescription` collapses to "error -1"; the
+        //    *debug* description still names the case. Also covers the typed cast
+        //    failing across an async/actor boundary. Never let it stay "error -1".
+        let detail = String(reflecting: error)
+        let lower = detail.lowercased()
+        let ns = error as NSError
+        let isFoundationModels = ns.domain.contains("FoundationModels")
+            || ns.domain.contains("LanguageModel") || lower.contains("languagemodel")
+        guard isFoundationModels else { return nil }
+        if lower.contains("guardrail") || lower.contains("refus") || lower.contains("safety") {
+            return guardrailAdvice(backendLabel)
+        }
+        if lower.contains("context") && (lower.contains("exceed") || lower.contains("size")) {
+            return "The case is too large for \(backendLabel)'s context window. Lower the Context "
+                + "window in AI Inference settings, or use a backend with a larger window."
+        }
+        if lower.contains("guide") || lower.contains("schema") {
+            return unsupportedGuideAdvice(backendLabel)
+        }
+        if lower.contains("unsupportedcapability") || lower.contains("tool") {
             return "\(backendLabel) doesn't support a capability this summary needs (e.g. tool "
                 + "calls). Use On-device or a third-party cloud model."
-        case .contextSizeExceeded(let info):
-            return "The case is too large for \(backendLabel)'s context window "
-                + "(\(info.tokenCount) tokens vs \(info.contextSize)). Lower the Context window in "
-                + "AI Inference settings, or use a backend with a larger window."
-        case .timeout:
-            return "\(backendLabel) timed out generating the summary. Try again, or lower the "
-                + "Context window so each request is smaller."
-        case .rateLimited:
-            return "\(backendLabel) is rate-limited right now — wait a moment and try again."
-        case .unsupportedLanguageOrLocale:
-            return "\(backendLabel) doesn't support the language or locale of this content."
-        case .unsupportedTranscriptContent:
-            return "\(backendLabel) rejected part of the prompt content."
-        @unknown default:
-            return nil
         }
+        if lower.contains("ratelimit") { return "\(backendLabel) is rate-limited — wait and try again." }
+        if lower.contains("timeout") { return "\(backendLabel) timed out — try again, or lower the Context window." }
+        // Unknown FoundationModels error: surface the real case instead of "error -1".
+        return "\(backendLabel) couldn't generate the summary — \(detail)"
+    }
+
+    private static func guardrailAdvice(_ backendLabel: String) -> String {
+        "\(backendLabel) declined the case on content-safety grounds — the findings describe malware "
+            + "and attacker activity, which trips the model's default guardrails. Apple Private Cloud "
+            + "Compute can't relax these the way the on-device model does, so this is independent of "
+            + "the context window. Use On-device or a third-party cloud model for this case."
+    }
+
+    private static func unsupportedGuideAdvice(_ backendLabel: String) -> String {
+        "\(backendLabel) doesn't support the structured (guided) generation this summary uses. "
+            + "Use On-device or a third-party cloud model."
     }
 
     // MARK: - Generation
