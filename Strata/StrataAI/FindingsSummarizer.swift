@@ -68,6 +68,52 @@ public nonisolated struct FindingsSummarizer: Sendable {
         }
     }
 
+    /// Decode a FoundationModels generation failure into an actionable message,
+    /// so a failure surfaces as the real cause instead of the opaque
+    /// "The operation couldn't be completed. (…LanguageModelError error -1.)".
+    /// Returns nil for a non-FM error (caller falls back to `localizedDescription`).
+    ///
+    /// The decisive case is a guardrail/refusal: forensic findings describe
+    /// malware and attacker activity, which trips the model's *default* safety
+    /// guardrails. `OnDeviceBackend` relaxes them with
+    /// `.permissiveContentTransformations`, but Apple Private Cloud Compute
+    /// exposes **no guardrails knob** (`PrivateCloudComputeLanguageModel` has no
+    /// such init), so it refuses such content regardless of context-window size —
+    /// exactly the "PCC fails where on-device works, at any window" symptom.
+    public static func describeGenerationFailure(_ error: Error, backendLabel: String) -> String? {
+        guard #available(macOS 27.0, iOS 27.0, visionOS 27.0, *),
+              let e = error as? LanguageModelError else { return nil }
+        switch e {
+        case .guardrailViolation, .refusal:
+            return "\(backendLabel) declined the case on content-safety grounds — the findings "
+                + "describe malware and attacker activity, which trips the model's default "
+                + "guardrails. Apple Private Cloud Compute can't relax these the way the on-device "
+                + "model does, so this is independent of the context window. Use On-device or a "
+                + "third-party cloud model for this case."
+        case .unsupportedGenerationGuide:
+            return "\(backendLabel) doesn't support the structured (guided) generation this summary "
+                + "uses. Use On-device or a third-party cloud model."
+        case .unsupportedCapability:
+            return "\(backendLabel) doesn't support a capability this summary needs (e.g. tool "
+                + "calls). Use On-device or a third-party cloud model."
+        case .contextSizeExceeded(let info):
+            return "The case is too large for \(backendLabel)'s context window "
+                + "(\(info.tokenCount) tokens vs \(info.contextSize)). Lower the Context window in "
+                + "AI Inference settings, or use a backend with a larger window."
+        case .timeout:
+            return "\(backendLabel) timed out generating the summary. Try again, or lower the "
+                + "Context window so each request is smaller."
+        case .rateLimited:
+            return "\(backendLabel) is rate-limited right now — wait a moment and try again."
+        case .unsupportedLanguageOrLocale:
+            return "\(backendLabel) doesn't support the language or locale of this content."
+        case .unsupportedTranscriptContent:
+            return "\(backendLabel) rejected part of the prompt content."
+        @unknown default:
+            return nil
+        }
+    }
+
     // MARK: - Generation
 
     /// Floor for the number of aggregated technique groups fed to the model, and

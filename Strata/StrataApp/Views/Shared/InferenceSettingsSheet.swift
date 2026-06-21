@@ -100,6 +100,10 @@ struct InferenceSettingsSheet: View {
             Text("A middle tier between on-device and a third-party cloud: more capable than on-device, more private than an external endpoint. Each run is still confirmed and recorded in the chain of custody.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            Label("Private Cloud Compute uses Apple's default content guardrails and — unlike on-device — can't relax them for forensic content. A case heavy in malware/attacker descriptions may be declined regardless of context window; if so, use On-device or a third-party model.",
+                  systemImage: "exclamationmark.shield")
+                .font(.caption2).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             if case .unavailable(let reason) = InferenceConfiguration.privateCloudAvailability() {
                 Label(reason, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption).foregroundStyle(.orange)
