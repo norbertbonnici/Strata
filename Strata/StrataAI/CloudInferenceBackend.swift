@@ -24,10 +24,11 @@ public nonisolated struct CloudInferenceBackend: InferenceBackend {
     public var label: String { "Cloud · \(model)" }
     public let sovereignty: SovereigntyTier = .thirdPartyCloud
 
-    /// A third-party cloud model's window dwarfs the digest, so this is a safe
-    /// large default rather than a per-model lookup — the aggregated digest never
-    /// approaches it. (claude-opus-4-8 is 1M; 200k is conservative headroom.)
-    public let contextWindowTokens = 200_000
+    /// A third-party cloud model's window dwarfs the digest, so the default is a
+    /// safe large value rather than a per-model lookup — the aggregated digest
+    /// never approaches it. Injected from `InferenceConfiguration` (tunable from
+    /// the settings sheet). (claude-opus-4-8 is 1M; 200k is conservative headroom.)
+    public let contextWindowTokens: Int
 
     public let baseURL: URL
     public let model: String
@@ -39,11 +40,13 @@ public nonisolated struct CloudInferenceBackend: InferenceBackend {
                 model: String = "claude-opus-4-8",
                 apiKey: String?,
                 maxTokens: Int = 4096,
+                contextWindowTokens: Int = InferenceConfiguration.defaultCloudWindow,
                 transport: @escaping Transport = CloudInferenceBackend.liveTransport) {
         self.baseURL = baseURL
         self.model = model
         self.apiKey = apiKey
         self.maxTokens = maxTokens
+        self.contextWindowTokens = contextWindowTokens
         self.transport = transport
     }
 

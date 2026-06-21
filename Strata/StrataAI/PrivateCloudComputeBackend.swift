@@ -23,12 +23,15 @@ public nonisolated struct PrivateCloudComputeBackend: InferenceBackend {
     public let label = "Apple Private Cloud Compute"
     public let sovereignty: SovereigntyTier = .applePrivateCloud
 
-    /// Apple Private Cloud Compute exposes a 32k-token context window. Kept
-    /// slightly under the nominal 32,768 so the summarizer's reserve math never
-    /// rounds into the ceiling.
-    public let contextWindowTokens = 32_000
+    /// Apple Private Cloud Compute exposes a 32k-token context window (default
+    /// kept under the nominal 32,768 for reserve headroom). Injected from
+    /// `InferenceConfiguration` so it's tunable from the settings sheet without
+    /// recompiling — e.g. dial it down if a run still overflows.
+    public let contextWindowTokens: Int
 
-    public init() {}
+    public init(contextWindowTokens: Int = InferenceConfiguration.defaultPrivateCloudWindow) {
+        self.contextWindowTokens = contextWindowTokens
+    }
 
     public func availability() -> SummarizerAvailability {
         switch PrivateCloudComputeLanguageModel().availability {
