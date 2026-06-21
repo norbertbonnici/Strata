@@ -73,8 +73,31 @@ struct EvidenceTreeView: View {
     }
 
     private func rebuildTree() {
-        let files = model.files.filter(isVisible)
-        tree = FileNode.buildTree(from: files, volumes: model.volumes)
+        // The file tree is inherently per-host: a host's volumes are numbered by
+        // TSK fs_obj_id starting at 2, so two hosts' volume ids collide. The
+        // rolled-up `model.files`/`model.volumes` (combined "All" scope) would
+        // therefore merge - and crash - the volume layer. When more than one host
+        // is in scope, give each its own top-level node built from ITS OWN files
+        // + volumes; a single host (or a scoped view) skips the host layer.
+        let hosts = model.activeEvidenceID
+            .map { id in model.evidenceList.filter { $0.id == id } } ?? model.evidenceList
+
+        guard hosts.count > 1 else {
+            let files = model.files.filter(isVisible)
+            tree = FileNode.buildTree(from: files, volumes: model.volumes)
+            return
+        }
+
+        tree = hosts.compactMap { host in
+            let (allFiles, volumes) = model.hostFileTree(host.id)
+            let files = allFiles.filter(isVisible)
+            guard !files.isEmpty else { return nil }
+            return FileNode(id: "host:\(host.id)",
+                            name: "\(host.displayName) — \(files.count.formatted()) files",
+                            entry: nil,
+                            children: FileNode.buildTree(from: files, volumes: volumes),
+                            isHost: true)
+        }
     }
 
     private func byteString(_ bytes: Int64) -> String {
@@ -85,11 +108,12 @@ struct EvidenceTreeView: View {
         List {
             OutlineGroup(tree, children: \.children) { node in
                 HStack {
-                    Image(systemName: node.isVolume ? "internaldrive"
+                    Image(systemName: node.isHost ? "desktopcomputer"
+                          : node.isVolume ? "internaldrive"
                           : ((node.entry?.isDirectory ?? true) ? "folder" : "doc"))
-                        .foregroundStyle(node.isVolume ? Color.accentColor : .secondary)
+                        .foregroundStyle(node.isHost || node.isVolume ? Color.accentColor : .secondary)
                     Text(node.name)
-                        .fontWeight(node.isVolume ? .semibold : .regular)
+                        .fontWeight(node.isHost || node.isVolume ? .semibold : .regular)
                     if node.entry?.isDeleted == true {
                         Text("deleted").font(.caption2)
                             .padding(.horizontal, 5).padding(.vertical, 1)
@@ -159,11 +183,12 @@ private struct FileDetailView: View {
 /// Tree node built from flat FileEntry paths, for OutlineGroup. `nonisolated`
 /// + Sendable so the (pure) builder can run off the main actor.
 nonisolated struct FileNode: Identifiable, Sendable {
-    let id: String        // full path, or "vol:<fsID>" for a volume node
+    let id: String        // full path, or "vol:<fsID>" for a volume node, or "host:<uuid>"
     let name: String
     var entry: FileEntry?
     var children: [FileNode]?
     var isVolume = false
+    var isHost = false
 
     /// Build the evidence tree. When the files span more than one filesystem
     /// (the usual case for a disk image: EFI FAT + main NTFS + recovery NTFS),
@@ -174,8 +199,13 @@ nonisolated struct FileNode: Identifiable, Sendable {
         let fsIDs = Set(files.compactMap { $0.fsID })
         guard fsIDs.count > 1 else { return buildSubtree(from: files) }
 
+        // De-dup on volume id for BOTH maps: a combined multi-host scope can hand
+        // us several hosts' volume lists whose TSK fs_obj_ids collide (each host
+        // restarts at 2). `uniqueKeysWithValues` would TRAP on the duplicate, so
+        // keep the first like `labels` does. (The view also groups by host above,
+        // so within one host these ids are already distinct - this is defensive.)
         let labels = Dictionary(volumes.map { ($0.id, $0.label) }, uniquingKeysWith: { a, _ in a })
-        let order  = Dictionary(uniqueKeysWithValues: volumes.enumerated().map { ($1.id, $0) })
+        let order  = Dictionary(volumes.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { a, _ in a })
         var byFS: [Int64: [FileEntry]] = [:]
         var unassigned: [FileEntry] = []
         for file in files {

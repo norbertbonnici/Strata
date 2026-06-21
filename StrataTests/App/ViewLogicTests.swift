@@ -94,6 +94,24 @@ struct ViewLogicTests {
         #expect(eachHasMFT)
     }
 
+    /// A combined multi-host scope concatenates each host's volume list, whose
+    /// TSK fs_obj_ids restart at 2 and therefore collide. buildTree must not trap
+    /// on the duplicate ids (regression: `Dictionary(uniqueKeysWithValues:)`
+    /// "Fatal error: Duplicate values for key" when opening a multi-host case).
+    @Test func duplicateVolumeIDsAcrossHostsDoNotCrash() {
+        let a = file(id: 1, name: "$MFT", parent: "/", fs: 2)
+        let b = file(id: 2, name: "$MFT", parent: "/", fs: 3)
+        let volumes = [
+            VolumeInfo(id: 2, fsType: "NTFS", offsetBytes: 100, sizeBytes: 1000),
+            VolumeInfo(id: 3, fsType: "NTFS", offsetBytes: 200, sizeBytes: 500),
+            VolumeInfo(id: 2, fsType: "NTFS", offsetBytes: 300, sizeBytes: 700), // dup id from another host
+        ]
+        let roots = FileNode.buildTree(from: [a, b], volumes: volumes)
+        let allVolumes = roots.allSatisfy(\.isVolume)
+        #expect(roots.count == 2)                  // grouped by the two distinct fsIDs, no trap
+        #expect(allVolumes)
+    }
+
     @Test func singleFilesystemSkipsVolumeLayer() {
         let f = file(id: 1, name: "cmd.exe", parent: "/Windows/", fs: 462)
         let roots = FileNode.buildTree(

@@ -600,6 +600,14 @@ final class AppModel: ObservableObject {
         if let id = activeEvidenceID { return states[id]?.volumes ?? [] }
         return evidenceList.flatMap { states[$0.id]?.volumes ?? [] }
     }
+    /// One host's files + volumes, kept un-flattened so the evidence tree can
+    /// render a per-host subtree. The rolled-up `files`/`volumes` collide on the
+    /// per-host TSK `fs_obj_id` in the combined scope, so a multi-host file tree
+    /// must build each host from its own state.
+    func hostFileTree(_ id: UUID) -> (files: [FileEntry], volumes: [VolumeInfo]) {
+        let state = states[id]
+        return (state?.files ?? [], state?.volumes ?? [])
+    }
     var events: [EventLogRecord] { derived().events }
     var timeline: [TimelineEvent] { derived().timeline }
     var findings: [Finding] {
