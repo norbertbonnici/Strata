@@ -70,18 +70,43 @@ public nonisolated struct FindingsSummarizer: Sendable {
 
     // MARK: - Generation
 
-    /// Approximate character budget per model request, a conservative proxy for
-    /// the on-device context window. The aggregated digest is summarized in
-    /// batches under this budget, then the batch summaries are combined - the
-    /// long-input recipe Apple documents for `LanguageModelSession`.
-    private static let promptBudget = 6_000
-
-    /// Cap on the number of aggregated technique groups fed to the model. A case
-    /// can have hundreds of repetitive analyzer hits; aggregation collapses them
-    /// by technique, and this cap bounds the worst case so generation stays
-    /// responsive (one or two model calls, not dozens). Omitted groups are noted
-    /// in the digest so the model - and reader - know the view is truncated.
+    /// Floor for the number of aggregated technique groups fed to the model, and
+    /// the value `digestGroupCap(forWindow:)` never drops below — so no backend
+    /// narrates less of a case than this. A case can have hundreds of repetitive
+    /// analyzer hits; aggregation collapses them by technique, and this bounds the
+    /// worst case. Omitted groups are noted in the digest so the model — and
+    /// reader — know the view is truncated.
     static let maxDigestGroups = 60
+
+    /// Coarse token estimate (~4 chars/token, rounded up). Used only to size
+    /// requests against a backend's context window — not a real tokenizer.
+    static func estimateTokens(_ text: String) -> Int { (text.count + 3) / 4 }
+
+    /// Character budget for a single model request, derived from the selected
+    /// backend's context window. Reserves tokens for the instructions, the
+    /// guided-generation schema, the lookup-tool definitions, and the model's own
+    /// output, then converts the remaining *input* allowance to characters at a
+    /// deliberately low ~3 chars/token so a path-dense forensic digest still fits.
+    /// Floored so a tiny window still makes progress. Replacing the old fixed
+    /// 6,000-char budget is what makes batching correct for the *smallest*
+    /// selected window (on-device) rather than coincidentally safe at one guess —
+    /// and on a wide window (Apple PCC's 32k) it lets the whole digest go in one
+    /// call instead of needlessly fragmenting into many round-trips.
+    static func promptBudgetChars(forWindow window: Int) -> Int {
+        let reserveTokens = 3_000            // instructions + schema + tools + output
+        let inputTokens = max(800, window - reserveTokens)
+        return max(2_000, inputTokens * 3)
+    }
+
+    /// How many aggregated technique groups to feed the model, scaled to the
+    /// window: a wide window (Apple PCC / cloud) narrates much more of a large
+    /// case; a narrow one (on-device) stays terse. Floored at `maxDigestGroups`
+    /// so no backend regresses below today's coverage, and ceiling-capped so a
+    /// pathological all-distinct-technique case still terminates into the
+    /// multi-batch + bounded-merge path rather than an unbounded prompt.
+    static func digestGroupCap(forWindow window: Int) -> Int {
+        min(600, max(maxDigestGroups, window / 110))
+    }
 
     /// Generate an executive summary of `findings`. Throws `SummarizerError`
     /// when there is nothing to summarize or the model is unavailable, and
@@ -100,9 +125,10 @@ public nonisolated struct FindingsSummarizer: Sendable {
         }
 
         // Aggregate hundreds of findings into a compact, deduplicated digest,
-        // then split that under the prompt budget.
-        let lines = Self.digestLines(findings)
-        let batches = Self.batch(lines, underBudget: Self.promptBudget)
+        // then split that under the on-device window's prompt budget.
+        let window = OnDeviceBackend().contextWindowTokens
+        let lines = Self.digestLines(findings, maxGroups: Self.digestGroupCap(forWindow: window))
+        let batches = Self.batch(lines, underBudget: Self.promptBudgetChars(forWindow: window))
 
         if batches.count == 1 {
             progress?(0, 1)
@@ -167,9 +193,16 @@ public nonisolated struct FindingsSummarizer: Sendable {
                 ?? "The selected inference backend is unavailable.")
         }
 
-        let (items, _) = Self.digest(findings)
-        let lines = Self.digestLines(findings)
-        let batches = Self.batch(lines, underBudget: Self.promptBudget)
+        // Size the digest cap and the per-request batch budget to the *selected*
+        // backend's context window, so a 60k-finding case fits whatever window is
+        // in play (on-device is tightest; Apple PCC is 32k; cloud is far larger).
+        let window = backend.contextWindowTokens
+        let budget = Self.promptBudgetChars(forWindow: window)
+        let groupCap = Self.digestGroupCap(forWindow: window)
+
+        let (items, _) = Self.digest(findings, maxGroups: groupCap)
+        let lines = Self.digestLines(findings, maxGroups: groupCap)
+        let batches = Self.batch(lines, underBudget: budget)
         let validator = SummaryValidator(idMap: Self.idMap(items), knownPaths: fileIndex)
         let context = InferenceContext(lookup: lookupIndex, knownPaths: fileIndex)
 
@@ -182,7 +215,8 @@ public nonisolated struct FindingsSummarizer: Sendable {
                 context: context)
         } else {
             proposed = try await structuredMultiBatch(backend: backend, context: context,
-                                                      batches: batches, progress: progress)
+                                                      batches: batches, total: findings.count,
+                                                      budgetChars: budget, progress: progress)
         }
         return validator.validate(proposed)
     }
@@ -202,12 +236,14 @@ public nonisolated struct FindingsSummarizer: Sendable {
     private func structuredMultiBatch(backend: any InferenceBackend,
                                       context: InferenceContext,
                                       batches: [[String]],
+                                      total: Int,
+                                      budgetChars: Int,
                                       progress: (@Sendable (Int, Int) -> Void)?) async throws -> ProposedSummary {
-        let total = batches.count + 1   // one pass per batch + the overview synthesis
+        let progressTotal = batches.count + 1   // one pass per batch + the overview synthesis
         var sectionClaims: [[ProposedClaim]] = []
         sectionClaims.reserveCapacity(batches.count)
         for (index, batch) in batches.enumerated() {
-            progress?(index, total)
+            progress?(index, progressTotal)
             let claims = try await backend.proposeClaims(
                 instructions: Self.structuredSectionInstructions,
                 prompt: Self.sectionPrompt(lines: batch),
@@ -216,26 +252,113 @@ public nonisolated struct FindingsSummarizer: Sendable {
         }
         let merged = Self.mergeProposedClaims(sectionClaims)
 
-        progress?(batches.count, total)
-        // Synthesise the overview from the merged claims (degenerate empty-merge
-        // case: fall back to summarising the raw digest lines so the user still
-        // gets a non-empty narrative). The validator path-scans it either way.
+        progress?(batches.count, progressTotal)
+        // Synthesise the overview WITHOUT ever building a prompt larger than the
+        // window. This is the one place the old flat path could overflow: with
+        // many batches, the merged-claims prompt (or the empty-merge fallback,
+        // which previously re-fed *every* digest line at once) could exceed the
+        // window and throw an opaque model error. Both branches now reduce
+        // hierarchically under `budgetChars`.
         let overview: String
         if merged.isEmpty {
-            let allLines = batches.flatMap { $0 }
-            overview = try await backend.synthesizeOverview(
-                instructions: Self.executiveInstructions,
-                prompt: Self.executivePrompt(lines: allLines, total: allLines.count))
+            // No claims survived: summarise each (already budget-sized) batch,
+            // then combine the partials under budget — never the whole digest.
+            var partials: [String] = []
+            partials.reserveCapacity(batches.count)
+            for batch in batches {
+                partials.append(try await backend.synthesizeOverview(
+                    instructions: Self.sectionInstructions,
+                    prompt: Self.sectionPrompt(lines: batch)))
+            }
+            overview = try await combineBounded(backend: backend, partials: partials,
+                                                total: total, budgetChars: budgetChars)
         } else {
-            // Show the model the claims in severity order so "lead with the most
-            // severe" matches what it sees (the kept claims are re-sorted by the
-            // validator regardless; `claims: merged` below is unchanged).
+            // Severity order so "lead with the most severe" matches what the
+            // model sees (the validator re-sorts the kept claims regardless).
             let ordered = merged.sorted { ($0.severity, $0.findingRefs.count) > ($1.severity, $1.findingRefs.count) }
-            overview = try await backend.synthesizeOverview(
-                instructions: Self.executiveInstructions,
-                prompt: Self.overviewFromClaimsPrompt(ordered))
+            overview = try await overviewFromClaimsBounded(backend: backend, claims: ordered,
+                                                           total: total, budgetChars: budgetChars)
         }
         return ProposedSummary(overview: overview, claims: merged)
+    }
+
+    /// Synthesize one overview from severity-ordered claims without exceeding
+    /// `budgetChars`. If the whole claims prompt fits, it's one call; otherwise
+    /// the claims are packed into budget-sized chunks, each chunk summarised, and
+    /// the partials combined (recursively). Only the final prose is unvalidated;
+    /// the citeable record stays the merged `claims`, which the caller validates.
+    private func overviewFromClaimsBounded(backend: any InferenceBackend,
+                                           claims: [ProposedClaim],
+                                           total: Int,
+                                           budgetChars: Int) async throws -> String {
+        let chunks = Self.chunk(claims, budgetChars: budgetChars) { Self.overviewFromClaimsPrompt($0) }
+        if chunks.count <= 1 {
+            return try await backend.synthesizeOverview(
+                instructions: Self.executiveInstructions,
+                prompt: Self.overviewFromClaimsPrompt(claims))
+        }
+        var partials: [String] = []
+        partials.reserveCapacity(chunks.count)
+        for chunk in chunks {
+            partials.append(try await backend.synthesizeOverview(
+                instructions: Self.sectionInstructions,
+                prompt: Self.overviewFromClaimsPrompt(chunk)))
+        }
+        return try await combineBounded(backend: backend, partials: partials,
+                                        total: total, budgetChars: budgetChars)
+    }
+
+    /// Combine prose partials into one overview, never exceeding `budgetChars`.
+    /// If the combine prompt fits (or there's one partial), it's a single call;
+    /// otherwise partials are grouped under budget, each group combined, and the
+    /// result reduced again. Terminates because each pass strictly shrinks the
+    /// count (or falls through to a best-effort direct combine).
+    private func combineBounded(backend: any InferenceBackend,
+                                partials: [String],
+                                total: Int,
+                                budgetChars: Int) async throws -> String {
+        guard partials.count > 1 else { return partials.first ?? "" }
+        let prompt = Self.combinePrompt(partials: partials, total: total)
+        if prompt.count <= budgetChars {
+            return try await backend.synthesizeOverview(
+                instructions: Self.executiveInstructions, prompt: prompt)
+        }
+        let groups = Self.chunk(partials, budgetChars: budgetChars) { Self.combinePrompt(partials: $0, total: total) }
+        guard groups.count > 1, groups.count < partials.count else {
+            // Can't reduce further (each partial already ~budget): best-effort
+            // direct combine rather than loop forever. Partials are bounded model
+            // outputs, so this is reachable only pathologically.
+            return try await backend.synthesizeOverview(
+                instructions: Self.executiveInstructions, prompt: prompt)
+        }
+        var reduced: [String] = []
+        reduced.reserveCapacity(groups.count)
+        for group in groups {
+            reduced.append(try await backend.synthesizeOverview(
+                instructions: Self.sectionInstructions,
+                prompt: Self.combinePrompt(partials: group, total: total)))
+        }
+        return try await combineBounded(backend: backend, partials: reduced,
+                                        total: total, budgetChars: budgetChars)
+    }
+
+    /// Greedily pack `items` into groups whose rendered `prompt` stays under
+    /// `budgetChars`. A single item whose own prompt already exceeds the budget
+    /// forms its own (oversized) group — best effort, but a single digest
+    /// claim/line is far smaller than any real window.
+    static func chunk<T>(_ items: [T], budgetChars: Int, prompt: ([T]) -> String) -> [[T]] {
+        var groups: [[T]] = []
+        var current: [T] = []
+        for item in items {
+            if !current.isEmpty, prompt(current + [item]).count > budgetChars {
+                groups.append(current)
+                current = [item]
+            } else {
+                current.append(item)
+            }
+        }
+        if !current.isEmpty { groups.append(current) }
+        return groups
     }
 
     /// Merge per-batch proposed claims, de-duplicating by normalised statement
@@ -361,7 +484,8 @@ public nonisolated struct FindingsSummarizer: Sendable {
     /// then frequency; a case with hundreds of repetitive analyzer hits collapses
     /// to a few dozen items, which is both far cheaper to summarize and a better
     /// executive view.
-    static func digest(_ findings: [Finding]) -> (items: [DigestItem], omittedCount: Int) {
+    static func digest(_ findings: [Finding],
+                       maxGroups: Int = maxDigestGroups) -> (items: [DigestItem], omittedCount: Int) {
         struct Group { var rep: Finding; var count: Int; var maxSeverity: Severity }
         var groups: [String: Group] = [:]
         var order: [String] = []
@@ -380,7 +504,7 @@ public nonisolated struct FindingsSummarizer: Sendable {
 
         let sorted = order.compactMap { groups[$0] }
             .sorted { ($0.maxSeverity, $0.count) > ($1.maxSeverity, $1.count) }
-        let capped = Array(sorted.prefix(maxDigestGroups))
+        let capped = Array(sorted.prefix(max(0, maxGroups)))
         let items = capped.enumerated().map { index, g in
             DigestItem(id: String(format: "F%02d", index + 1),
                        rep: g.rep, count: g.count, maxSeverity: g.maxSeverity)
@@ -397,8 +521,9 @@ public nonisolated struct FindingsSummarizer: Sendable {
     /// embedding each item's citation ID so the model can reference it. This is
     /// the text fed to the model in both the prose and structured paths; groups
     /// are sorted by max severity then frequency, with the omitted count noted.
-    static func digestLines(_ findings: [Finding]) -> [String] {
-        let (items, omitted) = digest(findings)
+    static func digestLines(_ findings: [Finding],
+                            maxGroups: Int = maxDigestGroups) -> [String] {
+        let (items, omitted) = digest(findings, maxGroups: maxGroups)
         var lines = items.map { line(for: $0) }
         if omitted > 0 {
             lines.append("- (+\(omitted) more lower-severity finding group(s) omitted for brevity)")

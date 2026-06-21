@@ -119,4 +119,100 @@ struct FindingsSummarizerTests {
         defer { try? fm.removeItem(at: empty) }
         #expect(try CaseStore.readSummary(in: empty) == nil)
     }
+
+    // MARK: - Window-aware budgeting (60k findings / small window)
+
+    @Test func windowDerivedBudgetAndCapScaleWithWindow() {
+        let onDevice = OnDeviceBackend().contextWindowTokens               // 4_096
+        let pcc = 32_000   // PrivateCloudComputeBackend is macOS-27-gated; its window
+        let cloud = CloudInferenceBackend(apiKey: nil).contextWindowTokens  // 200_000
+
+        // Budget grows with the window — the whole point: PCC's 32k holds far
+        // more per request than the on-device window.
+        #expect(FindingsSummarizer.promptBudgetChars(forWindow: onDevice)
+                < FindingsSummarizer.promptBudgetChars(forWindow: pcc))
+        #expect(FindingsSummarizer.promptBudgetChars(forWindow: pcc)
+                < FindingsSummarizer.promptBudgetChars(forWindow: cloud))
+
+        // Group cap is floored at maxDigestGroups, scales up with the window,
+        // and is ceiling-capped so a pathological case still terminates.
+        #expect(FindingsSummarizer.digestGroupCap(forWindow: onDevice) == FindingsSummarizer.maxDigestGroups)
+        #expect(FindingsSummarizer.digestGroupCap(forWindow: pcc) > FindingsSummarizer.maxDigestGroups)
+        #expect(FindingsSummarizer.digestGroupCap(forWindow: cloud) == 600)
+        #expect(FindingsSummarizer.digestGroupCap(forWindow: 100) == FindingsSummarizer.maxDigestGroups)  // floor
+    }
+
+    @Test func digestHonorsExplicitMaxGroups() {
+        let findings = (0..<40).map { Self.finding("t\($0)", severity: .low, attackID: "T\(2000 + $0)") }
+        let (items, omitted) = FindingsSummarizer.digest(findings, maxGroups: 5)
+        #expect(items.count == 5)
+        #expect(omitted == 35)
+        #expect(FindingsSummarizer.digest(findings, maxGroups: 600).items.count == 40)
+        // Default is unchanged for existing callers.
+        #expect(FindingsSummarizer.digest(findings).items.count == min(40, FindingsSummarizer.maxDigestGroups))
+    }
+
+    @Test func chunkPacksItemsUnderBudgetAndLosesNone() {
+        let items = (0..<20).map { "item\($0)" }
+        let render: ([String]) -> String = { $0.joined(separator: ",") }
+        let groups = FindingsSummarizer.chunk(items, budgetChars: 30) { render($0) }
+        #expect(groups.count > 1)
+        #expect(groups.allSatisfy { render($0).count <= 30 || $0.count == 1 })
+        #expect(groups.flatMap { $0 } == items)   // order preserved, nothing dropped
+    }
+
+    /// Scriptable backend that records every prompt it's asked to run, so a test
+    /// can assert the summarizer never builds a prompt larger than the window.
+    private final class RecordingBackend: InferenceBackend, @unchecked Sendable {
+        let label = "Test"
+        let sovereignty: SovereigntyTier = .onDevice
+        let contextWindowTokens: Int
+        private(set) var prompts: [String] = []
+        private var claimCounter = 0
+        init(window: Int) { contextWindowTokens = window }
+        func availability() -> SummarizerAvailability { .available }
+        func proposeSummary(instructions: String, prompt: String, context: InferenceContext) async throws -> ProposedSummary {
+            prompts.append(prompt)
+            return ProposedSummary(overview: "overview", claims: [
+                ProposedClaim(statement: "activity", phase: .installation, severity: .high, findingRefs: ["F01"])])
+        }
+        func proposeClaims(instructions: String, prompt: String, context: InferenceContext) async throws -> [ProposedClaim] {
+            prompts.append(prompt)
+            let start = claimCounter; claimCounter += 25
+            return (start..<(start + 25)).map {
+                ProposedClaim(statement: "distinct attacker activity number \($0) observed across hosts and files",
+                              phase: .installation, severity: .high, findingRefs: ["F01"])
+            }
+        }
+        func synthesizeOverview(instructions: String, prompt: String) async throws -> String {
+            prompts.append(prompt)
+            return "partial overview"
+        }
+    }
+
+    @Test func multiBatchOverviewNeverExceedsTheWindow() async throws {
+        // Regression for the unguarded final merge that threw LanguageModelError
+        // -1 on a large case: force the multi-batch path with a tiny window and a
+        // claim-heavy backend, then assert NO prompt exceeds the window and the
+        // summary still generates. Under the old flat path the merged-claims
+        // overview prompt (125 claims) far exceeds this window.
+        let window = 1_500
+        let backend = RecordingBackend(window: window)
+        let findings = (0..<120).map {
+            Self.finding("technique \($0) with some descriptive text", severity: .high,
+                         attackID: "T\(3000 + $0)", detail: String(repeating: "d", count: 120))
+        }
+        let result = try await FindingsSummarizer().summarizeStructured(findings: findings, backend: backend)
+
+        #expect(!result.overview.isEmpty)
+        #expect(backend.prompts.count > 1)   // genuinely multi-batch
+        // The invariant that lets a 60k case generate: every prompt fits the window.
+        #expect(backend.prompts.allSatisfy { FindingsSummarizer.estimateTokens($0) <= window })
+        // Sanity: the naive single overview of all merged claims WOULD have
+        // overflowed (proving the guard did real work).
+        let flatOverview = (0..<125).map {
+            "- [High] distinct attacker activity number \($0) observed across hosts and files"
+        }.joined(separator: "\n")
+        #expect(FindingsSummarizer.estimateTokens(flatOverview) > window)
+    }
 }
