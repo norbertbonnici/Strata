@@ -14,7 +14,7 @@ public nonisolated enum TimelineBuilder {
     /// UI exposes this as a toggle; the iOS load path forces it on because
     /// the timeline simply won't fit in phone memory otherwise.
     public static func isSlackEntry(_ file: FileEntry) -> Bool {
-        file.name.hasSuffix("-slack")
+        file.isSlackEntry
     }
 
     public static func build(from files: [FileEntry],

@@ -46,6 +46,12 @@ public nonisolated struct FileEntry: Identifiable, Hashable, Sendable, Codable {
         (name as NSString).pathExtension.lowercased()
     }
 
+    /// True for a TSK `<name>-slack` pseudo-entry: the unused tail of an
+    /// allocated cluster, not a real file. Content/extension analysis must skip
+    /// these — their `fileExtension` is the misleading `"slack"`, and reading
+    /// their bytes recovers forensically-meaningless (or reallocated) data.
+    public var isSlackEntry: Bool { name.hasSuffix("-slack") }
+
     /// Normalize a directory path for "is child of" comparison: strip a trailing
     /// slash and represent root as "". TSK records parentPath WITH a trailing
     /// slash ("/Windows/"); the KAPE walk records it WITHOUT ("/Windows"). The

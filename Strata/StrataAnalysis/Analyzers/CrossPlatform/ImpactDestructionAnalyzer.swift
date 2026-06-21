@@ -293,7 +293,12 @@ public nonisolated struct ImpactDestructionAnalyzer: Analyzer {
             byExtension[ext, default: []].insert(name.lowercased())
             if evidenceByExtension[ext] == nil { evidenceByExtension[ext] = evidence }
         }
-        for f in files where !f.isDirectory {
+        // Skip TSK `<name>-slack` pseudo-entries: their `fileExtension` is the
+        // misleading "slack", so a normal image's thousands of them would clear
+        // the burst threshold and fabricate a bogus mass-"encryption" burst —
+        // which then drives the AppModel entropy sampler to extract and read
+        // slack-space bytes for no forensic signal.
+        for f in files where !f.isDirectory && !f.isSlackEntry {
             note(f.name, ext: f.fileExtension, evidence: f.fullPath)
         }
         for r in usn where !r.isDirectory {
