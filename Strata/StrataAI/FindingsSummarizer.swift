@@ -103,34 +103,66 @@ public nonisolated struct FindingsSummarizer: Sendable {
             }
         }
 
-        // 2. Heuristic path — FoundationModels can surface the failure as a bridged
-        //    NSError whose `localizedDescription` collapses to "error -1"; the
-        //    *debug* description still names the case. Also covers the typed cast
-        //    failing across an async/actor boundary. Never let it stay "error -1".
-        let detail = String(reflecting: error)
-        let lower = detail.lowercased()
+        // 2. Heuristic path — FoundationModels often surfaces the failure as a
+        //    bridged NSError whose localizedDescription collapses to "error -1",
+        //    and wraps the *real* reasons in NSUnderlyingError /
+        //    NSMultipleUnderlyingErrorsKey. Flatten to the leaf errors so the
+        //    genuine cause is matched + shown instead of the opaque aggregate.
         let ns = error as NSError
-        let isFoundationModels = ns.domain.contains("FoundationModels")
-            || ns.domain.contains("LanguageModel") || lower.contains("languagemodel")
-        guard isFoundationModels else { return nil }
-        if lower.contains("guardrail") || lower.contains("refus") || lower.contains("safety") {
+        let leaves = leafErrors(ns)
+        let blob = (([String(reflecting: error)]
+                     + leaves.map { "\($0.domain) \($0.code) \(String(reflecting: $0)) \($0.localizedDescription)" })
+                    .joined(separator: "  ")).lowercased()
+        guard blob.contains("foundationmodels") || blob.contains("languagemodel")
+                || blob.contains("privatecloudcompute") else { return nil }
+
+        if blob.contains("guardrail") || blob.contains("refus") || blob.contains("safety") {
             return guardrailAdvice(backendLabel)
         }
-        if lower.contains("context") && (lower.contains("exceed") || lower.contains("size")) {
+        if blob.contains("context") && (blob.contains("exceed") || blob.contains("size")) {
             return "The case is too large for \(backendLabel)'s context window. Lower the Context "
                 + "window in AI Inference settings, or use a backend with a larger window."
         }
-        if lower.contains("guide") || lower.contains("schema") {
+        if blob.contains("generationguide") || blob.contains("unsupportedguide") || blob.contains("schema") {
             return unsupportedGuideAdvice(backendLabel)
         }
-        if lower.contains("unsupportedcapability") || lower.contains("tool") {
+        if blob.contains("unsupportedcapability") {
             return "\(backendLabel) doesn't support a capability this summary needs (e.g. tool "
                 + "calls). Use On-device or a third-party cloud model."
         }
-        if lower.contains("ratelimit") { return "\(backendLabel) is rate-limited — wait and try again." }
-        if lower.contains("timeout") { return "\(backendLabel) timed out — try again, or lower the Context window." }
-        // Unknown FoundationModels error: surface the real case instead of "error -1".
-        return "\(backendLabel) couldn't generate the summary — \(detail)"
+        if blob.contains("quota") {
+            return "\(backendLabel)'s usage quota is exhausted. Wait for it to reset, or use "
+                + "On-device or a third-party cloud model."
+        }
+        if blob.contains("network") {
+            return "\(backendLabel) hit a network failure reaching Apple's servers. Check "
+                + "connectivity and retry, or use On-device."
+        }
+        if blob.contains("serviceunavailable") || blob.contains("not ready") {
+            return "\(backendLabel) is currently unavailable. Try again shortly, or use On-device."
+        }
+        if blob.contains("ratelimit") { return "\(backendLabel) is rate-limited — wait and try again." }
+        if blob.contains("timeout") { return "\(backendLabel) timed out — try again, or lower the Context window." }
+
+        // Unknown — surface the underlying LEAF errors (domain/code/description),
+        // not the opaque "-1" aggregate, capped so it stays readable.
+        let leafText = leaves.prefix(3)
+            .map { "[\($0.domain) \($0.code)] \($0.localizedDescription)" }
+            .joined(separator: " · ")
+        return "\(backendLabel) couldn't generate the summary — "
+            + (leafText.isEmpty ? String(reflecting: error) : leafText)
+    }
+
+    /// Flatten an NSError's underlying-error tree (NSUnderlyingErrorKey +
+    /// NSMultipleUnderlyingErrorsKey) to its leaves, so an aggregate "-1" wrapper
+    /// doesn't hide the real reasons. Depth-bounded against cycles.
+    private static func leafErrors(_ error: NSError, depth: Int = 0) -> [NSError] {
+        guard depth < 6 else { return [error] }
+        var children: [Error] = []
+        if let u = error.userInfo[NSUnderlyingErrorKey] as? Error { children.append(u) }
+        if let arr = error.userInfo[NSMultipleUnderlyingErrorsKey] as? [Error] { children.append(contentsOf: arr) }
+        guard !children.isEmpty else { return [error] }
+        return children.flatMap { leafErrors($0 as NSError, depth: depth + 1) }
     }
 
     private static func guardrailAdvice(_ backendLabel: String) -> String {
