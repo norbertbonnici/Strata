@@ -5,6 +5,65 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+## [0.1.0-beta.4] — 2026-06-24
+
+Headline: **on-device sovereign AI case summaries** + a **deep macOS triage
+suite**, plus a whole-codebase input-safety audit, parallelised load/carving, and
+an OS-partitioned source reorg. The detailed per-artifact entries below this
+summary accumulated over the cycle.
+
+### Added — On-device AI executive summary: escalation tiers + validation
+
+- Generate a factual, ATT&CK-aware executive summary of a case's findings via
+  Apple Intelligence. Evidence-reference **validation** drops unsupported claims,
+  strips phantom citation IDs, takes severity/phase from the cited findings, and
+  flags invented paths — hallucination containment on top of guided generation.
+- **Three sovereignty tiers** behind one `InferenceBackend` protocol: on-device
+  (`OnDeviceBackend`), **Apple Private Cloud Compute** (`PrivateCloudComputeBackend`,
+  macOS 27), and a credentialed **third-party cloud** (`CloudInferenceBackend`).
+  Egress is gated (first-run confirm keyed on destination), labeled, and logged to
+  the chain of custody; only finding summaries ever leave. Token in the Keychain.
+- **Tool-calling** (`lookupFile` / `lookupDownloadOrigin`), **multi-batch merge**
+  for large cases, **backend-window-aware** budgeting + a **configurable context
+  window** per backend (settings sheet), and a **self-eval** harness (recall /
+  confabulation / validator containment).
+
+### Added — macOS triage suite (reads APFS content via fsapfscat)
+
+- **Messages** (`chat.db`) + suspicious-link analyzer; **Mail** (Envelope Index)
+  + inbound-phishing analyzer.
+- **Background Task Management** (`*.btm`) + analyzer; **kernel + System
+  Extensions** inventory + analyzer.
+- **Network & Devices** (Wi-Fi / DHCP / Bluetooth / Time Machine / iOS pairings)
+  + Time-Machine-to-network analyzer; macOS **host IP** on the Overview.
+- **QuickLook & Trash**, **Document Versions**, **Notification Center**,
+  **Powerlog** (process execution with PIDs) + analyzer, **Install history** +
+  analyzer, **Configuration posture** (firewall / screen-lock / remote services /
+  Gatekeeper) + analyzer.
+- **Download Origins** (`kMDItemWhereFroms` xattr) + raw-IP / anon-share analyzer.
+- New artifact types **backfill automatically** when a case parsed by an older
+  build is reopened.
+
+### Changed — engineering
+
+- Source reorganized by OS family under `Platforms/<OS>/` (parsers + models +
+  analyzers + views); `StrataCore` slimmed to cross-cutting code;
+  `ARCHITECTURE.md` placement guide; SwiftLint + a structure-guard CI check.
+- `AppModel` split from one ~6,000-line file into per-concern `extension AppModel`
+  files. Case load + file carving parallelised across performance cores.
+
+### Fixed
+
+- **AI summary failed on very large cases** — fixed-size batching overflowed the
+  window; now sized to the selected backend's window with bounded multi-level
+  reduction. Plus a clear decode of FoundationModels errors (the real case, not
+  the opaque "error -1").
+- **GRDB** pinned to a version instead of tracking the `master` branch.
+- **TSK `<name>-slack` pseudo-entries** excluded from the ransomware
+  entropy-burst scan and the macOS WhereFroms xattr reads — they were wasting
+  extractions and fabricating a spurious `slack` "encryption" burst on every load.
+- **Multi-host evidence-tree** view crash + corruption.
+
 ### Added — macOS KnowledgeC (behavioural activity timeline)
 
 Strata now parses the macOS **KnowledgeC** store (`knowledgeC.db`, CoreDuet) —
