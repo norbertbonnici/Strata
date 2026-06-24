@@ -143,6 +143,15 @@ public nonisolated struct FindingsSummarizer: Sendable {
         }
         if blob.contains("ratelimit") { return "\(backendLabel) is rate-limited — wait and try again." }
         if blob.contains("timeout") { return "\(backendLabel) timed out — try again, or lower the Context window." }
+        if blob.contains("modelmanager") {
+            let codes = leaves.map { String($0.code) }.filter { $0 != "0" }.joined(separator: "/")
+            return "\(backendLabel)'s model service couldn't fulfill the request"
+                + (codes.isEmpty ? "" : " (Apple ModelManagerError \(codes))")
+                + ". The readiness check passed but Apple couldn't provision/serve the model — "
+                + "usually a Private Cloud Compute provisioning or transient service issue on Apple's "
+                + "side, not the case data or its size. Try again shortly, confirm Apple Intelligence "
+                + "is fully set up, or use On-device / a third-party cloud model."
+        }
 
         // Unknown — surface the underlying LEAF errors (domain/code/description),
         // not the opaque "-1" aggregate, capped so it stays readable.
