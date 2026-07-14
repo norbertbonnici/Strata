@@ -113,6 +113,9 @@ extension AppModel {
                 switch outcome {
                 case .loaded(let state):
                     states[evidence.id] = state
+                case .loadedWithWarning(let state, let message):
+                    states[evidence.id] = state
+                    statusMessage = message
                 case .skippedSilently:
                     break
                 case .skipped(let message):
@@ -162,6 +165,9 @@ extension AppModel {
     /// or a load error) for the status bar.
     private nonisolated enum HostLoadOutcome: Sendable {
         case loaded(EvidenceState)
+        /// Loaded, but with a caveat worth surfacing (e.g. a loose host whose
+        /// source folder is gone: cached artifacts loaded, file tree could not).
+        case loadedWithWarning(EvidenceState, String)
         case skippedSilently
         case skipped(String)
     }
@@ -182,22 +188,34 @@ extension AppModel {
         do {
             var state: EvidenceState
             var timeline: [TimelineEvent]
+            var loadWarning: String?
             if evidence.kind == .kapeLooseFolder {
                 let root = evidence.sourceURL
-                guard FileManager.default.fileExists(atPath: root.path) else {
-                    return .skipped("\(evidence.displayName): source folder missing at \(root.path)")
+                if FileManager.default.fileExists(atPath: root.path) {
+                    var files = KapeFolderIngestor().ingest(folderAt: root)
+                    #if !os(macOS)
+                    files.removeAll(where: TimelineBuilder.isSlackEntry)
+                    #endif
+                    state = EvidenceState(dbURL: nil)
+                    state.files = files
+                    #if os(macOS)
+                    timeline = TimelineBuilder.build(from: files)
+                    #else
+                    timeline = []
+                    #endif
+                } else {
+                    // The collection folder is gone (moved / unmounted / archived),
+                    // so the file tree + FS-MACB can't be re-walked. But the parsed
+                    // artifacts — events.json, findings.json, iocmatches.json and
+                    // every timeline source — live self-contained in the bundle and
+                    // need no source folder. Load with an empty tree (and a warning)
+                    // instead of dropping the host, so the examiner's findings don't
+                    // vanish with the collection folder.
+                    state = EvidenceState(dbURL: nil)
+                    state.files = []
+                    timeline = []
+                    loadWarning = "\(evidence.displayName): source folder missing at \(root.path) — showing cached artifacts only (file tree unavailable)."
                 }
-                var files = KapeFolderIngestor().ingest(folderAt: root)
-                #if !os(macOS)
-                files.removeAll(where: TimelineBuilder.isSlackEntry)
-                #endif
-                state = EvidenceState(dbURL: nil)
-                state.files = files
-                #if os(macOS)
-                timeline = TimelineBuilder.build(from: files)
-                #else
-                timeline = []
-                #endif
             } else if evidence.kind == .apfs {
                 // APFS images have no tsk.db; the tree + volumes were persisted
                 // as JSON at ingest. Content is re-extracted on demand via
@@ -455,6 +473,7 @@ extension AppModel {
             state.timeline.sort { $0.date < $1.date }
 
             state.osFamilies = OSFamily.detect(volumes: state.volumes, files: state.files)
+            if let loadWarning { return .loadedWithWarning(state, loadWarning) }
             return .loaded(state)
         } catch {
             // Skip this host but keep going so a single corrupted DB doesn't

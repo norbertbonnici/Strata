@@ -93,6 +93,16 @@ public nonisolated enum CaseStore {
         hostDirectory(forHostID: id, in: bundle).appendingPathComponent(tskFilename)
     }
 
+    /// The in-bundle raw image an E01-derived APFS host is converted to by
+    /// `ewfexport` at ingest (`hosts/<id>/apfs/image_raw.raw` — see
+    /// `FsApfsIngestor`). Deterministic, so it can be rebuilt on load like
+    /// `tskDatabaseURL` when the bundle moves on disk.
+    public static func apfsRawImageURL(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle)
+            .appendingPathComponent("apfs", isDirectory: true)
+            .appendingPathComponent("image_raw.raw")
+    }
+
     public static func eventScratchDirectory(forHostID id: UUID, in bundle: URL) -> URL {
         hostDirectory(forHostID: id, in: bundle)
             .appendingPathComponent("events", isDirectory: true)
@@ -152,6 +162,15 @@ public nonisolated enum CaseStore {
 
     public static func createBundle(at bundle: URL, case theCase: ForensicCase) throws {
         let fm = FileManager.default
+        // Never overwrite an existing case. createDirectory(withIntermediateDirectories:)
+        // is a no-op on an existing directory, so without this guard a name/path
+        // collision truncates the prior case's hosts.json to [] and mints a fresh
+        // case UUID while its append-only custody.json survives — orphaning a
+        // legal-weight chain-of-custody ledger under a case that no longer lists
+        // those hosts. Refuse instead; the UI offers Open.
+        guard !fm.fileExists(atPath: caseFile(in: bundle).path) else {
+            throw CaseStoreError.bundleAlreadyExists(bundle)
+        }
         try fm.createDirectory(at: bundle, withIntermediateDirectories: true)
         try fm.createDirectory(
             at: bundle.appendingPathComponent(hostsDirname, isDirectory: true),
@@ -179,6 +198,19 @@ public nonisolated enum CaseStore {
         // can move on disk without orphaning host references.
         for i in hosts.indices {
             hosts[i].tskDatabaseURL = tskDatabaseURL(forHostID: hosts[i].id, in: bundle)
+            // apfsRawURL *is* persisted (it can point at an external raw/dd source),
+            // but for an E01-derived APFS host it's the in-bundle ewfexport
+            // conversion — an absolute path that breaks the moment the .strata
+            // bundle is moved/renamed/copied, silently killing all APFS content
+            // extraction. Rebuild it against the current bundle whenever that
+            // in-bundle raw exists (mirroring tskDatabaseURL); an external raw
+            // source has no in-bundle file and is left untouched.
+            if hosts[i].apfsRawURL != nil {
+                let inBundleRaw = apfsRawImageURL(forHostID: hosts[i].id, in: bundle)
+                if FileManager.default.fileExists(atPath: inBundleRaw.path) {
+                    hosts[i].apfsRawURL = inBundleRaw
+                }
+            }
         }
         return hosts
     }
@@ -845,6 +877,20 @@ public nonisolated enum CaseStore {
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = .iso8601
         return dec
+    }
+}
+
+/// Errors thrown by `CaseStore` that carry a user-facing reason.
+public enum CaseStoreError: LocalizedError {
+    /// A case bundle already exists at this location. `createBundle` refuses to
+    /// overwrite it (doing so would truncate hosts.json and orphan custody.json).
+    case bundleAlreadyExists(URL)
+
+    public var errorDescription: String? {
+        switch self {
+        case .bundleAlreadyExists(let url):
+            return "A case already exists at “\(url.lastPathComponent)”. Open it instead, or choose a different name/location."
+        }
     }
 }
 

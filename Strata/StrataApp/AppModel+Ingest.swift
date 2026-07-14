@@ -181,6 +181,12 @@ extension AppModel {
                 statusMessage = "Some volumes are still locked — verify the password / recovery key."
             } else {
                 statusMessage = "Unlocked \(state.files.count) files from \(evidence.displayName). Re-running analysis…"
+                // Release the single-flight guard before the re-analysis parsers:
+                // parseMac / parseBrowserHistory open with `guard !isWorking`, so
+                // while unlock still holds it they would silently no-op — defeating
+                // the entire point of unlocking. Each parser re-asserts isWorking
+                // itself (as in a normal parse pass); the outer `defer` restores it.
+                isWorking = false
                 await parseMac()
                 await parseBrowserHistory()
                 await parseMessages()
