@@ -42,6 +42,36 @@ struct IngestReviewFixTests {
         #expect(abs(back.timestamp.timeIntervalSince1970 - 1_700_000_000.123456) < 0.001)
     }
 
+    /// E1: the load path can tell a corrupt artifact from an absent one — the
+    /// reader returns nil when the file is missing (→ no fault, "never parsed")
+    /// but THROWS when the file is present-but-undecodable (→ recorded as an
+    /// ArtifactLoadFault and surfaced, not silently swallowed to empty).
+    @Test func corruptArtifactThrowsWhileAbsentReturnsNil() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("strata-e1-\(UUID().uuidString).strata")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try CaseStore.createBundle(at: dir,
+            case: ForensicCase(name: "t", examiner: "e", createdAt: Date()))
+
+        let host = UUID()
+        // (1) absent → nil (loadArr records no fault; genuinely "never parsed")
+        #expect(try CaseStore.readFindings(forHostID: host, in: dir) == nil)
+
+        let hostDir = CaseStore.hostDirectory(forHostID: host, in: dir)
+        try FileManager.default.createDirectory(at: hostDir, withIntermediateDirectories: true)
+        let findingsURL = hostDir.appendingPathComponent("findings.json")
+
+        // (2) present + valid → decodes non-nil, no throw
+        try Data("[]".utf8).write(to: findingsURL)
+        #expect(try CaseStore.readFindings(forHostID: host, in: dir)?.isEmpty == true)
+
+        // (3) present + corrupt → THROWS (loadArr converts this into a surfaced fault)
+        try Data("{ not valid json".utf8).write(to: findingsURL)
+        #expect(throws: (any Error).self) {
+            _ = try CaseStore.readFindings(forHostID: host, in: dir)
+        }
+    }
+
     #if os(macOS)
     /// B3: `looksEncrypted` matches only encryption-specific tokens, so a plain
     /// I/O error is no longer misread as a FileVault-locked volume (which would

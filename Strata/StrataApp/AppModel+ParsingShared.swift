@@ -47,8 +47,86 @@ extension AppModel {
         await runAllParsers()
         if dataVersion != before {
             await runAnalyzers(recordCustody: false)
+            // Backfill re-parsed available sources and overwrote any corrupt caches
+            // (E1): drop the now-stale load faults for buckets that are populated
+            // again, so the Overview banner stops flagging freshly-rebuilt evidence
+            // as corrupt. Faults for buckets still empty (source gone → unhealable)
+            // remain surfaced.
+            pruneHealedLoadFaults()
         }
         statusMessage = ""
+    }
+
+    /// Drop per-host load faults whose artifact bucket is now populated (a
+    /// re-parse healed the corrupt cache). Unknown labels are kept — conservative,
+    /// so a fault we can't confirm healed is never hidden. Case-wide faults
+    /// (custody etc.) are not touched: backfill can't rebuild them.
+    private func pruneHealedLoadFaults() {
+        for (hostID, hostFaults) in loadFaults {
+            guard let state = states[hostID] else { continue }
+            let remaining = hostFaults.filter { !Self.artifactBucketPopulated($0.artifact, in: state) }
+            loadFaults[hostID] = remaining.isEmpty ? nil : remaining
+        }
+    }
+
+    /// Whether the state bucket behind a load-fault label now holds data. Labels
+    /// mirror `loadEvidenceState`'s `loadArr`/`loadOne` call sites.
+    private static func artifactBucketPopulated(_ artifact: String, in s: EvidenceState) -> Bool {
+        switch artifact {
+        case "Event logs":              return !s.events.isEmpty
+        case "Registry":                return !s.registryValues.isEmpty
+        case "Prefetch":                return !s.prefetch.isEmpty
+        case "Amcache":                 return !s.amcache.isEmpty
+        case "Shimcache":               return !s.shimcache.isEmpty
+        case "LNK shortcuts":           return !s.lnk.isEmpty
+        case "JumpLists":               return !s.jumpList.isEmpty
+        case "USN journal":             return !s.usn.isEmpty
+        case "Recycle Bin":             return !s.recycleBin.isEmpty
+        case "SRUM":                    return !s.srum.isEmpty
+        case "Browser history":         return !s.browserHistory.isEmpty
+        case "$MFT":                    return !s.mft.isEmpty
+        case "WMI persistence":         return !s.wmi.isEmpty
+        case "Launch items":            return !s.launchItems.isEmpty
+        case "Quarantine":              return !s.quarantine.isEmpty
+        case "macOS persistence":       return !s.macPersistence.isEmpty
+        case "FSEvents":                return !s.fsEvents.isEmpty
+        case "Unified log":             return !s.unifiedLog.isEmpty
+        case "TCC":                     return !s.tcc.isEmpty
+        case "KnowledgeC":              return !s.knowledgeC.isEmpty
+        case "Recent items":            return !s.macRecentItems.isEmpty
+        case "macOS security":          return !s.macSecurityEvents.isEmpty
+        case "Carved files":            return !s.carvedFiles.isEmpty
+        case "Extensions":              return !s.kexts.isEmpty
+        case "Background items":        return !s.backgroundItems.isEmpty
+        case "Messages":                return !s.messages.isEmpty
+        case "Mail":                    return !s.mail.isEmpty
+        case "Network & devices":       return !s.network.isEmpty
+        case "QuickLook & Trash":       return !s.userActivity.isEmpty
+        case "Document versions":       return !s.documentVersions.isEmpty
+        case "Notifications":           return !s.notifications.isEmpty
+        case "Powerlog":                return !s.powerlog.isEmpty
+        case "Configuration":           return !s.macConfig.isEmpty
+        case "Installs":                return !s.installHistory.isEmpty
+        case "Download origins":        return !s.whereFroms.isEmpty
+        case "macOS host info":         return s.macInfo != nil
+        case "Auth & logins":           return !s.authLog.isEmpty
+        case "Login records":           return !s.logins.isEmpty
+        case "Shell history":           return !s.shellHistory.isEmpty
+        case "Linux persistence":       return !s.linuxPersistence.isEmpty
+        case "Linux host info":         return s.linuxInfo != nil
+        case "Accounts & SSH":          return s.linuxAccess != nil
+        case "Web access logs":         return !s.webAccess.isEmpty
+        case "Packages":                return !s.packages.isEmpty
+        case "Journal":                 return !s.journald.isEmpty
+        case "Audit":                   return !s.audit.isEmpty
+        case "Syslog":                  return !s.syslog.isEmpty
+        case "Lastlog":                 return !s.lastlog.isEmpty
+        case "Findings":                return !s.findings.isEmpty
+        case "IOC matches":             return !s.iocMatches.isEmpty
+        case "Volumes", "APFS volumes": return !s.volumes.isEmpty
+        case "APFS file tree":          return !s.files.isEmpty
+        default:                        return false   // unknown → keep the fault
+        }
     }
 
     // MARK: - Browser history parsing

@@ -104,6 +104,8 @@ extension AppModel {
             currentCaseBundleURL = bundleURL
             evidenceList = hosts
             states = [:]
+            loadFaults = [:]
+            caseWideLoadFaults = []
             // Show the first host's (briefly empty) scope right away; its
             // working set streams in below.
             activeEvidenceID = hosts.first?.id
@@ -120,11 +122,10 @@ extension AppModel {
                     Self.loadEvidenceState(for: evidence, in: bundleURL)
                 }.value
                 switch outcome {
-                case .loaded(let state):
+                case .loaded(let state, let hostFaults, let warning):
                     states[evidence.id] = state
-                case .loadedWithWarning(let state, let message):
-                    states[evidence.id] = state
-                    statusMessage = message
+                    if !hostFaults.isEmpty { loadFaults[evidence.id] = hostFaults }
+                    if let warning { statusMessage = warning }
                 case .skippedSilently:
                     break
                 case .skipped(let message):
@@ -140,15 +141,33 @@ extension AppModel {
                 activeEvidenceID = hosts.first { states[$0.id] != nil }?.id
             }
 
-            // Case-wide indicators + custody ledger + analyst annotations,
-            // also decoded off-main.
+            // Case-wide indicators + custody ledger + analyst annotations, also
+            // decoded off-main. Same corrupt-vs-absent contract as the per-host
+            // reads (E1): a present-but-undecodable case-wide file is recorded as a
+            // fault, not swallowed to empty — these are NOT re-derivable from a
+            // source image (custody.json is the legal-weight ledger), so a silent
+            // swallow here is unrecoverable.
             let caseWide = await Task.detached(priority: .userInitiated) {
-                (iocs: (try? CaseStore.readIOCs(in: bundleURL)) ?? [],
-                 custody: (try? CaseStore.readCustody(in: bundleURL)) ?? [],
-                 annotations: (try? CaseStore.readAnnotations(in: bundleURL)) ?? [],
-                 notes: (try? CaseStore.readNotes(in: bundleURL)) ?? CaseNotes(),
-                 enrichment: (try? CaseStore.readEnrichment(in: bundleURL)) ?? [],
-                 summary: (try? CaseStore.readSummary(in: bundleURL)) ?? nil)
+                () -> (iocs: [IOC], custody: [CustodyEvent], annotations: [Annotation],
+                       notes: CaseNotes, enrichment: [EnrichmentVerdict],
+                       summary: CaseSummary?, faults: [ArtifactLoadFault]) in
+                var faults: [ArtifactLoadFault] = []
+                func fault(_ artifact: String, _ error: Error) {
+                    faults.append(ArtifactLoadFault(artifact: artifact, reason: error.localizedDescription))
+                }
+                var iocs: [IOC] = []
+                do { iocs = try CaseStore.readIOCs(in: bundleURL) } catch { fault("Case IOCs", error) }
+                var custody: [CustodyEvent] = []
+                do { custody = try CaseStore.readCustody(in: bundleURL) } catch { fault("Chain of custody", error) }
+                var annotations: [Annotation] = []
+                do { annotations = try CaseStore.readAnnotations(in: bundleURL) } catch { fault("Annotations", error) }
+                var notes = CaseNotes()
+                do { notes = try CaseStore.readNotes(in: bundleURL) } catch { fault("Case notes", error) }
+                var enrichment: [EnrichmentVerdict] = []
+                do { enrichment = try CaseStore.readEnrichment(in: bundleURL) } catch { fault("Enrichment", error) }
+                var summary: CaseSummary?
+                do { summary = try CaseStore.readSummary(in: bundleURL) } catch { fault("Case summary", error) }
+                return (iocs, custody, annotations, notes, enrichment, summary, faults)
             }.value
             iocs = caseWide.iocs
             custodyLog = caseWide.custody
@@ -156,10 +175,15 @@ extension AppModel {
             caseNotes = caseWide.notes
             enrichmentVerdicts = caseWide.enrichment
             caseSummary = caseWide.summary
+            caseWideLoadFaults = caseWide.faults
 
             RecentCases.record(bundleURL)
             recentCases = RecentCases.load()
             statusMessage = "Loaded case '\(theCase.name)' (\(hosts.count) host\(hosts.count == 1 ? "" : "s"))."
+            // Corrupt/undecodable cached artifacts are surfaced durably via the
+            // Overview banner (activeLoadFaults) rather than a transient
+            // errorMessage — the open-time backfill's parsers clear errorMessage
+            // within a second on macOS, which would hide the warning (E1).
             #if os(macOS)
             // Resolve the configured inference backend's status now, so the Tools
             // menu's summary actions reflect the real backend even if the analyst
@@ -181,10 +205,11 @@ extension AppModel {
     /// report); `skipped(_)` carries a user-facing reason (missing source folder
     /// or a load error) for the status bar.
     private nonisolated enum HostLoadOutcome: Sendable {
-        case loaded(EvidenceState)
-        /// Loaded, but with a caveat worth surfacing (e.g. a loose host whose
-        /// source folder is gone: cached artifacts loaded, file tree could not).
-        case loadedWithWarning(EvidenceState, String)
+        /// `faults` = cached artifacts that existed but failed to decode (corrupt /
+        /// incompatible), distinct from simply-absent; `warning` = a caveat worth
+        /// surfacing (e.g. a loose host whose source folder is gone: cached
+        /// artifacts loaded, file tree could not).
+        case loaded(EvidenceState, faults: [ArtifactLoadFault], warning: String?)
         case skippedSilently
         case skipped(String)
     }
@@ -203,6 +228,19 @@ extension AppModel {
     private nonisolated static func loadEvidenceState(for evidence: Evidence,
                                                       in bundleURL: URL) -> HostLoadOutcome {
         do {
+            // Read a cached artifact leniently: a present-but-undecodable file is
+            // recorded as a fault (surfaced to the examiner) instead of being
+            // silently swallowed to empty; an absent file (nil) is not a fault. The
+            // collector is thread-safe because the jobs below run concurrently. (E1)
+            let faults = FaultCollector()
+            func loadArr<T>(_ label: String, _ read: () throws -> [T]?) -> [T] {
+                do { return try read() ?? [] }
+                catch { faults.record(label, error); return [] }
+            }
+            func loadOne<T>(_ label: String, _ read: () throws -> T?) -> T? {
+                do { return try read() }
+                catch { faults.record(label, error); return nil }
+            }
             var state: EvidenceState
             var timeline: [TimelineEvent]
             var loadWarning: String?
@@ -239,13 +277,13 @@ extension AppModel {
                 // APFS images have no tsk.db; the tree + volumes were persisted
                 // as JSON at ingest. Content is re-extracted on demand via
                 // libfsapfs (see parseMac / parseBrowserHistory).
-                var files = (try? CaseStore.readApfsFiles(forHostID: evidence.id, in: bundleURL)) ?? []
+                var files = loadArr("APFS file tree") { try CaseStore.readApfsFiles(forHostID: evidence.id, in: bundleURL) }
                 #if !os(macOS)
                 files.removeAll(where: TimelineBuilder.isSlackEntry)
                 #endif
                 state = EvidenceState(dbURL: nil)
                 state.files = files
-                state.volumes = (try? CaseStore.readApfsVolumes(forHostID: evidence.id, in: bundleURL)) ?? []
+                state.volumes = loadArr("APFS volumes") { try CaseStore.readApfsVolumes(forHostID: evidence.id, in: bundleURL) }
                 #if os(macOS)
                 timeline = TimelineBuilder.build(from: files)
                 #else
@@ -261,7 +299,7 @@ extension AppModel {
                 #endif
                 state = EvidenceState(dbURL: dbURL)
                 state.files = files
-                state.volumes = (try? database.fetchVolumes()) ?? []
+                state.volumes = loadArr("Volumes") { try database.fetchVolumes() }
                 #if os(macOS)
                 timeline = TimelineBuilder.build(from: files)
                 #else
@@ -272,9 +310,9 @@ extension AppModel {
             // run Parse on this host yet (or it pre-dates the caching format) -
             // either way, fall back to empty.
             #if os(macOS)
-            state.events = (try? CaseStore.readEvents(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.events = loadArr("Event logs") { try CaseStore.readEvents(forHostID: evidence.id, in: bundleURL) }
             #else
-            state.events = (try? CaseStore.readEventsLite(forHostID: evidence.id, in: bundleURL)) ?? []
+            state.events = loadArr("Event logs") { try CaseStore.readEventsLite(forHostID: evidence.id, in: bundleURL) }
             #endif
             // Fold evtx records back into the timeline so the sessions panel and
             // Source filter work without re-parsing on every case open.
@@ -338,55 +376,55 @@ extension AppModel {
             var findings: [Finding] = []
             var iocMatches: [IOCMatch] = []
             let jobs: [() -> Void] = [
-                { registry = (try? CaseStore.readRegistry(forHostID: id, in: bundleURL)) ?? [] },
-                { prefetch = (try? CaseStore.readPrefetch(forHostID: id, in: bundleURL)) ?? [] },
-                { amcache = (try? CaseStore.readAmcache(forHostID: id, in: bundleURL)) ?? [] },
-                { shimcache = (try? CaseStore.readShimcache(forHostID: id, in: bundleURL)) ?? [] },
-                { lnk = (try? CaseStore.readLnk(forHostID: id, in: bundleURL)) ?? [] },
-                { jumpList = (try? CaseStore.readJumpList(forHostID: id, in: bundleURL)) ?? [] },
-                { usn = (try? CaseStore.readUsn(forHostID: id, in: bundleURL)) ?? [] },
-                { recycleBin = (try? CaseStore.readRecycleBin(forHostID: id, in: bundleURL)) ?? [] },
-                { srum = (try? CaseStore.readSrum(forHostID: id, in: bundleURL)) ?? [] },
-                { browserHistory = (try? CaseStore.readBrowserHistory(forHostID: id, in: bundleURL)) ?? [] },
-                { mft = (try? CaseStore.readMft(forHostID: id, in: bundleURL)) ?? [] },
-                { wmi = (try? CaseStore.readWmi(forHostID: id, in: bundleURL)) ?? [] },
-                { launchItems = (try? CaseStore.readLaunchItems(forHostID: id, in: bundleURL)) ?? [] },
-                { quarantine = (try? CaseStore.readQuarantine(forHostID: id, in: bundleURL)) ?? [] },
-                { macPersistence = (try? CaseStore.readMacPersistence(forHostID: id, in: bundleURL)) ?? [] },
-                { fsEvents = (try? CaseStore.readFSEvents(forHostID: id, in: bundleURL)) ?? [] },
-                { unifiedLog = (try? CaseStore.readUnifiedLog(forHostID: id, in: bundleURL)) ?? [] },
-                { tcc = (try? CaseStore.readTCC(forHostID: id, in: bundleURL)) ?? [] },
-                { knowledgeC = (try? CaseStore.readKnowledgeC(forHostID: id, in: bundleURL)) ?? [] },
-                { macRecentItems = (try? CaseStore.readMacRecentItems(forHostID: id, in: bundleURL)) ?? [] },
-                { macSecurityEvents = (try? CaseStore.readMacSecurityEvents(forHostID: id, in: bundleURL)) ?? [] },
-                { carvedFiles = (try? CaseStore.readCarved(forHostID: id, in: bundleURL)) ?? [] },
-                { kexts = (try? CaseStore.readKexts(forHostID: id, in: bundleURL)) ?? [] },
-                { backgroundItems = (try? CaseStore.readBackgroundItems(forHostID: id, in: bundleURL)) ?? [] },
-                { messages = (try? CaseStore.readMessages(forHostID: id, in: bundleURL)) ?? [] },
-                { mail = (try? CaseStore.readMail(forHostID: id, in: bundleURL)) ?? [] },
-                { network = (try? CaseStore.readNetwork(forHostID: id, in: bundleURL)) ?? [] },
-                { userActivity = (try? CaseStore.readUserActivity(forHostID: id, in: bundleURL)) ?? [] },
-                { documentVersions = (try? CaseStore.readDocumentVersions(forHostID: id, in: bundleURL)) ?? [] },
-                { notifications = (try? CaseStore.readNotifications(forHostID: id, in: bundleURL)) ?? [] },
-                { powerlog = (try? CaseStore.readPowerlog(forHostID: id, in: bundleURL)) ?? [] },
-                { macConfig = (try? CaseStore.readMacConfig(forHostID: id, in: bundleURL)) ?? [] },
-                { installHistory = (try? CaseStore.readInstallHistory(forHostID: id, in: bundleURL)) ?? [] },
-                { whereFroms = (try? CaseStore.readWhereFroms(forHostID: id, in: bundleURL)) ?? [] },
-                { macInfo = try? CaseStore.readMacInfo(forHostID: id, in: bundleURL) },
-                { authLog = (try? CaseStore.readAuthLog(forHostID: id, in: bundleURL)) ?? [] },
-                { logins = (try? CaseStore.readLogins(forHostID: id, in: bundleURL)) ?? [] },
-                { shellHistory = (try? CaseStore.readShellHistory(forHostID: id, in: bundleURL)) ?? [] },
-                { linuxPersistence = (try? CaseStore.readLinuxPersistence(forHostID: id, in: bundleURL)) ?? [] },
-                { linuxInfo = try? CaseStore.readLinuxInfo(forHostID: id, in: bundleURL) },
-                { linuxAccess = try? CaseStore.readLinuxAccess(forHostID: id, in: bundleURL) },
-                { webAccess = (try? CaseStore.readWebAccess(forHostID: id, in: bundleURL)) ?? [] },
-                { packages = (try? CaseStore.readPackages(forHostID: id, in: bundleURL)) ?? [] },
-                { journald = (try? CaseStore.readJournald(forHostID: id, in: bundleURL)) ?? [] },
-                { audit = (try? CaseStore.readAudit(forHostID: id, in: bundleURL)) ?? [] },
-                { syslog = (try? CaseStore.readSyslog(forHostID: id, in: bundleURL)) ?? [] },
-                { lastlog = (try? CaseStore.readLastlog(forHostID: id, in: bundleURL)) ?? [] },
-                { findings = (try? CaseStore.readFindings(forHostID: id, in: bundleURL)) ?? [] },
-                { iocMatches = (try? CaseStore.readIOCMatches(forHostID: id, in: bundleURL)) ?? [] },
+                { registry = loadArr("Registry") { try CaseStore.readRegistry(forHostID: id, in: bundleURL) } },
+                { prefetch = loadArr("Prefetch") { try CaseStore.readPrefetch(forHostID: id, in: bundleURL) } },
+                { amcache = loadArr("Amcache") { try CaseStore.readAmcache(forHostID: id, in: bundleURL) } },
+                { shimcache = loadArr("Shimcache") { try CaseStore.readShimcache(forHostID: id, in: bundleURL) } },
+                { lnk = loadArr("LNK shortcuts") { try CaseStore.readLnk(forHostID: id, in: bundleURL) } },
+                { jumpList = loadArr("JumpLists") { try CaseStore.readJumpList(forHostID: id, in: bundleURL) } },
+                { usn = loadArr("USN journal") { try CaseStore.readUsn(forHostID: id, in: bundleURL) } },
+                { recycleBin = loadArr("Recycle Bin") { try CaseStore.readRecycleBin(forHostID: id, in: bundleURL) } },
+                { srum = loadArr("SRUM") { try CaseStore.readSrum(forHostID: id, in: bundleURL) } },
+                { browserHistory = loadArr("Browser history") { try CaseStore.readBrowserHistory(forHostID: id, in: bundleURL) } },
+                { mft = loadArr("$MFT") { try CaseStore.readMft(forHostID: id, in: bundleURL) } },
+                { wmi = loadArr("WMI persistence") { try CaseStore.readWmi(forHostID: id, in: bundleURL) } },
+                { launchItems = loadArr("Launch items") { try CaseStore.readLaunchItems(forHostID: id, in: bundleURL) } },
+                { quarantine = loadArr("Quarantine") { try CaseStore.readQuarantine(forHostID: id, in: bundleURL) } },
+                { macPersistence = loadArr("macOS persistence") { try CaseStore.readMacPersistence(forHostID: id, in: bundleURL) } },
+                { fsEvents = loadArr("FSEvents") { try CaseStore.readFSEvents(forHostID: id, in: bundleURL) } },
+                { unifiedLog = loadArr("Unified log") { try CaseStore.readUnifiedLog(forHostID: id, in: bundleURL) } },
+                { tcc = loadArr("TCC") { try CaseStore.readTCC(forHostID: id, in: bundleURL) } },
+                { knowledgeC = loadArr("KnowledgeC") { try CaseStore.readKnowledgeC(forHostID: id, in: bundleURL) } },
+                { macRecentItems = loadArr("Recent items") { try CaseStore.readMacRecentItems(forHostID: id, in: bundleURL) } },
+                { macSecurityEvents = loadArr("macOS security") { try CaseStore.readMacSecurityEvents(forHostID: id, in: bundleURL) } },
+                { carvedFiles = loadArr("Carved files") { try CaseStore.readCarved(forHostID: id, in: bundleURL) } },
+                { kexts = loadArr("Extensions") { try CaseStore.readKexts(forHostID: id, in: bundleURL) } },
+                { backgroundItems = loadArr("Background items") { try CaseStore.readBackgroundItems(forHostID: id, in: bundleURL) } },
+                { messages = loadArr("Messages") { try CaseStore.readMessages(forHostID: id, in: bundleURL) } },
+                { mail = loadArr("Mail") { try CaseStore.readMail(forHostID: id, in: bundleURL) } },
+                { network = loadArr("Network & devices") { try CaseStore.readNetwork(forHostID: id, in: bundleURL) } },
+                { userActivity = loadArr("QuickLook & Trash") { try CaseStore.readUserActivity(forHostID: id, in: bundleURL) } },
+                { documentVersions = loadArr("Document versions") { try CaseStore.readDocumentVersions(forHostID: id, in: bundleURL) } },
+                { notifications = loadArr("Notifications") { try CaseStore.readNotifications(forHostID: id, in: bundleURL) } },
+                { powerlog = loadArr("Powerlog") { try CaseStore.readPowerlog(forHostID: id, in: bundleURL) } },
+                { macConfig = loadArr("Configuration") { try CaseStore.readMacConfig(forHostID: id, in: bundleURL) } },
+                { installHistory = loadArr("Installs") { try CaseStore.readInstallHistory(forHostID: id, in: bundleURL) } },
+                { whereFroms = loadArr("Download origins") { try CaseStore.readWhereFroms(forHostID: id, in: bundleURL) } },
+                { macInfo = loadOne("macOS host info") { try CaseStore.readMacInfo(forHostID: id, in: bundleURL) } },
+                { authLog = loadArr("Auth & logins") { try CaseStore.readAuthLog(forHostID: id, in: bundleURL) } },
+                { logins = loadArr("Login records") { try CaseStore.readLogins(forHostID: id, in: bundleURL) } },
+                { shellHistory = loadArr("Shell history") { try CaseStore.readShellHistory(forHostID: id, in: bundleURL) } },
+                { linuxPersistence = loadArr("Linux persistence") { try CaseStore.readLinuxPersistence(forHostID: id, in: bundleURL) } },
+                { linuxInfo = loadOne("Linux host info") { try CaseStore.readLinuxInfo(forHostID: id, in: bundleURL) } },
+                { linuxAccess = loadOne("Accounts & SSH") { try CaseStore.readLinuxAccess(forHostID: id, in: bundleURL) } },
+                { webAccess = loadArr("Web access logs") { try CaseStore.readWebAccess(forHostID: id, in: bundleURL) } },
+                { packages = loadArr("Packages") { try CaseStore.readPackages(forHostID: id, in: bundleURL) } },
+                { journald = loadArr("Journal") { try CaseStore.readJournald(forHostID: id, in: bundleURL) } },
+                { audit = loadArr("Audit") { try CaseStore.readAudit(forHostID: id, in: bundleURL) } },
+                { syslog = loadArr("Syslog") { try CaseStore.readSyslog(forHostID: id, in: bundleURL) } },
+                { lastlog = loadArr("Lastlog") { try CaseStore.readLastlog(forHostID: id, in: bundleURL) } },
+                { findings = loadArr("Findings") { try CaseStore.readFindings(forHostID: id, in: bundleURL) } },
+                { iocMatches = loadArr("IOC matches") { try CaseStore.readIOCMatches(forHostID: id, in: bundleURL) } },
             ]
             DispatchQueue.concurrentPerform(iterations: jobs.count) { jobs[$0]() }
 
@@ -492,8 +530,7 @@ extension AppModel {
             state.timeline.sort { $0.date < $1.date }
 
             state.osFamilies = OSFamily.detect(volumes: state.volumes, files: state.files)
-            if let loadWarning { return .loadedWithWarning(state, loadWarning) }
-            return .loaded(state)
+            return .loaded(state, faults: faults.snapshot(), warning: loadWarning)
         } catch {
             // Skip this host but keep going so a single corrupted DB doesn't
             // block the whole case from opening.
@@ -509,6 +546,8 @@ extension AppModel {
         currentCase = nil
         currentCaseBundleURL = nil
         evidenceList = []
+        loadFaults = [:]
+        caseWideLoadFaults = []
         states = [:]
         iocs = []
         custodyLog = []
@@ -532,5 +571,23 @@ extension AppModel {
         } catch {
             errorMessage = "Failed to save host list: \(error.localizedDescription)"
         }
+    }
+}
+
+/// Thread-safe accumulator for artifact decode faults recorded during the
+/// concurrent per-host load fan-out (`DispatchQueue.concurrentPerform`), which
+/// calls `record` from arbitrary queues. `@unchecked Sendable` + an `NSLock`
+/// guard the shared array.
+private nonisolated final class FaultCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [ArtifactLoadFault] = []
+    func record(_ artifact: String, _ error: Error) {
+        lock.lock()
+        items.append(ArtifactLoadFault(artifact: artifact, reason: error.localizedDescription))
+        lock.unlock()
+    }
+    func snapshot() -> [ArtifactLoadFault] {
+        lock.lock(); defer { lock.unlock() }
+        return items
     }
 }

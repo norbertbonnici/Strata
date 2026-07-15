@@ -8,6 +8,10 @@ struct OverviewView: View {
             VStack(alignment: .leading, spacing: 20) {
                 header
 
+                if !model.activeLoadFaults.isEmpty {
+                    ArtifactLoadFaultBanner(faults: model.activeLoadFaults)
+                }
+
                 HStack(spacing: 16) {
                     // Snapshot files once (needed for the deleted filter); use
                     // count-only accessors for the rest so we never build/sort
@@ -145,6 +149,38 @@ private struct StatCard: View {
         .padding()
         .frame(minWidth: 120, alignment: .leading)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+/// Warns that cached artifacts EXISTED in the bundle but couldn't be decoded on
+/// open — the forensic distinction from "never parsed" (an empty tab). Shown on
+/// the Overview for the active scope. (E1)
+private struct ArtifactLoadFaultBanner: View {
+    let faults: [ArtifactLoadFault]
+
+    private var artifactNames: [String] {
+        Array(Set(faults.map(\.artifact))).sorted()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("\(faults.count) cached artifact file\(faults.count == 1 ? "" : "s") failed to decode",
+                  systemImage: "exclamationmark.triangle.fill")
+                .font(.headline)
+                .foregroundStyle(.orange)
+            Text("These files exist in the case bundle but could not be read — most likely corrupt, truncated, or written by an incompatible older build. This is NOT the same as “not parsed”: there was data here. Re-parse this host to rebuild them from the source image.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(artifactNames.joined(separator: "  ·  "))
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.orange.opacity(0.12)))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.orange.opacity(0.45)))
     }
 }
 
