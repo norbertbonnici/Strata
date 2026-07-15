@@ -36,7 +36,9 @@ extension AppModel {
                 }.value
                 var s = EvidenceState(dbURL: nil)
                 s.files = loaded
-                s.timeline = TimelineBuilder.build(from: loaded)
+                // includeBorn: false — a loose collection's `created` is copy time,
+                // not a real birth time (see C2).
+                s.timeline = TimelineBuilder.build(from: loaded, includeBorn: false)
                 state = s
             } else {
                 let dbURL = CaseStore.tskDatabaseURL(forHostID: evidence.id, in: bundleURL)
@@ -142,8 +144,12 @@ extension AppModel {
         s.files = result.files
         s.volumes = result.volumes
         s.timeline = TimelineBuilder.build(from: result.files)
-        try? CaseStore.writeApfsFiles(result.files, forHostID: evidence.id, in: bundleURL)
-        try? CaseStore.writeApfsVolumes(result.volumes, forHostID: evidence.id, in: bundleURL)
+        // Persist tree + volumes BEFORE the caller commits the host to hosts.json.
+        // A failed write must fail the ingest loudly — not yield a phantom host
+        // that reloads with an empty tree (files write lost) or reads the wrong
+        // bytes (volumes write lost → offset lookups fall back to 0).
+        try CaseStore.writeApfsFiles(result.files, forHostID: evidence.id, in: bundleURL)
+        try CaseStore.writeApfsVolumes(result.volumes, forHostID: evidence.id, in: bundleURL)
         lockedApfsVolumes[evidence.id] = result.lockedVolumes.isEmpty ? nil : result.lockedVolumes
         return s
     }
@@ -264,12 +270,18 @@ extension AppModel {
     /// inside the bundle (TSK DB, extracted .evtx / hive scratch) since the
     /// data is reproducible from the original source image.
     func removeEvidence(_ id: UUID) {
-        if let bundleURL = currentCaseBundleURL {
-            CaseStore.removeHostDirectory(forHostID: id, in: bundleURL)
-        }
+        // Drop the host from hosts.json FIRST, so if the on-disk delete fails we
+        // don't leave a host listed whose data is already gone (a half-removed
+        // host that reloads empty).
         evidenceList.removeAll { $0.id == id }
         states[id] = nil
         if activeEvidenceID == id { activeEvidenceID = nil }
         saveHosts()
+        if let bundleURL = currentCaseBundleURL,
+           !CaseStore.removeHostDirectory(forHostID: id, in: bundleURL) {
+            // The extracted artifacts (messages.json, browser DBs, carved bytes)
+            // are still on disk — a confidentiality gap the examiner must know about.
+            errorMessage = "Removed the host from the case, but its extracted data could not be deleted from the bundle — remove it manually if confidentiality requires."
+        }
     }
 }

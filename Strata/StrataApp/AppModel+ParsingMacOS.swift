@@ -84,7 +84,7 @@ extension AppModel {
                               FileManager.default.fileExists(atPath: disk.path) else { continue }
                         fileURL = disk
                     } else if isAPFS {
-                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name)")
+                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name.scratchSafeComponent)")
                         let off = state.volumes.first { $0.id == entry.fsID }?.offsetBytes ?? 0
                         try? await apfsExtractor!.extract(volumePath: entry.fullPath,
                                                           volumeIndex: entry.fsID ?? 0, offsetBytes: off, to: outURL)
@@ -101,7 +101,7 @@ extension AppModel {
                         fileURL = outURL
                     } else {
                         guard let info = try database!.fetchExtractInfo(forFileID: entry.id) else { continue }
-                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name)")
+                        let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name.scratchSafeComponent)")
                         do {
                             try await extractor!.extract(metaAddr: info.metaAddr,
                                                          imageOffsetSectors: info.imageOffsetSectors, to: outURL)

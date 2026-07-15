@@ -54,6 +54,17 @@ struct BodyfileParserTests {
         #expect(e.isSymlink)
     }
 
+    @Test func regularFileNameContainingArrowIsNotSplit() throws {
+        // A regular file (mode '-') whose name legitimately contains " -> " must
+        // be kept whole; only actual symlinks (mode 'l') split on the arrow (B6).
+        // Splitting it would collapse two entries onto one path or drop a file.
+        let line = "0|/data/report -> draft.txt|9|-rw-r--r--|501|20|10|1700000000|1700000000|1700000000|1700000000"
+        let e = try #require(BodyfileParser.parseLine(line))
+        #expect(e.path == "/data/report -> draft.txt")
+        #expect(e.symlinkTarget == nil)
+        #expect(!e.isSymlink)
+    }
+
     @Test func nameWithPipeStillParses() throws {
         // A path containing '|' must not break field anchoring (we anchor on the
         // 9 fixed trailing fields).

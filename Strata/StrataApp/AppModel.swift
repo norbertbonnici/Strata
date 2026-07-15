@@ -134,6 +134,11 @@ final class AppModel: ObservableObject {
     @Published var currentCase: ForensicCase?
     /// Filesystem location of the .strata bundle backing `currentCase`.
     @Published var currentCaseBundleURL: URL?
+    /// The bundle whose security scope is currently held (recents / library /
+    /// iCloud bookmarks), retained for the whole case lifetime so off-main host
+    /// loads AND the detached open-time backfill can read it; released in
+    /// closeCase / on re-open. nil when no scope is held (a plain local path).
+    var caseSecurityScopeURL: URL?
     /// Recently opened case bundles - powers the welcome screen list.
     @Published var recentCases: [URL] = RecentCases.load()
     /// Single sheet binding for the top-level modal stack. Two adjacent

@@ -55,6 +55,9 @@ extension AppModel {
     /// state is reset; the user is starting fresh.
     func createCase(name: String, examiner: String, at bundleURL: URL) async {
         errorMessage = nil
+        // Starting fresh: drop any security scope held for a previously open bundle.
+        caseSecurityScopeURL?.stopAccessingSecurityScopedResource()
+        caseSecurityScopeURL = nil
         do {
             let theCase = ForensicCase(name: name, examiner: examiner, createdAt: Date())
             try CaseStore.createBundle(at: bundleURL, case: theCase)
@@ -88,6 +91,12 @@ extension AppModel {
         errorMessage = nil
         isWorking = true
         defer { isWorking = false }
+        // Hold the bundle's security scope for the whole case lifetime (not just
+        // the caller's synchronous prelude), so both the off-main host reads and
+        // the detached open-time backfill can read a security-scoped bundle
+        // (recents / library / iCloud). Released in closeCase / on re-open (E7).
+        caseSecurityScopeURL?.stopAccessingSecurityScopedResource()
+        caseSecurityScopeURL = bundleURL.startAccessingSecurityScopedResource() ? bundleURL : nil
         do {
             let theCase = try CaseStore.readCase(in: bundleURL)
             let hosts = try CaseStore.readHosts(in: bundleURL)
@@ -121,6 +130,14 @@ extension AppModel {
                 case .skipped(let message):
                     statusMessage = message
                 }
+            }
+
+            // The first host was optimistically selected for fast first paint; if
+            // it failed to load (missing DB, corrupt, undownloaded), advance the
+            // scope to the first host that DID load so the case doesn't present as
+            // entirely empty when a later host is fine (E4).
+            if let active = activeEvidenceID, states[active] == nil {
+                activeEvidenceID = hosts.first { states[$0.id] != nil }?.id
             }
 
             // Case-wide indicators + custody ledger + analyst annotations,
@@ -199,7 +216,9 @@ extension AppModel {
                     state = EvidenceState(dbURL: nil)
                     state.files = files
                     #if os(macOS)
-                    timeline = TimelineBuilder.build(from: files)
+                    // includeBorn: false — a loose collection's `created` is the
+                    // collector's copy time, not a real birth time (see C2).
+                    timeline = TimelineBuilder.build(from: files, includeBorn: false)
                     #else
                     timeline = []
                     #endif
@@ -485,6 +504,8 @@ extension AppModel {
     /// Drop the open case; return to the welcome screen. In-memory state is
     /// cleared but nothing on disk is touched.
     func closeCase() {
+        caseSecurityScopeURL?.stopAccessingSecurityScopedResource()
+        caseSecurityScopeURL = nil
         currentCase = nil
         currentCaseBundleURL = nil
         evidenceList = []

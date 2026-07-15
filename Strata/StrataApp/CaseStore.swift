@@ -220,8 +220,15 @@ public nonisolated enum CaseStore {
         try data.write(to: hostsFile(in: bundle), options: .atomic)
     }
 
-    public static func removeHostDirectory(forHostID id: UUID, in bundle: URL) {
-        try? FileManager.default.removeItem(at: hostDirectory(forHostID: id, in: bundle))
+    /// Delete a host's directory (extracted artifacts, tsk.db, scratch). Returns
+    /// whether the bundle is left clean — `false` means sensitive extracted data
+    /// could not be removed and remains on disk, which the caller should surface.
+    @discardableResult
+    public static func removeHostDirectory(forHostID id: UUID, in bundle: URL) -> Bool {
+        let dir = hostDirectory(forHostID: id, in: bundle)
+        guard FileManager.default.fileExists(atPath: dir.path) else { return true }
+        do { try FileManager.default.removeItem(at: dir); return true }
+        catch { return false }
     }
 
     // MARK: - Parsed artifacts (per host)
@@ -860,7 +867,7 @@ public nonisolated enum CaseStore {
 
     private static var compactEncoder: JSONEncoder {
         let enc = JSONEncoder()
-        enc.dateEncodingStrategy = .iso8601
+        enc.dateEncodingStrategy = .custom(encodeDate)   // fractional seconds (see below)
         // No .prettyPrinted - these files can be very large.
         return enc
     }
@@ -870,13 +877,38 @@ public nonisolated enum CaseStore {
     private static var jsonEncoder: JSONEncoder {
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        enc.dateEncodingStrategy = .iso8601
+        enc.dateEncodingStrategy = .custom(encodeDate)
         return enc
     }
     private static var jsonDecoder: JSONDecoder {
         let dec = JSONDecoder()
-        dec.dateDecodingStrategy = .iso8601
+        dec.dateDecodingStrategy = .custom(decodeDate)
         return dec
+    }
+
+    // MARK: - Date coding (fractional seconds)
+
+    // ISO-8601 *with* fractional seconds, so sub-second forensic timestamps
+    // (Chromium µs epoch, Safari/unified-log CFAbsoluteTime, EVTX SystemTime)
+    // survive a save/reload instead of being truncated to whole seconds by the
+    // default .iso8601 strategy. `ISO8601FormatStyle` is a Sendable value type
+    // (unlike ISO8601DateFormatter), so sharing these across the concurrent decode
+    // fan-out in loadEvidenceState is race-free. Decoding accepts BOTH the
+    // fractional and the plain forms, so bundles written by older builds (which
+    // used whole-second .iso8601) still load.
+    private static let iso8601Fractional = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+    private static let iso8601Plain = Date.ISO8601FormatStyle(includingFractionalSeconds: false)
+
+    private static func encodeDate(_ date: Date, _ encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(iso8601Fractional.format(date))
+    }
+    private static func decodeDate(_ decoder: Decoder) throws -> Date {
+        let s = try decoder.singleValueContainer().decode(String.self)
+        if let d = try? iso8601Fractional.parse(s) { return d }
+        if let d = try? iso8601Plain.parse(s) { return d }
+        throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
+            debugDescription: "Unparseable ISO-8601 date: \(s)"))
     }
 }
 
