@@ -40,7 +40,11 @@ extension AppModel {
         }
 
         func classify(_ entry: FileEntry) -> LinuxKind? {
-            guard !entry.isDirectory, !entry.isDeleted, entry.size > 0 else { return nil }
+            // Never classify a TSK `<name>-slack` pseudo-entry: it's the unused tail
+            // of an allocated cluster, not a real file, and its name (e.g.
+            // "messages.1-slack") can otherwise trip the rotation-prefix matches.
+            guard !entry.isDirectory, !entry.isDeleted, entry.size > 0,
+                  !entry.isSlackEntry else { return nil }
             let path = entry.fullPath.lowercased()
             let name = entry.name.lowercased()
             let isGz = name.hasSuffix(".gz")
@@ -68,10 +72,20 @@ extension AppModel {
                 || (path.contains("/log/") && name.hasPrefix("puma")) {
                 return .appServerLog
             }
-            // General system log + rotations (syslog, messages, messages-YYYYMMDD).
-            if path.hasSuffix("/var/log/syslog") || name.hasPrefix("syslog.")
-                || path.hasSuffix("/var/log/messages") || name.hasPrefix("messages")
-                || path.hasSuffix("/var/log/kern.log") || name.hasPrefix("kern.log") {
+            // General system log + rotations (syslog, syslog.1, messages,
+            // messages.1, messages-YYYYMMDD, kern.log, kern.log.1). The bare files
+            // match by exact /var/log/ path; the rotation-name prefixes are gated
+            // on /var/log/ so a non-log file that merely *starts with* "messages" /
+            // "syslog." / "kern.log" (e.g. the Windows Store asset
+            // messagesxboxlogo.png) isn't misclassified as a syslog and dragged
+            // through extraction on every case open.
+            let inVarLog = path.contains("/var/log/")
+            if path.hasSuffix("/var/log/syslog")
+                || path.hasSuffix("/var/log/messages")
+                || path.hasSuffix("/var/log/kern.log")
+                || (inVarLog && (name.hasPrefix("syslog.")
+                                 || name.hasPrefix("messages.") || name.hasPrefix("messages-")
+                                 || name.hasPrefix("kern.log"))) {
                 // skip .gz rotations (handled generally below)
                 if !isGz { return .syslog }
             }
