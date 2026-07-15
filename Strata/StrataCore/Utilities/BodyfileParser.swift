@@ -92,10 +92,14 @@ public nonisolated enum BodyfileParser {
         let gid = UInt32(tail[3]) ?? 0
         let size = Int64(tail[4]) ?? 0
 
-        // Split a symlink "name -> target" into path + target.
+        // Split a symlink "name -> target" into path + target — but ONLY for an
+        // actual symlink (mode starts with 'l'). A regular file or directory whose
+        // name legitimately (and trivially attacker-choosably) contains " -> " must
+        // not be truncated, which would collapse two entries onto one path or drop
+        // a file from the tree.
         let path: String
         let symlinkTarget: String?
-        if let range = nameField.range(of: " -> ") {
+        if mode.first == "l", let range = nameField.range(of: " -> ") {
             path = String(nameField[..<range.lowerBound])
             symlinkTarget = String(nameField[range.upperBound...])
         } else {

@@ -53,32 +53,23 @@ public actor TSKFileExtractor {
         args.append(imageURL.path)
         args.append(address)
 
-        let process = Process()
-        process.executableURL = tool
-        process.arguments = args
-
+        // icat streams the file bytes to stdout → the scratch file; stderr is
+        // drained to EOF by the shared runner (which also avoids the classic
+        // pipe-buffer deadlock a chatty icat could otherwise cause).
         let outHandle = try FileHandle(forWritingTo: destination)
         defer { try? outHandle.close() }   // close on every path, incl. a launch throw
-        let stderrPipe = Pipe()
-        process.standardOutput = outHandle
-        process.standardError = stderrPipe
+        let capture = try await ProcessRunner.runCapturing(
+            executable: tool, arguments: args, stdoutSink: outHandle)
 
-        // Drain stderr continuously. Without this a chatty icat run can fill
-        // the kernel pipe buffer (~16-64 KB), block the child on write, and
-        // hang the whole subprocess. The classic Unix pipe deadlock.
-        let collector = PipeTextCollector()
-        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else { return }
-            collector.append(String(decoding: chunk, as: UTF8.self))
+        // A signal kill (crash) is distinct from a non-zero exit: report it as
+        // such rather than as a bogus "exit <signal>" code.
+        if capture.crashed {
+            throw TSKError.extractionCrashed(signal: capture.terminationStatus,
+                                             stderr: capture.stderrText)
         }
-
-        try await process.runAndWait()
-        stderrPipe.fileHandleForReading.readabilityHandler = nil
-
-        guard process.terminationStatus == 0 else {
-            throw TSKError.ingestionFailed(exitCode: process.terminationStatus,
-                                           stderr: collector.text)
+        guard capture.succeeded else {
+            throw TSKError.ingestionFailed(exitCode: capture.terminationStatus,
+                                           stderr: capture.stderrText)
         }
     }
 }

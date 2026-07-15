@@ -14,13 +14,11 @@ public actor TSKImageIngestor {
     public func ingest(
         imageAt imageURL: URL,
         into databaseURL: URL,
-        progress: ((String) -> Void)? = nil
+        progress: (@Sendable (String) -> Void)? = nil
     ) async throws {
         let tool = try environment.url(for: "tsk_loaddb")
         try? FileManager.default.removeItem(at: databaseURL)   // overwrite stale DB
 
-        let process = Process()
-        process.executableURL = tool
         // -d <db>: write to this SQLite file.
         // -i <type>: hint the image format so we don't depend on auto-detection
         // (auto-detect silently treats unknown formats as raw, which produces a
@@ -30,35 +28,24 @@ public actor TSKImageIngestor {
             args.append(contentsOf: ["-i", type])
         }
         args.append(imageURL.path)
-        process.arguments = args
 
-        let stderrPipe = Pipe()
-        process.standardError = stderrPipe
-        process.standardOutput = Pipe()
-
-        let collector = PipeTextCollector()
-        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else { return }
-            let text = String(decoding: chunk, as: UTF8.self)
-            collector.append(text)
-            text.split(whereSeparator: \.isNewline).forEach { progress?(String($0)) }
-        }
-
-        try await process.runAndWait()
-        stderrPipe.fileHandleForReading.readabilityHandler = nil
+        // tsk_loaddb reports progress on stderr and produces no useful stdout.
+        // Run through the shared runner so stderr is drained to EOF (full crash
+        // context) and the unused stdout can't fill its pipe buffer and deadlock.
+        let capture = try await ProcessRunner.runCapturing(
+            executable: tool, arguments: args, onStderrLine: progress)
 
         // A signal (e.g. SIGABRT from TSK's APFS parser crashing on a macOS
         // image) surfaces as `terminationReason == .uncaughtSignal`, where
         // `terminationStatus` is the *signal number* — not an exit code. Report
         // the two distinctly so a crash isn't mislabelled "exit 6".
-        if process.terminationReason == .uncaughtSignal {
-            throw TSKError.ingestionCrashed(signal: process.terminationStatus,
-                                            stderr: collector.text)
+        if capture.crashed {
+            throw TSKError.ingestionCrashed(signal: capture.terminationStatus,
+                                            stderr: capture.stderrText)
         }
-        guard process.terminationStatus == 0 else {
-            throw TSKError.ingestionFailed(exitCode: process.terminationStatus,
-                                           stderr: collector.text)
+        guard capture.succeeded else {
+            throw TSKError.ingestionFailed(exitCode: capture.terminationStatus,
+                                           stderr: capture.stderrText)
         }
     }
 

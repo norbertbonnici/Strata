@@ -88,13 +88,26 @@ extension AppModel {
                             completed += 1; continue
                         }
                         let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name.scratchSafeComponent)")
-                        try await extractor!.extract(metaAddr: info.metaAddr,
-                                                     imageOffsetSectors: info.imageOffsetSectors,
-                                                     to: outURL)
+                        do {
+                            try await extractor!.extract(metaAddr: info.metaAddr,
+                                                         imageOffsetSectors: info.imageOffsetSectors,
+                                                         to: outURL)
+                        } catch {
+                            // One file's extraction failure must not abort the whole
+                            // pass (discarding partials + skipping later hosts): record
+                            // it and move on. Bytes are adversary-controlled.
+                            statusMessage = "\(evidence.displayName): \(entry.name) — extraction failed (\(error.localizedDescription))"
+                            completed += 1
+                            continue
+                        }
                         fileURL = outURL
                     }
-                    let parsed = try await parser.parse(fileAt: fileURL)
-                    collected.append(contentsOf: parsed)
+                    do {
+                        let parsed = try await parser.parse(fileAt: fileURL)
+                        collected.append(contentsOf: parsed)
+                    } catch {
+                        statusMessage = "\(evidence.displayName): \(entry.name) — parse failed (\(error.localizedDescription))"
+                    }
                     completed += 1
                 }
                 collected.sort { $0.writtenAt < $1.writtenAt }
@@ -196,9 +209,18 @@ extension AppModel {
                             completed += 1; continue
                         }
                         let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name.scratchSafeComponent)")
-                        try await extractor!.extract(metaAddr: info.metaAddr,
-                                                     imageOffsetSectors: info.imageOffsetSectors,
-                                                     to: outURL)
+                        do {
+                            try await extractor!.extract(metaAddr: info.metaAddr,
+                                                         imageOffsetSectors: info.imageOffsetSectors,
+                                                         to: outURL)
+                        } catch {
+                            // One file's extraction failure must not abort the whole
+                            // pass (discarding partials + skipping later hosts): record
+                            // it and move on. Bytes are adversary-controlled.
+                            statusMessage = "\(evidence.displayName): \(entry.name) — extraction failed (\(error.localizedDescription))"
+                            completed += 1
+                            continue
+                        }
                         fileURL = outURL
                     }
                     // Record the .lnk's own full path as the source so the table
@@ -326,9 +348,18 @@ extension AppModel {
                             completed += 1; continue
                         }
                         let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name.scratchSafeComponent)")
-                        try await extractor!.extract(metaAddr: info.metaAddr,
-                                                     imageOffsetSectors: info.imageOffsetSectors,
-                                                     to: outURL)
+                        do {
+                            try await extractor!.extract(metaAddr: info.metaAddr,
+                                                         imageOffsetSectors: info.imageOffsetSectors,
+                                                         to: outURL)
+                        } catch {
+                            // One file's extraction failure must not abort the whole
+                            // pass (discarding partials + skipping later hosts): record
+                            // it and move on. Bytes are adversary-controlled.
+                            statusMessage = "\(evidence.displayName): \(entry.name) — extraction failed (\(error.localizedDescription))"
+                            completed += 1
+                            continue
+                        }
                         fileURL = outURL
                     }
                     let appID = JumpListAppID.appID(fromFilename: entry.name)
@@ -453,11 +484,20 @@ extension AppModel {
                             completed += 1; continue
                         }
                         let outURL = scratch!.appendingPathComponent("\(entry.id)-usnjrnl-J.bin")
-                        try await extractor!.extractStream(metaAddr: info.metaAddr,
-                                                           attrType: info.attrType,
-                                                           attrId: info.attrId,
-                                                           imageOffsetSectors: info.imageOffsetSectors,
-                                                           to: outURL)
+                        do {
+                            try await extractor!.extractStream(metaAddr: info.metaAddr,
+                                                               attrType: info.attrType,
+                                                               attrId: info.attrId,
+                                                               imageOffsetSectors: info.imageOffsetSectors,
+                                                               to: outURL)
+                        } catch {
+                            // One file's extraction failure must not abort the whole
+                            // pass (discarding partials + skipping later hosts): record
+                            // it and move on. Bytes are adversary-controlled.
+                            statusMessage = "\(evidence.displayName): \(entry.name) — extraction failed (\(error.localizedDescription))"
+                            completed += 1
+                            continue
+                        }
                         fileURL = outURL
                     }
 
@@ -584,9 +624,18 @@ extension AppModel {
                             completed += 1; continue
                         }
                         let outURL = scratch!.appendingPathComponent("\(entry.id)-SRUDB.dat")
-                        try await extractor!.extract(metaAddr: info.metaAddr,
-                                                     imageOffsetSectors: info.imageOffsetSectors,
-                                                     to: outURL)
+                        do {
+                            try await extractor!.extract(metaAddr: info.metaAddr,
+                                                         imageOffsetSectors: info.imageOffsetSectors,
+                                                         to: outURL)
+                        } catch {
+                            // One file's extraction failure must not abort the whole
+                            // pass (discarding partials + skipping later hosts): record
+                            // it and move on. Bytes are adversary-controlled.
+                            statusMessage = "\(evidence.displayName): \(entry.name) — extraction failed (\(error.localizedDescription))"
+                            completed += 1
+                            continue
+                        }
                         fileURL = outURL
                     }
                     // SrumParser is an actor that shells out to esedbexport, so
@@ -1206,8 +1255,16 @@ extension AppModel {
                     } else {
                         guard let info = try database!.fetchExtractInfo(forFileID: entry.id) else { continue }
                         let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name.scratchSafeComponent)")
-                        try await extractor!.extract(metaAddr: info.metaAddr,
-                                                     imageOffsetSectors: info.imageOffsetSectors, to: outURL)
+                        do {
+                            try await extractor!.extract(metaAddr: info.metaAddr,
+                                                         imageOffsetSectors: info.imageOffsetSectors, to: outURL)
+                        } catch {
+                            // One file's extraction failure must not abort the whole
+                            // pass (discarding partials + skipping later hosts): record
+                            // it and move on. Bytes are adversary-controlled.
+                            statusMessage = "\(evidence.displayName): \(entry.name) — extraction failed (\(error.localizedDescription))"
+                            continue
+                        }
                         fileURL = outURL
                     }
                     guard let data = try? Data(contentsOf: fileURL) else { continue }
@@ -1311,9 +1368,18 @@ extension AppModel {
                             completed += 1; continue
                         }
                         let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name.scratchSafeComponent)")
-                        try await extractor!.extract(metaAddr: info.metaAddr,
-                                                     imageOffsetSectors: info.imageOffsetSectors,
-                                                     to: outURL)
+                        do {
+                            try await extractor!.extract(metaAddr: info.metaAddr,
+                                                         imageOffsetSectors: info.imageOffsetSectors,
+                                                         to: outURL)
+                        } catch {
+                            // One file's extraction failure must not abort the whole
+                            // pass (discarding partials + skipping later hosts): record
+                            // it and move on. Bytes are adversary-controlled.
+                            statusMessage = "\(evidence.displayName): \(entry.name) — extraction failed (\(error.localizedDescription))"
+                            completed += 1
+                            continue
+                        }
                         fileURL = outURL
                     }
                     // A malformed .pf shouldn't abort the whole run.

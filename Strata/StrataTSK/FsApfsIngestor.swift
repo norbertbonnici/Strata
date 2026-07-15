@@ -45,7 +45,7 @@ public actor FsApfsIngestor {
     public func ingest(imageAt imageURL: URL, imageType: String?,
                        scratchDirectory: URL,
                        credential: FileVaultCredential? = nil,
-                       progress: ((String) -> Void)? = nil) async throws -> Result {
+                       progress: (@Sendable (String) -> Void)? = nil) async throws -> Result {
         try FileManager.default.createDirectory(at: scratchDirectory, withIntermediateDirectories: true)
 
         // 1. Get raw access.
@@ -66,15 +66,26 @@ public actor FsApfsIngestor {
         // then offset 0 as a fallback for a bare container image).
         progress?("Locating APFS container…")
         var offset: UInt64?
-        for candidate in try await partitionOffsets(rawURL: rawURL) + [0] {
+        // mmls exits non-zero (throws) on an image with no partition table — which
+        // is exactly a bare APFS container — so tolerate that and fall through to
+        // the offset-0 probe instead of aborting before the fallback is reached.
+        let partitionCandidates = (try? await partitionOffsets(rawURL: rawURL)) ?? []
+        for candidate in partitionCandidates + [0] {
             if (try? await containerVolumeCount(rawURL: rawURL, offset: candidate)) ?? 0 > 0 {
                 offset = candidate
                 break
             }
         }
-        guard let apfsOffset = offset else { throw FsApfsError.noApfsContainer }
+        // Narrow the offset to Int64 once (VolumeInfo stores signed bytes); a
+        // crafted absurd offset that doesn't fit is treated as no container rather
+        // than trapping the `Int64(_:)` conversion.
+        guard let apfsOffset = offset,
+              let apfsOffsetSigned = Int64(exactly: apfsOffset) else { throw FsApfsError.noApfsContainer }
 
         let volumeCount = try await containerVolumeCount(rawURL: rawURL, offset: apfsOffset)
+        // Zero volumes would make `1...volumeCount` an invalid ClosedRange (a
+        // trap); treat it as no readable container.
+        guard volumeCount >= 1 else { throw FsApfsError.noApfsContainer }
 
         // 3. Per volume: bodyfile → FileEntry.
         var files: [FileEntry] = []
@@ -87,31 +98,34 @@ public actor FsApfsIngestor {
             let label = (try? await volumeName(rawURL: rawURL, offset: apfsOffset, index: index)) ?? "Volume \(index)"
             progress?("Reading APFS volume \(index)/\(volumeCount): \(label)…")
             let bodyfile = scratchDirectory.appendingPathComponent("vol\(index).body")
-            var produced = false
             do {
                 try await runBodyfile(rawURL: rawURL, offset: apfsOffset, index: index,
                                       output: bodyfile, credential: credential)
-                let text = (try? String(contentsOf: bodyfile, encoding: .utf8)) ?? ""
-                for e in BodyfileParser.parse(text) {
-                    guard let mapped = Self.fileEntry(from: e, id: nextID, fsID: fsID) else { continue }
-                    files.append(mapped)
-                    nextID += 1
-                    produced = true
-                }
+                // A volume that reads successfully but yields no entries is
+                // genuinely empty — the sealed System volume, whose files live in a
+                // snapshot libfsapfs reads as 0 bytes, is the common case. That is
+                // NOT FileVault-locked, so it must not raise a spurious unlock
+                // prompt. (The read is lossy + size-capped so a single non-UTF-8
+                // filename byte no longer nukes the whole volume to empty.)
+                _ = Self.appendEntries(fromBodyfileAt: bodyfile, into: &files, nextID: &nextID, fsID: fsID)
             } catch {
-                // A FileVault-encrypted volume can't be read without the secret;
-                // record it as locked and keep going rather than failing the whole
-                // ingest. A non-encryption tool error (only when a credential was
-                // supplied, so we expected success) is surfaced.
-                if credential != nil, !Self.looksEncrypted(error) { throw error }
+                // Discriminate a FileVault-locked volume from a genuine tool error.
+                // Encryption-looking failure → locked. On a first ingest (no
+                // secret) we can't tell locked from broken, so treat either as
+                // locked and let the UI prompt. With a credential supplied, a
+                // non-encryption failure is a real error worth surfacing loudly.
+                if Self.looksEncrypted(error) || credential == nil {
+                    locked.append(ApfsLockedVolume(index: index, name: label))
+                } else {
+                    throw error
+                }
             }
-            // An empty (or encryption-failed) volume with no usable secret is
-            // treated as FileVault-locked so the UI can prompt + re-ingest.
-            if !produced { locked.append(ApfsLockedVolume(index: index, name: label)) }
             volumes.append(VolumeInfo(id: fsID, fsType: "APFS",
-                                      offsetBytes: Int64(apfsOffset), sizeBytes: 0))
+                                      offsetBytes: apfsOffsetSigned, sizeBytes: 0))
         }
-        guard !files.isEmpty || !locked.isEmpty else { throw FsApfsError.noApfsContainer }
+        // The container was already confirmed at the offset step, so an all-empty
+        // (but readable) container is a valid result — return it rather than
+        // throwing noApfsContainer as the old empty==locked logic implied.
         return Result(files: files, volumes: volumes, rawScratchURL: scratchRaw, lockedVolumes: locked)
     }
 
@@ -120,8 +134,32 @@ public actor FsApfsIngestor {
     static func looksEncrypted(_ error: Error) -> Bool {
         let s = (error as? FsApfsError)?.errorDescription?.lowercased()
             ?? error.localizedDescription.lowercased()
+        // Encryption-specific tokens only. "unable to read" / "key" also appear in
+        // ordinary I/O errors and would misclassify a merely-broken volume as
+        // FileVault-locked; a genuinely locked volume still matches here, and on a
+        // no-credential first ingest the caller treats any failure as locked
+        // anyway, so the unlock prompt is never lost.
         return s.contains("encrypt") || s.contains("password") || s.contains("unlock")
-            || s.contains("unable to read") || s.contains("key")
+    }
+
+    /// Read a bodyfile leniently and append its entries; returns whether any were
+    /// produced. Memory-mapped and **size-capped** (a crafted volume could declare
+    /// an enormous bodyfile → OOM), and decoded **lossily** so a single non-UTF-8
+    /// filename byte becomes U+FFFD instead of failing the whole read to "" — which
+    /// previously dropped the entire volume and mislabelled it FileVault-locked.
+    static func appendEntries(fromBodyfileAt url: URL, into files: inout [FileEntry],
+                              nextID: inout Int64, fsID: Int64) -> Bool {
+        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe),
+              data.count <= 2 << 30 else { return false }   // 2 GB cap
+        let text = String(decoding: data, as: UTF8.self)     // lossy: bad bytes → U+FFFD
+        var produced = false
+        for e in BodyfileParser.parse(text) {
+            guard let mapped = fileEntry(from: e, id: nextID, fsID: fsID) else { continue }
+            files.append(mapped)
+            nextID += 1
+            produced = true
+        }
+        return produced
     }
 
     // MARK: - BodyfileEntry → FileEntry
@@ -150,7 +188,7 @@ public actor FsApfsIngestor {
 
     // MARK: - Tool invocations
 
-    private func runEwfExport(imageURL: URL, output: URL, progress: ((String) -> Void)?) async throws {
+    private func runEwfExport(imageURL: URL, output: URL, progress: (@Sendable (String) -> Void)?) async throws {
         _ = try await runTool("ewfexport",
                               ["-u", "-f", "raw", "-t", output.path, imageURL.path],
                               progress: progress)
@@ -161,6 +199,14 @@ public actor FsApfsIngestor {
         // -H (hierarchy) + -B yields full *paths* + MACB; -E all gives leaf names
         // only (no parent path), so the tree can't be rebuilt from it.
         // -p / -r unlock a FileVault-encrypted volume's metadata.
+        //
+        // KNOWN RESIDUAL (B2): fsapfsinfo is libyal's tool and reads the secret
+        // only from -p/-r on argv (world-readable via ps/KERN_PROCARGS2). Unlike
+        // our fsapfscat (which now takes the secret on stdin via -s), removing this
+        // exposure needs a vendored patch to libfsapfs' fsapfsinfo. It is far lower
+        // exposure than the fsapfscat path — a single short-lived invocation per
+        // encrypted volume (a handful per case) vs. thousands of content
+        // extractions — and only runs when a FileVault credential is supplied.
         var args = ["-o", "\(offset)", "-f", "\(index)"]
         if let password = credential?.password { args.append(contentsOf: ["-p", password]) }
         if let recovery = credential?.recovery { args.append(contentsOf: ["-r", recovery]) }
@@ -207,44 +253,18 @@ public actor FsApfsIngestor {
     }
 
     /// Run a vendored tool, returning stdout. Throws `toolFailed` on a non-zero
-    /// exit (signal or error), surfacing stderr.
-    private func runTool(_ name: String, _ args: [String], progress: ((String) -> Void)?) async throws -> String {
+    /// exit (signal or error), surfacing stderr. Output is drained to EOF (via
+    /// `ProcessRunner`) so a truncated tail can't yield a wrong volume count /
+    /// offset / name that silently corrupts the APFS ingest.
+    private func runTool(_ name: String, _ args: [String], progress: (@Sendable (String) -> Void)?) async throws -> String {
         let tool = try environment.url(for: name)
-        let process = Process()
-        process.executableURL = tool
-        process.arguments = args
-        let outPipe = Pipe(), errPipe = Pipe()
-        process.standardOutput = outPipe
-        process.standardError = errPipe
-        let errCollector = PipeTextCollector()
-        errPipe.fileHandleForReading.readabilityHandler = { h in
-            let d = h.availableData
-            guard !d.isEmpty else { return }
-            let s = String(decoding: d, as: UTF8.self)
-            errCollector.append(s)
-            s.split(whereSeparator: \.isNewline).forEach { progress?(String($0)) }
+        let capture = try await ProcessRunner.runCapturing(
+            executable: tool, arguments: args, onStderrLine: progress)
+        guard capture.succeeded else {
+            throw FsApfsError.toolFailed("\(name): \(capture.stderrText)")
         }
-        let outData = OutputAccumulator()
-        outPipe.fileHandleForReading.readabilityHandler = { h in
-            let d = h.availableData
-            if !d.isEmpty { outData.append(d) }
-        }
-        try await process.runAndWait()
-        errPipe.fileHandleForReading.readabilityHandler = nil
-        outPipe.fileHandleForReading.readabilityHandler = nil
-        guard process.terminationReason == .exit, process.terminationStatus == 0 else {
-            throw FsApfsError.toolFailed("\(name): \(errCollector.text)")
-        }
-        return outData.string()
+        return capture.stdoutText
     }
-}
-
-/// Thread-safe stdout accumulator for the readability handler.
-nonisolated private final class OutputAccumulator: @unchecked Sendable {
-    private var data = Data()
-    private let lock = NSLock()
-    func append(_ d: Data) { lock.lock(); data.append(d); lock.unlock() }
-    func string() -> String { lock.lock(); defer { lock.unlock() }; return String(decoding: data, as: UTF8.self) }
 }
 
 #endif

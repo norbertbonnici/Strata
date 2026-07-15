@@ -19,7 +19,7 @@ public nonisolated struct KapeFolderIngestor: Sendable {
     public init() {}
 
     private static let resourceKeys: [URLResourceKey] = [
-        .isDirectoryKey, .fileSizeKey, .creationDateKey, .contentModificationDateKey,
+        .isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey, .creationDateKey, .contentModificationDateKey,
     ]
 
     /// Recursively enumerate `root`, one FileEntry per file and directory.
@@ -49,6 +49,15 @@ public nonisolated struct KapeFolderIngestor: Sendable {
             if name == ".DS_Store" { continue }
 
             let values = try? url.resourceValues(forKeys: keys)
+            // A collected symlink must never be followed. It can point outside the
+            // evidence root (e.g. a planted `foo.evtx -> /etc/hosts`), and the
+            // macOS app is non-sandboxed with Full Disk Access, so reading through
+            // it via `diskURL` would fold the analyst's OWN machine into the case.
+            // Skip the link itself and don't descend into a symlinked directory.
+            if values?.isSymbolicLink == true {
+                enumerator.skipDescendants()
+                continue
+            }
             let isDir = values?.isDirectory ?? false
             let (parentPath, leaf) = Self.relativeComponents(of: url, underRoot: rootPath)
             entries.append(FileEntry(

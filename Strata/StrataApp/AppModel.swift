@@ -134,6 +134,11 @@ final class AppModel: ObservableObject {
     @Published var currentCase: ForensicCase?
     /// Filesystem location of the .strata bundle backing `currentCase`.
     @Published var currentCaseBundleURL: URL?
+    /// The bundle whose security scope is currently held (recents / library /
+    /// iCloud bookmarks), retained for the whole case lifetime so off-main host
+    /// loads AND the detached open-time backfill can read it; released in
+    /// closeCase / on re-open. nil when no scope is held (a plain local path).
+    var caseSecurityScopeURL: URL?
     /// Recently opened case bundles - powers the welcome screen list.
     @Published var recentCases: [URL] = RecentCases.load()
     /// Single sheet binding for the top-level modal stack. Two adjacent
@@ -285,6 +290,28 @@ final class AppModel: ObservableObject {
     @Published var isWorking = false
     @Published var statusMessage = ""
     @Published var errorMessage: String?
+
+    /// Per-host cached artifacts that EXISTED in the bundle but failed to decode
+    /// on open (corrupt / truncated / incompatible-older-format) — as opposed to
+    /// being simply absent ("never parsed"). Surfaced as an Overview banner so an
+    /// empty artifact tab is never silently mistaken for "no data". Reset on
+    /// open/close; keyed by host id.
+    @Published var loadFaults: [UUID: [ArtifactLoadFault]] = [:]
+
+    /// Case-wide cached artifacts that failed to decode on open (the custody
+    /// ledger, IOCs, annotations, notes, enrichment, summary). Unlike the per-host
+    /// artifacts these are NOT re-derivable from a source image, so a silent
+    /// swallow here is unrecoverable — always surfaced, under any scope.
+    @Published var caseWideLoadFaults: [ArtifactLoadFault] = []
+
+    /// Decode faults for the active scope: a single selected host (or the union
+    /// across every host under "All evidence"), plus the always-shown case-wide
+    /// faults.
+    var activeLoadFaults: [ArtifactLoadFault] {
+        let hostFaults = activeEvidenceID.map { loadFaults[$0] ?? [] }
+            ?? loadFaults.values.flatMap { $0 }
+        return hostFaults + caseWideLoadFaults
+    }
 
     /// Set during long-running operations that know their total (event log
     /// parsing, registry hive parsing). The status bar renders a determinate

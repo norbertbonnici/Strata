@@ -7,6 +7,10 @@ public enum TSKError: Error, LocalizedError {
     /// a status. The common case is `SIGABRT` (6) inside TSK's APFS parser on a
     /// macOS image — a known Sleuth Kit limitation, not a Strata fault.
     case ingestionCrashed(signal: Int32, stderr: String)
+    /// A per-file extraction (`icat` / `fsapfscat`) was killed by a signal
+    /// rather than exiting with a status. Reported distinctly so a crash isn't
+    /// mislabelled as an ordinary non-zero exit (e.g. "exit 11" for a SIGSEGV).
+    case extractionCrashed(signal: Int32, stderr: String)
     case databaseUnavailable(URL)
 
     public var errorDescription: String? {
@@ -20,6 +24,11 @@ public enum TSKError: Error, LocalizedError {
             if signal == 6 {
                 msg += " This is a known Sleuth Kit limitation parsing some APFS (macOS) volumes — the volume could not be ingested."
             }
+            let trimmed = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { msg += "\n\(trimmed)" }
+            return msg
+        case .extractionCrashed(let signal, let stderr):
+            var msg = "File extraction crashed (signal \(signal)\(signal == 6 ? " / SIGABRT" : "")) — the artifact could not be recovered from the image."
             let trimmed = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty { msg += "\n\(trimmed)" }
             return msg

@@ -8,8 +8,11 @@
  * equivalent of TSK's `icat`.
  *
  *   fsapfscat -o <byte offset> -f <0-based volume index>
- *             [-p <password>] [-r <recovery password>]
+ *             [-p <password>] [-r <recovery password>] [-s]
  *             [-x <extended attribute name>] <raw_image> <volume_path>
+ *
+ * -s reads the FileVault secret(s) from stdin as "<password>\0<recovery>" instead
+ * of taking -p/-r on the (world-readable) command line; the app always uses -s.
  *
  * With -x, the named extended attribute's bytes are written to stdout instead of
  * the file's data stream (used to recover the `com.apple.metadata:kMDItemWhereFroms`
@@ -61,26 +64,51 @@ int main(int argc, char *argv[])
 	const char *password = NULL;
 	const char *recovery = NULL;
 	const char *xattr_name = NULL;
+	int secrets_from_stdin = 0;
 	int option;
 
-	while ((option = getopt(argc, argv, "o:f:p:r:x:")) != -1) {
+	while ((option = getopt(argc, argv, "o:f:p:r:x:s")) != -1) {
 		switch (option) {
 			case 'o': offset       = strtoll(optarg, NULL, 10); break;
 			case 'f': volume_index = (int) strtol(optarg, NULL, 10); break;
 			case 'p': password     = optarg; break;
 			case 'r': recovery     = optarg; break;
 			case 'x': xattr_name   = optarg; break;
+			case 's': secrets_from_stdin = 1; break;
 			default:
-				fprintf(stderr, "Usage: fsapfscat -o offset -f index [-p pw] [-r rk] [-x attr] image path\n");
+				fprintf(stderr, "Usage: fsapfscat -o offset -f index [-p pw] [-r rk] [-s] [-x attr] image path\n");
 				return 1;
 		}
 	}
 	if (argc - optind != 2) {
-		fprintf(stderr, "Usage: fsapfscat -o offset -f index [-p pw] [-r rk] [-x attr] image path\n");
+		fprintf(stderr, "Usage: fsapfscat -o offset -f index [-p pw] [-r rk] [-s] [-x attr] image path\n");
 		return 1;
 	}
 	const char *image_path  = argv[optind];
 	const char *volume_path = argv[optind + 1];
+
+	/* -s: read the FileVault secret(s) from stdin instead of argv. A password /
+	 * recovery key on the command line is world-readable to any same-user process
+	 * (ps -ww, KERN_PROCARGS2) and is captured by crash reports / sysdiagnose, so
+	 * the app never passes -p/-r for real evidence — it writes "<password>\0<recovery>"
+	 * (either part may be empty) to stdin and passes -s. */
+	static char stdin_secret[4096];
+	if (secrets_from_stdin) {
+		size_t total = 0;
+		ssize_t n;
+		while (total < sizeof(stdin_secret) - 1 &&
+		       (n = read(STDIN_FILENO, stdin_secret + total, sizeof(stdin_secret) - 1 - total)) > 0)
+			total += (size_t) n;
+		stdin_secret[total] = '\0';
+		char *sep = memchr(stdin_secret, '\0', total);   /* password \0 recovery */
+		if (sep != NULL) {
+			if (stdin_secret[0] != '\0') password = stdin_secret;
+			char *rec = sep + 1;
+			if (rec < stdin_secret + total && *rec != '\0') recovery = rec;
+		} else if (stdin_secret[0] != '\0') {
+			password = stdin_secret;
+		}
+	}
 
 	/* Open the raw image as a byte-range starting at the APFS container offset. */
 	if (libbfio_file_range_initialize(&file_io_handle, &error) != 1)

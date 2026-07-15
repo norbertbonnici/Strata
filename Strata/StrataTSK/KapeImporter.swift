@@ -10,9 +10,13 @@ public struct KapeImporter {
         FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
         if isDirectory.boolValue { return .kapeLooseFolder }
         switch url.pathExtension.lowercased() {
-        case "e01", "ex01", "s01": return .e01
-        case "vhd", "vhdx":        return .kapeVHD
-        default:                   return .raw
+        // Keep the whole EWF family together (l01 = logical evidence file): its
+        // embedded MD5/SHA-1 are seeded at ingest (imageType maps l01 → "ewf"), and
+        // verifyEWF is gated on `.e01`, so mapping l01 here is what lets its
+        // embedded hashes be re-verified rather than being silently unverifiable.
+        case "e01", "ex01", "s01", "l01": return .e01
+        case "vhd", "vhdx":               return .kapeVHD
+        default:                          return .raw
         }
     }
 

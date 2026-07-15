@@ -17,8 +17,15 @@ public nonisolated enum TimelineBuilder {
         file.isSlackEntry
     }
 
+    /// `includeBorn`: emit a `.born` event from `created`. Callers pass `false`
+    /// for a **loose collection**, whose `created` is the analyst-machine copy time
+    /// the collector stamped (not the evidence's true birth time), so surfacing it
+    /// as a Born event would pollute the timeline with a non-evidence value that
+    /// shifts every time the folder is copied/restored. Image + APFS hosts carry a
+    /// real crtime and keep it (the default).
     public static func build(from files: [FileEntry],
-                             excludeSlack: Bool = false) -> [TimelineEvent] {
+                             excludeSlack: Bool = false,
+                             includeBorn: Bool = true) -> [TimelineEvent] {
         var events: [TimelineEvent] = []
         events.reserveCapacity(files.count * 2)
 
@@ -34,7 +41,7 @@ public nonisolated enum TimelineBuilder {
             add(file.modified, .modified)
             add(file.accessed, .accessed)
             add(file.changed, .changed)
-            add(file.created, .born)
+            if includeBorn { add(file.created, .born) }
         }
         return events.sorted { $0.date < $1.date }
     }
@@ -42,8 +49,10 @@ public nonisolated enum TimelineBuilder {
     /// Events within a closed date range.
     public static func build(from files: [FileEntry],
                              in range: ClosedRange<Date>,
-                             excludeSlack: Bool = false) -> [TimelineEvent] {
-        build(from: files, excludeSlack: excludeSlack).filter { range.contains($0.date) }
+                             excludeSlack: Bool = false,
+                             includeBorn: Bool = true) -> [TimelineEvent] {
+        build(from: files, excludeSlack: excludeSlack, includeBorn: includeBorn)
+            .filter { range.contains($0.date) }
     }
 
     /// Project Windows event log records onto the timeline so analysts can

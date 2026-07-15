@@ -340,6 +340,7 @@ struct EWFInfoParserTests {
         """
         let r = EWFInfo.parseVerify(out)
         #expect(r.passed)
+        #expect(r.verdictPresent)
         #expect(r.storedSHA1 == "90895e0ab0acb2a954fb6aacabb76044c33cca49")
         #expect(r.calculatedSHA1 == "90895e0ab0acb2a954fb6aacabb76044c33cca49")
     }
@@ -353,7 +354,25 @@ struct EWFInfoParserTests {
         """
         let r = EWFInfo.parseVerify(out)
         #expect(!r.passed)
+        #expect(r.verdictPresent)
         #expect(r.storedSHA1 != r.calculatedSHA1)
+    }
+
+    /// A truncated / verdict-less ewfverify run must NOT read as a genuine
+    /// FAILURE: `verdictPresent` stays false so verifyEWF reports "inconclusive"
+    /// instead of flipping the embedded hashes to mismatch (a false integrity
+    /// failure in the custody ledger). This is the A1 drain-to-EOF safety net.
+    @Test func verdictAbsentWhenNoSuccessOrFailureLine() {
+        let out = """
+        ewfverify 20240506
+
+        Verify started at: Jun 07, 2026 14:43:40
+        Read: 512 KiB (524288 bytes) in 0 second(s)
+        SHA1 hash stored in file:\t\t90895e0ab0acb2a954fb6aacabb76044c33cca49
+        """   // tail (the SUCCESS/FAILURE line) missing
+        let r = EWFInfo.parseVerify(out)
+        #expect(!r.verdictPresent)
+        #expect(!r.passed)   // default, but must not be treated as a real failure
     }
 
     @Test func normalizesHashes() {
