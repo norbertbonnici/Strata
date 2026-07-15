@@ -47,35 +47,25 @@ public actor FsApfsExtractor {
         args.append(rawURL.path)
         args.append(volumePath)
 
-        let process = Process()
-        process.executableURL = tool
-        process.arguments = args
-
+        // fsapfscat streams the file/xattr bytes to stdout → the scratch file;
+        // stderr is drained to EOF by the shared runner.
         let outHandle = try FileHandle(forWritingTo: destination)
         defer { try? outHandle.close() }   // close on every path, incl. a launch throw
-        let stderrPipe = Pipe()
-        process.standardOutput = outHandle
-        process.standardError = stderrPipe
-
-        // Drain stderr continuously to avoid the classic pipe-buffer deadlock.
-        let collector = PipeTextCollector()
-        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else { return }
-            collector.append(String(decoding: chunk, as: UTF8.self))
-        }
-
-        try await process.runAndWait()
-        stderrPipe.fileHandleForReading.readabilityHandler = nil
+        let capture = try await ProcessRunner.runCapturing(
+            executable: tool, arguments: args, stdoutSink: outHandle)
 
         // rc 2 == "no such file" (a candidate path that doesn't exist on this
         // volume); rc 3 == "no such extended attribute" - both treated as an
         // empty extraction, not a hard failure.
-        if process.terminationReason == .exit,
-           process.terminationStatus == 2 || process.terminationStatus == 3 { return }
-        guard process.terminationReason == .exit, process.terminationStatus == 0 else {
-            throw TSKError.ingestionFailed(exitCode: process.terminationStatus,
-                                           stderr: "fsapfscat: \(collector.text)")
+        if capture.terminationReason == .exit,
+           capture.terminationStatus == 2 || capture.terminationStatus == 3 { return }
+        if capture.crashed {
+            throw TSKError.extractionCrashed(signal: capture.terminationStatus,
+                                             stderr: "fsapfscat: \(capture.stderrText)")
+        }
+        guard capture.succeeded else {
+            throw TSKError.ingestionFailed(exitCode: capture.terminationStatus,
+                                           stderr: "fsapfscat: \(capture.stderrText)")
         }
     }
 }

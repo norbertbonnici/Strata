@@ -169,6 +169,15 @@ extension AppModel {
             let result = try await EWFInfo(environment: env).verify(imageAt: src) { line in
                 Task { @MainActor in self.statusMessage = line }
             }
+            // No SUCCESS/FAILURE line means the run was inconclusive (not a
+            // genuine failure). Surface it without flipping the embedded hashes to
+            // .mismatch — recording a false integrity failure in the custody
+            // ledger would be worse than reporting "couldn't verify".
+            guard result.verdictPresent else {
+                errorMessage = "\(name): ewfverify produced no verdict — integrity check inconclusive (left unrecorded, neither verified nor failed)."
+                statusMessage = ""
+                return
+            }
             let now = Date()
             updateEvidence(evidenceID) { ev in
                 for i in ev.sourceHashes.indices where ev.sourceHashes[i].origin == .embedded {

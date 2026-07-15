@@ -41,12 +41,20 @@ public actor EWFInfo {
     /// Outcome of an `ewfverify` integrity pass.
     public struct VerifyResult: Sendable, Equatable {
         public var passed: Bool
+        /// Whether `ewfverify` actually printed a `SUCCESS`/`FAILURE` verdict.
+        /// When false the run was inconclusive (e.g. truncated/garbled output) —
+        /// callers must NOT treat that as a genuine failure and flip hashes to
+        /// mismatch, which would record a false integrity failure.
+        public var verdictPresent: Bool
         public var storedMD5: String?
         public var calculatedMD5: String?
         public var storedSHA1: String?
         public var calculatedSHA1: String?
 
-        public init(passed: Bool = false) { self.passed = passed }
+        public init(passed: Bool = false, verdictPresent: Bool = false) {
+            self.passed = passed
+            self.verdictPresent = verdictPresent
+        }
     }
 
     // MARK: - Public API
@@ -67,7 +75,7 @@ public actor EWFInfo {
     /// SUCCESS/FAILURE verdict is authoritative; a mismatch is reported, not
     /// thrown. `progress` receives raw status lines from the tool.
     public func verify(imageAt url: URL,
-                       progress: ((String) -> Void)? = nil) async throws -> VerifyResult {
+                       progress: (@Sendable (String) -> Void)? = nil) async throws -> VerifyResult {
         let result = try await run("ewfverify", [url.path], progress: progress)
         return Self.parseVerify(result.stdout)
     }
@@ -81,37 +89,14 @@ public actor EWFInfo {
     /// like `verify` need to read the output even when the tool reports failure.
     /// Throws only if the binary is missing or fails to launch.
     private func run(_ tool: String, _ args: [String],
-                     progress: ((String) -> Void)? = nil) async throws -> ProcResult {
+                     progress: (@Sendable (String) -> Void)? = nil) async throws -> ProcResult {
         let toolURL = try environment.url(for: tool)
-        let process = Process()
-        process.executableURL = toolURL
-        process.arguments = args
-
-        let outPipe = Pipe()
-        let errPipe = Pipe()
-        process.standardOutput = outPipe
-        process.standardError = errPipe
-
-        let out = PipeTextCollector()
-        let err = PipeTextCollector()
-        outPipe.fileHandleForReading.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else { return }
-            out.append(String(decoding: chunk, as: UTF8.self))
-        }
-        errPipe.fileHandleForReading.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else { return }
-            let text = String(decoding: chunk, as: UTF8.self)
-            err.append(text)
-            text.split(whereSeparator: \.isNewline).forEach { progress?(String($0)) }
-        }
-
-        try await process.runAndWait()
-        outPipe.fileHandleForReading.readabilityHandler = nil
-        errPipe.fileHandleForReading.readabilityHandler = nil
-
-        return ProcResult(stdout: out.raw, stderr: err.raw, status: process.terminationStatus)
+        // Drain-to-EOF capture: the parsed verdict / hashes are emitted last, so
+        // a truncated tail would corrupt the integrity result (see ProcessRunner).
+        let capture = try await ProcessRunner.runCapturing(
+            executable: toolURL, arguments: args, onStderrLine: progress)
+        return ProcResult(stdout: capture.stdoutText, stderr: capture.stderrText,
+                          status: capture.terminationStatus)
     }
 
     // MARK: - Pure parsers (testable)
@@ -188,8 +173,8 @@ public actor EWFInfo {
     /// when present.
     public static func parseVerify(_ text: String) -> VerifyResult {
         var r = VerifyResult()
-        if text.contains("ewfverify: SUCCESS") { r.passed = true }
-        else if text.contains("ewfverify: FAILURE") { r.passed = false }
+        if text.contains("ewfverify: SUCCESS") { r.passed = true; r.verdictPresent = true }
+        else if text.contains("ewfverify: FAILURE") { r.passed = false; r.verdictPresent = true }
 
         for rawLine in text.split(whereSeparator: \.isNewline) {
             let line = String(rawLine)

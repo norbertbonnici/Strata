@@ -45,7 +45,7 @@ public actor FsApfsIngestor {
     public func ingest(imageAt imageURL: URL, imageType: String?,
                        scratchDirectory: URL,
                        credential: FileVaultCredential? = nil,
-                       progress: ((String) -> Void)? = nil) async throws -> Result {
+                       progress: (@Sendable (String) -> Void)? = nil) async throws -> Result {
         try FileManager.default.createDirectory(at: scratchDirectory, withIntermediateDirectories: true)
 
         // 1. Get raw access.
@@ -150,7 +150,7 @@ public actor FsApfsIngestor {
 
     // MARK: - Tool invocations
 
-    private func runEwfExport(imageURL: URL, output: URL, progress: ((String) -> Void)?) async throws {
+    private func runEwfExport(imageURL: URL, output: URL, progress: (@Sendable (String) -> Void)?) async throws {
         _ = try await runTool("ewfexport",
                               ["-u", "-f", "raw", "-t", output.path, imageURL.path],
                               progress: progress)
@@ -207,44 +207,18 @@ public actor FsApfsIngestor {
     }
 
     /// Run a vendored tool, returning stdout. Throws `toolFailed` on a non-zero
-    /// exit (signal or error), surfacing stderr.
-    private func runTool(_ name: String, _ args: [String], progress: ((String) -> Void)?) async throws -> String {
+    /// exit (signal or error), surfacing stderr. Output is drained to EOF (via
+    /// `ProcessRunner`) so a truncated tail can't yield a wrong volume count /
+    /// offset / name that silently corrupts the APFS ingest.
+    private func runTool(_ name: String, _ args: [String], progress: (@Sendable (String) -> Void)?) async throws -> String {
         let tool = try environment.url(for: name)
-        let process = Process()
-        process.executableURL = tool
-        process.arguments = args
-        let outPipe = Pipe(), errPipe = Pipe()
-        process.standardOutput = outPipe
-        process.standardError = errPipe
-        let errCollector = PipeTextCollector()
-        errPipe.fileHandleForReading.readabilityHandler = { h in
-            let d = h.availableData
-            guard !d.isEmpty else { return }
-            let s = String(decoding: d, as: UTF8.self)
-            errCollector.append(s)
-            s.split(whereSeparator: \.isNewline).forEach { progress?(String($0)) }
+        let capture = try await ProcessRunner.runCapturing(
+            executable: tool, arguments: args, onStderrLine: progress)
+        guard capture.succeeded else {
+            throw FsApfsError.toolFailed("\(name): \(capture.stderrText)")
         }
-        let outData = OutputAccumulator()
-        outPipe.fileHandleForReading.readabilityHandler = { h in
-            let d = h.availableData
-            if !d.isEmpty { outData.append(d) }
-        }
-        try await process.runAndWait()
-        errPipe.fileHandleForReading.readabilityHandler = nil
-        outPipe.fileHandleForReading.readabilityHandler = nil
-        guard process.terminationReason == .exit, process.terminationStatus == 0 else {
-            throw FsApfsError.toolFailed("\(name): \(errCollector.text)")
-        }
-        return outData.string()
+        return capture.stdoutText
     }
-}
-
-/// Thread-safe stdout accumulator for the readability handler.
-nonisolated private final class OutputAccumulator: @unchecked Sendable {
-    private var data = Data()
-    private let lock = NSLock()
-    func append(_ d: Data) { lock.lock(); data.append(d); lock.unlock() }
-    func string() -> String { lock.lock(); defer { lock.unlock() }; return String(decoding: data, as: UTF8.self) }
 }
 
 #endif

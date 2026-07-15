@@ -102,8 +102,16 @@ extension AppModel {
                     } else {
                         guard let info = try database!.fetchExtractInfo(forFileID: entry.id) else { continue }
                         let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name)")
-                        try await extractor!.extract(metaAddr: info.metaAddr,
-                                                     imageOffsetSectors: info.imageOffsetSectors, to: outURL)
+                        do {
+                            try await extractor!.extract(metaAddr: info.metaAddr,
+                                                         imageOffsetSectors: info.imageOffsetSectors, to: outURL)
+                        } catch {
+                            // One file's extraction failure must not abort the whole
+                            // pass (discarding partials + skipping later hosts): record
+                            // it and move on. Bytes are adversary-controlled.
+                            statusMessage = "\(evidence.displayName): \(entry.name) — extraction failed (\(error.localizedDescription))"
+                            continue
+                        }
                         for suffix in ["-wal", "-shm"] {
                             guard let side = state.files.first(where: {
                                 !$0.isDirectory && $0.parentPath == entry.parentPath
@@ -256,8 +264,16 @@ extension AppModel {
                     } else {
                         guard let info = try database!.fetchExtractInfo(forFileID: entry.id) else { continue }
                         let outURL = scratch!.appendingPathComponent("\(entry.id)-EnvelopeIndex")
-                        try await extractor!.extract(metaAddr: info.metaAddr,
-                                                     imageOffsetSectors: info.imageOffsetSectors, to: outURL)
+                        do {
+                            try await extractor!.extract(metaAddr: info.metaAddr,
+                                                         imageOffsetSectors: info.imageOffsetSectors, to: outURL)
+                        } catch {
+                            // One file's extraction failure must not abort the whole
+                            // pass (discarding partials + skipping later hosts): record
+                            // it and move on. Bytes are adversary-controlled.
+                            statusMessage = "\(evidence.displayName): \(entry.name) — extraction failed (\(error.localizedDescription))"
+                            continue
+                        }
                         for suffix in ["-wal", "-shm"] {
                             guard let side = state.files.first(where: {
                                 !$0.isDirectory && $0.parentPath == entry.parentPath

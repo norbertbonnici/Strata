@@ -293,9 +293,17 @@ extension AppModel {
                             continue
                         }
                         let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name.scratchSafeComponent)")
-                        try await extractor!.extract(metaAddr: extractInfo.metaAddr,
-                                                     imageOffsetSectors: extractInfo.imageOffsetSectors,
-                                                     to: outURL)
+                        do {
+                            try await extractor!.extract(metaAddr: extractInfo.metaAddr,
+                                                         imageOffsetSectors: extractInfo.imageOffsetSectors,
+                                                         to: outURL)
+                        } catch {
+                            // One file's extraction failure must not abort the whole
+                            // pass (discarding partials + skipping later hosts): record
+                            // it and move on. Bytes are adversary-controlled.
+                            statusMessage = "\(evidence.displayName): \(entry.name) — extraction failed (\(error.localizedDescription))"
+                            continue
+                        }
                         fileURL = outURL
                     }
                     // A malformed file shouldn't abort the whole run.

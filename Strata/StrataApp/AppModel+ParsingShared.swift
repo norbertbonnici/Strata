@@ -174,9 +174,18 @@ extension AppModel {
                             completed += 1; continue
                         }
                         let outURL = scratch!.appendingPathComponent("\(entry.id)-\(entry.name.scratchSafeComponent)")
-                        try await extractor!.extract(metaAddr: info.metaAddr,
-                                                     imageOffsetSectors: info.imageOffsetSectors,
-                                                     to: outURL)
+                        do {
+                            try await extractor!.extract(metaAddr: info.metaAddr,
+                                                         imageOffsetSectors: info.imageOffsetSectors,
+                                                         to: outURL)
+                        } catch {
+                            // One file's extraction failure must not abort the whole
+                            // pass (discarding partials + skipping later hosts): record
+                            // it and move on. Bytes are adversary-controlled.
+                            statusMessage = "\(evidence.displayName): \(entry.name) — extraction failed (\(error.localizedDescription))"
+                            completed += 1
+                            continue
+                        }
                         // Extract the `-wal`/`-shm` sidecars next to the main DB
                         // (matching names) so the parser can recover history still
                         // sitting in the `-wal`. Best-effort: absence is normal.
