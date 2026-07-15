@@ -572,6 +572,15 @@ extension AppModel {
             errorMessage = "Failed to save host list: \(error.localizedDescription)"
         }
     }
+
+    /// Whether a host's source media is present on disk — the image / raw file
+    /// (or the ewfexport'd APFS raw), or a loose collection folder. When false,
+    /// content extraction / re-parse can't read it (archived case).
+    func sourceAvailable(_ evidence: Evidence) -> Bool {
+        let url = evidence.kind == .apfs ? (evidence.apfsRawURL ?? evidence.sourceURL)
+                                         : evidence.sourceURL
+        return FileManager.default.fileExists(atPath: url.path)
+    }
 }
 
 /// Thread-safe accumulator for artifact decode faults recorded during the

@@ -43,6 +43,15 @@ extension AppModel {
     /// — only when a parser actually added data.
     func backfillOnOpen() async {
         guard currentCase != nil, !evidenceList.isEmpty, !isWorking else { return }
+        // If no host's source media is available (a fully-archived case), backfill
+        // can't extract anything new — skip the parser sweep, which would otherwise
+        // spawn a subprocess per candidate that all fail on the missing source
+        // (non-fatally since A3, but noisily). The cached artifacts already loaded
+        // stand. (E5)
+        guard evidenceList.contains(where: sourceAvailable) else {
+            statusMessage = ""
+            return
+        }
         let before = dataVersion
         await runAllParsers()
         if dataVersion != before {
