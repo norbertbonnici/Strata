@@ -53,12 +53,25 @@ public enum ProcessRunner {
     public static func runCapturing(
         executable: URL,
         arguments: [String],
+        stdin: Data? = nil,
         stdoutSink: FileHandle? = nil,
         onStderrLine: (@Sendable (String) -> Void)? = nil
     ) async throws -> ProcessCapture {
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
+
+        // Feed a small payload to the child's stdin (e.g. a FileVault secret kept
+        // off the world-readable argv). The payload must fit comfortably inside the
+        // pipe buffer (~16-64 KB) so the single write below can't block.
+        let inPipe: Pipe?
+        if stdin != nil {
+            let pipe = Pipe()
+            process.standardInput = pipe
+            inPipe = pipe
+        } else {
+            inPipe = nil
+        }
 
         let stdoutBuffer = ByteBuffer()
         let stderrBuffer = ByteBuffer()
@@ -113,6 +126,13 @@ public enum ProcessRunner {
             outPipe?.fileHandleForReading.readabilityHandler = nil
             errPipe.fileHandleForReading.readabilityHandler = nil
             throw error
+        }
+
+        // Deliver the stdin payload and close the write end so the child's read
+        // reaches EOF. Small + one-shot, so it can't fill the pipe buffer / block.
+        if let stdin, let inPipe {
+            try? inPipe.fileHandleForWriting.write(contentsOf: stdin)
+            try? inPipe.fileHandleForWriting.close()
         }
 
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in

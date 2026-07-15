@@ -199,6 +199,14 @@ public actor FsApfsIngestor {
         // -H (hierarchy) + -B yields full *paths* + MACB; -E all gives leaf names
         // only (no parent path), so the tree can't be rebuilt from it.
         // -p / -r unlock a FileVault-encrypted volume's metadata.
+        //
+        // KNOWN RESIDUAL (B2): fsapfsinfo is libyal's tool and reads the secret
+        // only from -p/-r on argv (world-readable via ps/KERN_PROCARGS2). Unlike
+        // our fsapfscat (which now takes the secret on stdin via -s), removing this
+        // exposure needs a vendored patch to libfsapfs' fsapfsinfo. It is far lower
+        // exposure than the fsapfscat path — a single short-lived invocation per
+        // encrypted volume (a handful per case) vs. thousands of content
+        // extractions — and only runs when a FileVault credential is supplied.
         var args = ["-o", "\(offset)", "-f", "\(index)"]
         if let password = credential?.password { args.append(contentsOf: ["-p", password]) }
         if let recovery = credential?.recovery { args.append(contentsOf: ["-r", recovery]) }

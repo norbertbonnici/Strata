@@ -73,6 +73,17 @@ struct IngestReviewFixTests {
     }
 
     #if os(macOS)
+    /// B2: the FileVault secret is framed as `<password>\0<recovery>` for
+    /// fsapfscat's `-s` stdin channel (never on argv). NUL-separated so either
+    /// part may be empty and a secret containing a newline still round-trips.
+    @Test func fileVaultSecretPayloadIsNulFramed() {
+        #expect(FsApfsExtractor.secretPayload(password: "pw", recovery: nil) == Data("pw\u{0}".utf8))
+        #expect(FsApfsExtractor.secretPayload(password: nil, recovery: "rk") == Data("\u{0}rk".utf8))
+        #expect(FsApfsExtractor.secretPayload(password: "pw", recovery: "rk") == Data("pw\u{0}rk".utf8))
+        // A newline in the secret is preserved (framing is NUL-based, not line-based).
+        #expect(FsApfsExtractor.secretPayload(password: "a\nb", recovery: nil) == Data("a\nb\u{0}".utf8))
+    }
+
     /// B3: `looksEncrypted` matches only encryption-specific tokens, so a plain
     /// I/O error is no longer misread as a FileVault-locked volume (which would
     /// pop a spurious unlock prompt on a merely-broken volume).

@@ -41,8 +41,15 @@ public actor FsApfsExtractor {
         let password = password ?? credential?.password
         let recovery = recovery ?? credential?.recovery
         var args = ["-o", "\(offsetBytes)", "-f", "\(volumeIndex)"]
-        if let password { args.append(contentsOf: ["-p", password]) }
-        if let recovery { args.append(contentsOf: ["-r", recovery]) }
+        // The FileVault secret goes through stdin (`-s`), never `-p`/`-r` on argv,
+        // which is world-readable to any same-user process (ps, KERN_PROCARGS2) and
+        // captured by crash reports — with thousands of extractions per case that
+        // would continuously expose the subject's password/recovery key. (B2)
+        var secretStdin: Data?
+        if password != nil || recovery != nil {
+            args.append("-s")
+            secretStdin = Self.secretPayload(password: password, recovery: recovery)
+        }
         if let attribute { args.append(contentsOf: ["-x", attribute]) }
         args.append(rawURL.path)
         args.append(volumePath)
@@ -52,7 +59,7 @@ public actor FsApfsExtractor {
         let outHandle = try FileHandle(forWritingTo: destination)
         defer { try? outHandle.close() }   // close on every path, incl. a launch throw
         let capture = try await ProcessRunner.runCapturing(
-            executable: tool, arguments: args, stdoutSink: outHandle)
+            executable: tool, arguments: args, stdin: secretStdin, stdoutSink: outHandle)
 
         // rc 2 == "no such file" (a candidate path that doesn't exist on this
         // volume); rc 3 == "no such extended attribute" - both treated as an
@@ -67,6 +74,17 @@ public actor FsApfsExtractor {
             throw TSKError.ingestionFailed(exitCode: capture.terminationStatus,
                                            stderr: "fsapfscat: \(capture.stderrText)")
         }
+    }
+
+    /// Encode the FileVault secret for fsapfscat's `-s` stdin channel as
+    /// `<password>\0<recovery>` (either part may be empty). NUL-separated so a
+    /// secret containing newlines still round-trips, and it never touches argv.
+    static func secretPayload(password: String?, recovery: String?) -> Data {
+        var data = Data()
+        if let password { data.append(contentsOf: Array(password.utf8)) }
+        data.append(0)   // NUL separator between password and recovery
+        if let recovery { data.append(contentsOf: Array(recovery.utf8)) }
+        return data
     }
 }
 
