@@ -5,6 +5,74 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-09-15
+
+Headline: a full **ingest-pipeline security & robustness review** — the three OS
+ingest paths plus the case load/save layer, 26 verified findings remediated —
+alongside a toolchain/build refresh and pre-public-release housekeeping.
+
+### Security
+
+- **Drain-to-EOF subprocess capture** (`ProcessRunner`): a tool's output is read
+  only after the process has exited *and* every pipe has reached EOF, so a
+  truncated tail can no longer flip `ewfverify` to a **false integrity FAILURE**
+  or drop an E01's embedded hashes from the chain of custody. A verdict-less
+  `ewfverify` run is now treated as inconclusive, not a failure.
+- **FileVault secret off the command line**: `fsapfscat` gains a `-s` stdin
+  channel; the password / recovery key is written to stdin instead of the
+  world-readable `-p`/`-r` argv (visible via `ps`, captured by sysdiagnose). The
+  once-per-volume `fsapfsinfo` metadata pass is the documented remaining residual.
+- **Corrupt ≠ "never parsed" on case open**: a present-but-undecodable cached
+  artifact is surfaced as an `ArtifactLoadFault` (Overview banner) instead of
+  silently loading as an empty tab — including the legal-weight **custody ledger**
+  and the case-wide stores. Backfill prunes a fault once its bucket is rebuilt.
+- **Loose-folder symlink confinement**: the KAPE/UAC walk no longer records or
+  descends into symlinks, so a planted `foo.evtx -> /etc/hosts` can't pull the
+  analyst's own machine into the case (non-sandboxed + Full Disk Access).
+- **Non-fatal parse loops**: one hostile/corrupt file no longer aborts an entire
+  artifact category (discarding partials + skipping later hosts); a tool crash is
+  reported distinctly from a non-zero exit. Scratch filenames uniformly sanitized.
+- **Bundle-overwrite guard**: `createCase` refuses to overwrite an existing bundle
+  (which previously truncated `hosts.json` and orphaned `custody.json`).
+
+### Fixed
+
+- FileVault unlock now actually re-runs the macOS + browser analyzers (they were
+  silently no-op'ing behind the single-flight guard).
+- Linux syslog classifier no longer over-matches non-log files whose name merely
+  starts with "messages" (e.g. a Windows Store `messagesxboxlogo.png` dragged in
+  and re-opened on every case open) — matches are now `/var/log/`-anchored and
+  slack-safe, and the classifier is extracted into a unit-tested
+  `LinuxArtifactClassifier`.
+- APFS ingest: empty/sealed volumes are no longer mislabelled FileVault-locked;
+  bare (partition-table-less) containers ingest; the bodyfile is read bounded +
+  memory-mapped + lossy-decoded (one non-UTF-8 filename byte no longer drops the
+  whole volume); volume-count / offset traps guarded.
+- A moved or copied `.strata` APFS case still extracts content (`apfsRawURL`
+  rebuilt from the bundle on load); a loose host keeps its cached findings when
+  its source folder is gone; the default scope advances past a host that fails to
+  load.
+- Sub-second forensic timestamps survive a save/reload (fractional-seconds
+  ISO-8601); the APFS tree + volumes persist atomically; `removeEvidence` persists
+  the host list before deleting on disk and surfaces a deletion failure; `.l01`
+  logical evidence verifies as EWF; loose-folder `.born` timeline events (the
+  collector's copy time, not a real birth time) are suppressed.
+
+### Changed
+
+- All targets moved to the **macOS/iOS 26.6** deployment target.
+- The vendored TSK/libyal tools are bundled into the app via a Copy Files phase;
+  `build-tsk.sh` pins refreshed to current libyal tags (the 2024 tags were pruned
+  upstream) with the pkg-config shim applied globally across the build.
+- **Design UI** and **Activity** sidebar surfaces hidden ahead of the public
+  release (code retained, unwired — re-enable via `ContentView.releaseHiddenItems`).
+
+### Added
+
+- Tests for the new/changed paths: `ProcessRunner` (drain to EOF, signal-vs-exit),
+  the Linux artifact classifier, corrupt-vs-empty load faults, and fractional-
+  second persistence round-trip.
+
 ## [0.1.0-beta.4] — 2026-06-24
 
 Headline: **on-device sovereign AI case summaries** + a **deep macOS triage
