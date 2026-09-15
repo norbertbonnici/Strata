@@ -1,0 +1,35 @@
+Strata
+Copyright 2026 Norbert Bonnici
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes software statically linked from third-party projects
+with their own licenses, vendored and built by scripts/build-tsk.sh into
+Vendor/tsk/ (not checked into this repository, downloaded at build time):
+
+  * The Sleuth Kit (https://www.sleuthkit.org/)
+    Licensed under a mix of the IBM Common Public License 1.0 and the
+    Apache License, Version 2.0.
+
+  * libyal libraries (https://github.com/libyal), licensed under the
+    GNU Lesser General Public License, Version 3.0 (LGPL-3.0-or-later):
+      - libevtx  (Windows Event Log parsing)
+      - libregf  (Windows Registry hive parsing)
+      - liblnk   (Windows Shell Link / .lnk parsing)
+      - libscca  (Windows Prefetch parsing)
+      - libolecf (OLE2 Compound File parsing)
+      - libesedb (Extensible Storage Engine / ESE database parsing)
+      - libfsapfs (Apple APFS filesystem parsing)
+      - libewf   (EWF/E01 disk image format)
+      - libvhdi  (VHD/VHDX disk image format)
+      - libvmdk  (VMDK disk image format)
+
+  * scripts/fsapfscat.c, this project's own tool, statically links
+    libfsapfs (LGPL-3.0-or-later) and is distributed under the terms of
+    that license.
+
+As required by LGPL-3.0 for statically-linked binary distributions, object
+files enabling relinking against modified versions of the above libyal
+libraries are available on request; see the corresponding source archives
+fetched by scripts/build-tsk.sh for the exact upstream version pinned at
+build time.
