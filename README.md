@@ -169,3 +169,10 @@ against a real encrypted image; journald XZ/ZSTD-compressed values are skipped.
 ## Feedback
 
 Please file issues at <https://github.com/norbertbonnici/Strata/issues>.
+
+## License
+
+Strata's own source is licensed under the [Apache License, Version 2.0](LICENSE).
+It statically links a vendored build of The Sleuth Kit and several libyal
+libraries under their own licenses (LGPL-3.0 for the libyal components) — see
+[NOTICE](NOTICE) for the full list and attribution.
