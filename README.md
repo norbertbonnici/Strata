@@ -26,7 +26,7 @@ statically linked. **There is no Homebrew or runtime dependency.**
   (`libvmdk`), and raw `dd`.
 - **Loose collections** — KAPE / UAC triage folders (no image container) walked
   directly off disk.
-- **Filesystems** — NTFS and ext2/3/4 via TSK; **APFS / HFS+** via a vendored
+- **Filesystems** — NTFS, ext2/3/4, and HFS+ via TSK; **APFS** via a vendored
   `libfsapfs` + a custom `fsapfscat` (TSK's own APFS parser crashes on real
   macOS volumes). FileVault volumes unlock in-memory (credential never persisted).
 - **Multi-host cases** — a `.strata` bundle holds one or more hosts with
@@ -57,8 +57,9 @@ kernel + system **extensions**, **network & devices** (Wi-Fi / DHCP / Bluetooth
 / Time Machine / iOS pairings), QuickLook & Trash, document versions,
 notifications, **Powerlog** (process execution with PIDs), configuration
 posture, install history, security events (Gatekeeper / XProtect), recent items,
-and a signature **file carver** that recovers deleted files from unallocated
-space (including the sealed System snapshot and locked FileVault volumes).
+per-user shell history (zsh / bash), and a signature **file carver** that recovers
+deleted files from unallocated space (including the sealed System snapshot and
+locked FileVault volumes).
 
 **Cross-OS** — web-browser history (Chromium / Firefox / Safari).
 
@@ -98,11 +99,29 @@ and an append-only custody ledger.
 
 ## Requirements
 
-- **Apple Silicon Mac, macOS 26.5 or later** for the app. (The on-device AI layer
+- **Apple Silicon Mac, macOS 26.6 or later** for the app. (The on-device AI layer
   links the current FoundationModels framework, which set the deployment target;
   the **Apple Private Cloud Compute** summary tier additionally needs macOS 27.)
+- **iOS / iPadOS 26.6 or later** for the read-only viewer.
 - Grant **Full Disk Access** on first launch (System Settings ▸ Privacy &
   Security) — Strata reads raw disk images and can't be sandboxed.
+
+## Install
+
+A notarized, Developer ID-signed disk image ships with every release — you don't
+need to build from source to run the app.
+
+1. Download the newest `Strata-<version>.dmg` from the
+   [Releases](https://github.com/norbertbonnici/Strata/releases) page
+   (currently **Strata 0.2.0**).
+2. Open the DMG and drag **Strata** into your **Applications** folder.
+3. On first launch, grant **Full Disk Access** (System Settings ▸ Privacy &
+   Security ▸ Full Disk Access) so Strata can read raw disk images.
+
+The image is signed, notarized, and stapled, so it opens through Gatekeeper with
+no right-click-Open workaround. Requires an Apple Silicon Mac on macOS 26.6 or
+later (see [Requirements](#requirements)). Building from source, below, is only
+needed to develop Strata or to run the iOS viewer.
 
 ## Building
 
@@ -136,7 +155,7 @@ Because Strata reads raw disk images it can't be sandboxed or shipped through th
 App Store; the only clean distribution path is Developer ID + notarization:
 
 ```sh
-scripts/release.sh 0.1.0-beta.4   # archive → sign → notarize → staple → dmg
+scripts/release.sh 0.2.0   # archive → sign → notarize → staple → dmg
 ```
 
 Prereqs: a Developer ID Application certificate and a notarytool keychain profile
@@ -154,17 +173,21 @@ the "where does this go?" decision tree):
 | `Strata/StrataTSK/` | Vendored-TSK ingest (`tsk_loaddb` → SQLite via GRDB, `icat`, the APFS path) |
 | `Strata/StrataAnalysis/Analyzers/<OS\|CrossPlatform>/` | The 61 analyzers + `AnalysisEngine`, IOC matcher, lateral graph, correlation |
 | `Strata/StrataAI/` | On-device + cloud inference backends, the findings summarizer, evidence-reference validator |
-| `Strata/StrataCTI/`, `StrataReport/`, `StrataSearch/`, `StrataTimeline/` | CTI enrichment, reporting/export, global search, timeline builders |
+| `Strata/StrataCTI/`, `Strata/StrataReport/`, `Strata/StrataSearch/`, `Strata/StrataTimeline/` | CTI enrichment, reporting/export, global search, timeline builders |
 | `Strata/StrataApp/` | The SwiftUI app — `AppModel` (split into per-concern extensions) + `Views/<OS>/` + `Views/iOS/` |
 
 ## Status & known limits
 
-Two betas shipped early; **beta 4** is the current release. The full pipeline is
-in use across Windows, Linux, and macOS evidence, validated against real images.
-Some decoders are still validated against synthetic fixtures only (Shimcache,
-parts of SRUM/USN/JumpList) — see `CHANGELOG.md` and per-release notes in
-`docs/releases/`. The FileVault unlock path is implemented but not yet validated
-against a real encrypted image; journald XZ/ZSTD-compressed values are skipped.
+Four public betas shipped during development; **0.2.0** is the current release —
+the first non-prerelease, a security & robustness hardening of the ingest
+pipeline (26 verified findings remediated across the three OS ingest paths and
+the case load/save layer, after an earlier 56-issue view-layer review). The full
+pipeline is in use across Windows, Linux, and macOS evidence, validated against
+real images. Some decoders are still validated against synthetic fixtures only
+(Shimcache, parts of SRUM/USN/JumpList) — see `CHANGELOG.md` and per-release
+notes in `docs/releases/`. The FileVault unlock path is implemented but not yet
+validated against a real encrypted image; journald XZ/ZSTD-compressed values are
+skipped.
 
 ## Feedback
 
