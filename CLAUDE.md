@@ -54,7 +54,7 @@ notarytool keychain profile named **`strata-notary`** (`xcrun notarytool
 store-credentials`). It **overrides** `CODE_SIGN_ENTITLEMENTS` to the empty
 `scripts/StrataRelease.entitlements`, so the notarized build carries no
 entitlements. Released so far: **v0.1.0-beta.1, v0.1.0-beta.2, v0.1.0-beta.3,
-v0.1.0-beta.4**.
+v0.1.0-beta.4, v0.2.0**.
 Per-release notes live in `docs/releases/`; keep `CHANGELOG.md` updated.
 
 ## Architecture (folders under `Strata/`)

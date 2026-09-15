@@ -5,6 +5,8 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-09-15
+
 Headline: a full **ingest-pipeline security & robustness review** — the three OS
 ingest paths plus the case load/save layer, 26 verified findings remediated —
 alongside a toolchain/build refresh and pre-public-release housekeeping.
