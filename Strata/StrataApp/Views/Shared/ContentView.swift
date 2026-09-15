@@ -221,8 +221,13 @@ struct ContentView: View {
     #if os(macOS)
     /// Tabs visible for the current scope: cross-platform tabs plus the OS
     /// tabs that apply to the loaded evidence (all of them under "Show all").
+    /// UI surfaces hidden ahead of the public GitHub release. They're kept in the
+    /// codebase (enum cases + detail routing below) but dropped from the sidebar,
+    /// so nothing breaks and re-enabling is just removing them from this set.
+    private static let releaseHiddenItems: Set<SidebarItem> = [.designUI, .activity]
+
     private var visibleSidebarItems: [SidebarItem] {
-        SidebarItem.allCases.filter { isVisible($0) }
+        SidebarItem.allCases.filter { !Self.releaseHiddenItems.contains($0) && isVisible($0) }
     }
 
     /// Single source of truth for tab visibility. Most tabs gate on their one
@@ -373,7 +378,7 @@ struct ContentView: View {
     /// reveal the hidden tabs without cluttering a mixed/undetermined case.
     @ViewBuilder
     private var sidebarOSFooter: some View {
-        let someHidden = visibleSidebarItems.count < SidebarItem.allCases.count
+        let someHidden = visibleSidebarItems.count < SidebarItem.allCases.count - Self.releaseHiddenItems.count
         if someHidden || model.showAllArtifactTabs {
             Divider()
             Toggle(isOn: $model.showAllArtifactTabs) {
@@ -392,7 +397,7 @@ struct ContentView: View {
     /// Reset the selection to Overview when the current tab is no longer
     /// visible for the scope.
     private func clampSelection() {
-        if let current = item, !isVisible(current) {
+        if let current = item, Self.releaseHiddenItems.contains(current) || !isVisible(current) {
             item = .overview
         }
     }
