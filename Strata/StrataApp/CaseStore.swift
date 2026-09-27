@@ -66,6 +66,7 @@ public nonisolated enum CaseStore {
     private static let syslogFilename     = "syslog.json"
     private static let lastlogFilename    = "lastlog.json"
     private static let findingsFilename   = "findings.json"
+    private static let yaraMatchesFilename = "yara.json"
     private static let iocsFilename       = "iocs.json"
     private static let iocMatchesFilename = "iocmatches.json"
     private static let custodyFilename    = "custody.json"
@@ -246,6 +247,9 @@ public nonisolated enum CaseStore {
     }
     public static func findingsFileURL(forHostID id: UUID, in bundle: URL) -> URL {
         hostDirectory(forHostID: id, in: bundle).appendingPathComponent(findingsFilename)
+    }
+    public static func yaraMatchesFileURL(forHostID id: UUID, in bundle: URL) -> URL {
+        hostDirectory(forHostID: id, in: bundle).appendingPathComponent(yaraMatchesFilename)
     }
 
     public static func readEvents(forHostID id: UUID, in bundle: URL) throws -> [EventLogRecord]? {
@@ -432,6 +436,13 @@ public nonisolated enum CaseStore {
     public static func writeFindings(_ findings: [Finding],
                                      forHostID id: UUID, in bundle: URL) throws {
         try writeArray(findings, at: findingsFileURL(forHostID: id, in: bundle))
+    }
+    public static func readYaraMatches(forHostID id: UUID, in bundle: URL) throws -> [YaraMatch]? {
+        try readArrayIfPresent(at: yaraMatchesFileURL(forHostID: id, in: bundle))
+    }
+    public static func writeYaraMatches(_ matches: [YaraMatch],
+                                        forHostID id: UUID, in bundle: URL) throws {
+        try writeArray(matches, at: yaraMatchesFileURL(forHostID: id, in: bundle))
     }
 
     // MARK: - IOCs (case-wide) and IOC matches (per host)

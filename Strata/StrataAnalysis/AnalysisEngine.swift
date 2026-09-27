@@ -85,5 +85,6 @@ public nonisolated struct AnalysisEngine: Sendable {
         MacConfigAnalyzer(),
         MacInstallAnalyzer(),
         MacWhereFromsAnalyzer(),
+        YaraAnalyzer(),
     ]
 }

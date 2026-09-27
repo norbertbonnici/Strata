@@ -382,22 +382,24 @@ extension AppModel {
                 state.timeline.sort { $0.date < $1.date }
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
-                    try? CaseStore.writeAuthLog(authLog, forHostID: evidence.id, in: bundleURL)
-                    try? CaseStore.writeLogins(logins, forHostID: evidence.id, in: bundleURL)
-                    try? CaseStore.writeShellHistory(shellHistory, forHostID: evidence.id, in: bundleURL)
-                    try? CaseStore.writeLinuxPersistence(persistence, forHostID: evidence.id, in: bundleURL)
-                    if let linuxInfo = state.linuxInfo {
-                        try? CaseStore.writeLinuxInfo(linuxInfo, forHostID: evidence.id, in: bundleURL)
+                    _ = persistArtifact("Linux artifacts for \(evidence.displayName)") {
+                        try CaseStore.writeAuthLog(authLog, forHostID: evidence.id, in: bundleURL)
+                        try CaseStore.writeLogins(logins, forHostID: evidence.id, in: bundleURL)
+                        try CaseStore.writeShellHistory(shellHistory, forHostID: evidence.id, in: bundleURL)
+                        try CaseStore.writeLinuxPersistence(persistence, forHostID: evidence.id, in: bundleURL)
+                        if let linuxInfo = state.linuxInfo {
+                            try CaseStore.writeLinuxInfo(linuxInfo, forHostID: evidence.id, in: bundleURL)
+                        }
+                        if let linuxAccess = state.linuxAccess {
+                            try CaseStore.writeLinuxAccess(linuxAccess, forHostID: evidence.id, in: bundleURL)
+                        }
+                        try CaseStore.writeWebAccess(web, forHostID: evidence.id, in: bundleURL)
+                        try CaseStore.writePackages(packages, forHostID: evidence.id, in: bundleURL)
+                        try CaseStore.writeJournald(journald, forHostID: evidence.id, in: bundleURL)
+                        try CaseStore.writeAudit(audit, forHostID: evidence.id, in: bundleURL)
+                        try CaseStore.writeSyslog(syslog, forHostID: evidence.id, in: bundleURL)
+                        try CaseStore.writeLastlog(lastlog, forHostID: evidence.id, in: bundleURL)
                     }
-                    if let linuxAccess = state.linuxAccess {
-                        try? CaseStore.writeLinuxAccess(linuxAccess, forHostID: evidence.id, in: bundleURL)
-                    }
-                    try? CaseStore.writeWebAccess(web, forHostID: evidence.id, in: bundleURL)
-                    try? CaseStore.writePackages(packages, forHostID: evidence.id, in: bundleURL)
-                    try? CaseStore.writeJournald(journald, forHostID: evidence.id, in: bundleURL)
-                    try? CaseStore.writeAudit(audit, forHostID: evidence.id, in: bundleURL)
-                    try? CaseStore.writeSyslog(syslog, forHostID: evidence.id, in: bundleURL)
-                    try? CaseStore.writeLastlog(lastlog, forHostID: evidence.id, in: bundleURL)
                 }
             }
             progress = ProgressInfo(current: completed, total: totalCandidates,

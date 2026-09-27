@@ -117,6 +117,20 @@ struct InferenceBackendTests {
         #expect(cloud is CloudInferenceBackend)
     }
 
+    @Test func cloudConfigurationRejectsInsecureRemoteEndpoints() {
+        let store = InMemoryCredentialStore()
+        store.save(CTICredentials(token: "key"), for: InferenceConfiguration.keychainService)
+
+        let remoteHTTP = InferenceConfiguration(mode: .cloud, cloudBaseURL: "http://example.com")
+        #expect(remoteHTTP.makeBackend(credentials: store).isSovereign)
+
+        let localHTTP = InferenceConfiguration(mode: .cloud, cloudBaseURL: "http://localhost:8080")
+        #expect(localHTTP.makeBackend(credentials: store).sovereignty == .thirdPartyCloud)
+
+        let remoteHTTPS = InferenceConfiguration(mode: .cloud, cloudBaseURL: "https://example.com")
+        #expect(remoteHTTPS.makeBackend(credentials: store).sovereignty == .thirdPartyCloud)
+    }
+
     /// Private Cloud Compute is the middle tier: off-device (so gated + labeled,
     /// `isSovereign == false`) but its own tier. On an OS without the API,
     /// `makeBackend` falls back to on-device since PCC can't run there.

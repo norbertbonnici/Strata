@@ -238,7 +238,9 @@ extension AppModel {
             }.value
             state.carvedFiles = carved
             states[evidence.id] = state
-            try? CaseStore.writeCarved(carved, forHostID: evidence.id, in: bundleURL)
+            guard persistArtifact("carved files for \(evidence.displayName)", {
+                try CaseStore.writeCarved(carved, forHostID: evidence.id, in: bundleURL)
+            }) else { return }
             appendCustody(.analysed,
                           detail: "Carved \(carved.count) recoverable file(s) from \(evidence.displayName)",
                           evidenceID: evidence.id)

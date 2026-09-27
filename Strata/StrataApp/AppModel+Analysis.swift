@@ -192,12 +192,15 @@ extension AppModel {
                                           config: state.macConfig,
                                           installHistory: state.installHistory,
                                           whereFroms: state.whereFroms,
+                                          yaraMatches: state.yaraMatches,
                                           encryptionEntropy: encryptionEntropy)
             let results = await analysisEngine.run(on: context)
             state.findings = results
             states[evidence.id] = state
             if let bundleURL = currentCaseBundleURL {
-                try? CaseStore.writeFindings(results, forHostID: evidence.id, in: bundleURL)
+                _ = persistArtifact("findings for \(evidence.displayName)") {
+                    try CaseStore.writeFindings(results, forHostID: evidence.id, in: bundleURL)
+                }
             }
             total += results.count
         }

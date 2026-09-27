@@ -2,6 +2,18 @@ import Foundation
 import SwiftUI
 
 extension AppModel {
+    @discardableResult
+    func persistArtifact(_ label: String, _ operation: () throws -> Void) -> Bool {
+        do {
+            try operation()
+            return true
+        } catch {
+            errorMessage = "Failed to save \(label): \(error.localizedDescription)"
+            statusMessage = "The latest \(label) results are only available in memory."
+            return false
+        }
+    }
+
     // MARK: - Case Library
 
     /// Remember a new library folder and list its cases.
@@ -55,12 +67,11 @@ extension AppModel {
     /// state is reset; the user is starting fresh.
     func createCase(name: String, examiner: String, at bundleURL: URL) async {
         errorMessage = nil
-        // Starting fresh: drop any security scope held for a previously open bundle.
-        caseSecurityScopeURL?.stopAccessingSecurityScopedResource()
-        caseSecurityScopeURL = nil
         do {
             let theCase = ForensicCase(name: name, examiner: examiner, createdAt: Date())
             try CaseStore.createBundle(at: bundleURL, case: theCase)
+            caseSecurityScopeURL?.stopAccessingSecurityScopedResource()
+            caseSecurityScopeURL = nil
             RecentCases.record(bundleURL)
             recentCases = RecentCases.load()
             currentCase = theCase
@@ -91,15 +102,23 @@ extension AppModel {
         errorMessage = nil
         isWorking = true
         defer { isWorking = false }
-        // Hold the bundle's security scope for the whole case lifetime (not just
-        // the caller's synchronous prelude), so both the off-main host reads and
-        // the detached open-time backfill can read a security-scoped bundle
-        // (recents / library / iCloud). Released in closeCase / on re-open (E7).
-        caseSecurityScopeURL?.stopAccessingSecurityScopedResource()
-        caseSecurityScopeURL = bundleURL.startAccessingSecurityScopedResource() ? bundleURL : nil
+        // Acquire the candidate scope without releasing the current case. The new
+        // scope is adopted only after its required metadata validates, so a failed
+        // open leaves the previous case fully usable.
+        let candidateHasScope = bundleURL.startAccessingSecurityScopedResource()
+        var adoptedCandidateScope = false
+        defer {
+            if candidateHasScope && !adoptedCandidateScope {
+                bundleURL.stopAccessingSecurityScopedResource()
+            }
+        }
         do {
             let theCase = try CaseStore.readCase(in: bundleURL)
             let hosts = try CaseStore.readHosts(in: bundleURL)
+            let previousScope = caseSecurityScopeURL
+            caseSecurityScopeURL = candidateHasScope ? bundleURL : nil
+            adoptedCandidateScope = true
+            previousScope?.stopAccessingSecurityScopedResource()
             currentCase = theCase
             currentCaseBundleURL = bundleURL
             evidenceList = hosts
@@ -320,6 +339,9 @@ extension AppModel {
                 timeline.append(contentsOf: TimelineBuilder.build(from: state.events))
             }
             state.timeline = timeline   // one final sort happens after all splices
+            state.yaraMatches = loadArr("YARA matches") {
+                try CaseStore.readYaraMatches(forHostID: evidence.id, in: bundleURL)
+            }
             // Every remaining cached collection is an independent file read +
             // JSON decode (CaseStore.jsonDecoder is a fresh instance per call, so
             // this is thread-safe), so fan them out across cores — each job writes

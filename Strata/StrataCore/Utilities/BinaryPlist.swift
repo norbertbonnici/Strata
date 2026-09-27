@@ -39,16 +39,23 @@ public enum BinaryPlist {
         let trailer = b.count - 32
         let offsetSize = Int(b[trailer + 6])
         let refSize = Int(b[trailer + 7])
-        let numObjects = Int(readBE(b, trailer + 8, 8))
-        let topIndex = Int(readBE(b, trailer + 16, 8))
-        let offTableOff = Int(readBE(b, trailer + 24, 8))
+        guard let numObjects = intExact(readBE(b, trailer + 8, 8)),
+              let topIndex = intExact(readBE(b, trailer + 16, 8)),
+              let offTableOff = intExact(readBE(b, trailer + 24, 8)),
+              let tableSize = multiplied(numObjects, offsetSize),
+              let tableEnd = added(offTableOff, tableSize) else { return nil }
         guard offsetSize > 0, offsetSize <= 8, refSize > 0, refSize <= 8, numObjects > 0,
-              topIndex < numObjects,
-              offTableOff + numObjects * offsetSize <= b.count else { return nil }
+              topIndex >= 0, topIndex < numObjects,
+              offTableOff >= 0, tableEnd <= b.count else { return nil }
         var offsets = [Int](); offsets.reserveCapacity(numObjects)
-        for i in 0..<numObjects { offsets.append(Int(readBE(b, offTableOff + i * offsetSize, offsetSize))) }
+        for i in 0..<numObjects {
+            guard let relative = multiplied(i, offsetSize),
+                  let position = added(offTableOff, relative),
+                  let value = intExact(readBE(b, position, offsetSize)) else { return nil }
+            offsets.append(value)
+        }
         var building = Set<Int>()
-        return decode(topIndex, b, offsets, refSize, &building)
+        return decode(topIndex, b, offsets, refSize, &building, depth: 0)
     }
 
     private static func readBE(_ b: [UInt8], _ off: Int, _ size: Int) -> UInt64 {
@@ -58,10 +65,10 @@ public enum BinaryPlist {
     }
 
     private static func decode(_ index: Int, _ b: [UInt8], _ offsets: [Int], _ refSize: Int,
-                               _ building: inout Set<Int>) -> PlistValue? {
-        guard index < offsets.count else { return nil }
+                               _ building: inout Set<Int>, depth: Int) -> PlistValue? {
+        guard depth < 512, index >= 0, index < offsets.count else { return nil }
         let off = offsets[index]
-        guard off < b.count else { return nil }
+        guard off >= 0, off < b.count else { return nil }
         let marker = b[off]
         let hi = marker >> 4, lo = Int(marker & 0x0F)
         switch hi {
@@ -72,51 +79,69 @@ public enum BinaryPlist {
             default: return .null
             }
         case 0x1:                                   // int, 2^lo bytes
-            return .int(Int64(bitPattern: readBE(b, off + 1, 1 << lo)))
+            let n = 1 << lo
+            guard let end = added(off + 1, n), end <= b.count else { return nil }
+            return .int(Int64(bitPattern: readBE(b, off + 1, n)))
         case 0x2:                                   // real
             let n = 1 << lo
+            guard (n == 4 || n == 8), let end = added(off + 1, n), end <= b.count else { return nil }
             let raw = readBE(b, off + 1, n)
             return .double(n == 4 ? Double(Float(bitPattern: UInt32(truncatingIfNeeded: raw)))
                                   : Double(bitPattern: raw))
         case 0x3:                                   // date
+            guard off + 9 <= b.count else { return nil }
             return .date(Double(bitPattern: readBE(b, off + 1, 8)))
         case 0x4:                                   // data
-            let (len, start) = sizeAndStart(b, off, lo)
-            guard start + len <= b.count else { return nil }
-            return .data(Data(b[start..<start + len]))
+            guard let (len, start) = sizeAndStart(b, off, lo) else { return nil }
+            guard let end = added(start, len), end <= b.count else { return nil }
+            return .data(Data(b[start..<end]))
         case 0x5:                                   // ASCII string
-            let (len, start) = sizeAndStart(b, off, lo)
-            guard start + len <= b.count else { return nil }
-            return .string(String(decoding: b[start..<start + len], as: UTF8.self))
+            guard let (len, start) = sizeAndStart(b, off, lo) else { return nil }
+            guard let end = added(start, len), end <= b.count else { return nil }
+            return .string(String(decoding: b[start..<end], as: UTF8.self))
         case 0x6:                                   // UTF-16BE string (len = code units)
-            let (len, start) = sizeAndStart(b, off, lo)
-            guard start + len * 2 <= b.count else { return nil }
+            guard let (len, start) = sizeAndStart(b, off, lo) else { return nil }
+            guard let byteCount = multiplied(len, 2),
+                  let end = added(start, byteCount), end <= b.count else { return nil }
             var units = [UInt16](); units.reserveCapacity(len)
             for k in 0..<len { units.append(UInt16(readBE(b, start + k * 2, 2))) }
             return .string(String(decoding: units, as: UTF16.self))
         case 0x8:                                   // UID (lo+1 bytes)
-            return .uid(Int(readBE(b, off + 1, lo + 1)))
+            guard off + 2 + lo <= b.count else { return nil }
+            guard let value = intExact(readBE(b, off + 1, lo + 1)) else { return nil }
+            return .uid(value)
         case 0xA:                                   // array
-            let (count, start) = sizeAndStart(b, off, lo)
-            guard start + count * refSize <= b.count, building.insert(index).inserted else { return .null }
+            guard let (count, start) = sizeAndStart(b, off, lo) else { return nil }
+            guard let byteCount = multiplied(count, refSize),
+                  let end = added(start, byteCount), end <= b.count,
+                  building.insert(index).inserted else { return .null }
             defer { building.remove(index) }
             var out = [PlistValue](); out.reserveCapacity(count)
             for k in 0..<count {
-                let ref = Int(readBE(b, start + k * refSize, refSize))
-                out.append(decode(ref, b, offsets, refSize, &building) ?? .null)
+                guard let relative = multiplied(k, refSize),
+                      let position = added(start, relative),
+                      let ref = intExact(readBE(b, position, refSize)) else { return nil }
+                out.append(decode(ref, b, offsets, refSize, &building, depth: depth + 1) ?? .null)
             }
             return .array(out)
         case 0xD:                                   // dict
-            let (count, start) = sizeAndStart(b, off, lo)
-            let valuesStart = start + count * refSize
-            guard valuesStart + count * refSize <= b.count, building.insert(index).inserted else { return .null }
+            guard let (count, start) = sizeAndStart(b, off, lo) else { return nil }
+            guard let byteCount = multiplied(count, refSize),
+                  let valuesStart = added(start, byteCount),
+                  let end = added(valuesStart, byteCount), end <= b.count,
+                  building.insert(index).inserted else { return .null }
             defer { building.remove(index) }
             var out = [String: PlistValue](minimumCapacity: count)
             for k in 0..<count {
-                let keyRef = Int(readBE(b, start + k * refSize, refSize))
-                let valRef = Int(readBE(b, valuesStart + k * refSize, refSize))
-                guard let key = decode(keyRef, b, offsets, refSize, &building)?.stringValue else { continue }
-                out[key] = decode(valRef, b, offsets, refSize, &building) ?? .null
+                guard let relative = multiplied(k, refSize),
+                      let keyPosition = added(start, relative),
+                      let valuePosition = added(valuesStart, relative),
+                      let keyRef = intExact(readBE(b, keyPosition, refSize)),
+                      let valRef = intExact(readBE(b, valuePosition, refSize)) else { return nil }
+                guard let key = decode(keyRef, b, offsets, refSize, &building,
+                                       depth: depth + 1)?.stringValue else { continue }
+                out[key] = decode(valRef, b, offsets, refSize, &building,
+                                  depth: depth + 1) ?? .null
             }
             return .dict(out)
         default:
@@ -126,13 +151,26 @@ public enum BinaryPlist {
 
     /// For data/string/array/dict: the count is the low nibble unless it's 0xF, in
     /// which case an int object follows giving the real count.
-    private static func sizeAndStart(_ b: [UInt8], _ off: Int, _ lo: Int) -> (count: Int, start: Int) {
-        guard lo == 0x0F, off + 1 < b.count else { return (lo, off + 1) }
+    private static func sizeAndStart(_ b: [UInt8], _ off: Int, _ lo: Int) -> (count: Int, start: Int)? {
+        guard lo == 0x0F else { return (lo, off + 1) }
+        guard off + 1 < b.count else { return nil }
         let intMarker = b[off + 1]
+        guard intMarker >> 4 == 0x1 else { return nil }
         let n = 1 << Int(intMarker & 0x0F)
         // The extended length spans n bytes at off+2; bail on a truncated buffer
         // rather than reading a partial (corrupted) count.
-        guard off + 2 + n <= b.count else { return (lo, off + 1) }
-        return (Int(readBE(b, off + 2, n)), off + 2 + n)
+        guard off + 2 + n <= b.count else { return nil }
+        guard let count = intExact(readBE(b, off + 2, n)) else { return nil }
+        return (count, off + 2 + n)
+    }
+
+    private static func added(_ lhs: Int, _ rhs: Int) -> Int? {
+        let (value, overflow) = lhs.addingReportingOverflow(rhs)
+        return overflow ? nil : value
+    }
+
+    private static func multiplied(_ lhs: Int, _ rhs: Int) -> Int? {
+        let (value, overflow) = lhs.multipliedReportingOverflow(by: rhs)
+        return overflow ? nil : value
     }
 }

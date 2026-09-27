@@ -32,6 +32,11 @@ LIBSCCA_VERSION="${LIBSCCA_VERSION:-20260527}"
 LIBOLECF_VERSION="${LIBOLECF_VERSION:-20260526}"
 LIBESEDB_VERSION="${LIBESEDB_VERSION:-20260704}"
 LIBFSAPFS_VERSION="${LIBFSAPFS_VERSION:-20240429}"
+YARA_VERSION="${YARA_VERSION:-4.5.8}"
+AUTOCONF_VERSION="${AUTOCONF_VERSION:-2.72}"
+AUTOMAKE_VERSION="${AUTOMAKE_VERSION:-1.17}"
+LIBTOOL_VERSION="${LIBTOOL_VERSION:-2.5.4}"
+M4_VERSION="${M4_VERSION:-1.4.19}"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="$ROOT/.build-tsk"
@@ -39,7 +44,7 @@ OUT="$ROOT/Vendor/tsk"
 SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
 DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
 
-TOOLS=(tsk_loaddb fls icat mmls fsstat blkstat istat evtxexport evtxinfo regfexport regfinfo lnkinfo olecfexport sccainfo esedbexport ewfinfo ewfverify ewfexport fsapfsinfo fsapfscat)
+TOOLS=(tsk_loaddb fls icat mmls fsstat blkstat istat evtxexport evtxinfo regfexport regfinfo lnkinfo olecfexport sccainfo esedbexport ewfinfo ewfverify ewfexport fsapfsinfo fsapfscat yara yarac)
 
 download() {
     local url="$1" dest="$2"
@@ -100,6 +105,64 @@ SHIM
     export PATH="$pkgshim:$PATH"
     export MACOSX_DEPLOYMENT_TARGET="$DEPLOYMENT_TARGET"
     export PKG_CONFIG_PATH="$prefix/lib/pkgconfig"
+
+    # YARA malware-pattern engine. Build both the scanner and compiler as
+    # self-contained executables; optional network/crypto/magic integrations are
+    # disabled because Strata scans local extracted bytes and has no runtime deps.
+    download "https://api.github.com/repos/VirusTotal/yara/tarball/v$YARA_VERSION" \
+             "$BUILD/yara.tar.gz"
+    extract "$BUILD/yara.tar.gz" "$BUILD/yara-$arch"
+    if [ ! -f "$prefix/bin/yara" ] || [ ! -f "$prefix/bin/yarac" ]; then
+        # GitHub's current YARA releases contain no generated `configure`
+        # archive. Bootstrap pinned autotools into the private build prefix so
+        # stock Xcode CLT machines still need no Homebrew packages.
+        download "https://ftp.gnu.org/gnu/m4/m4-$M4_VERSION.tar.gz" "$BUILD/m4.tar.gz"
+        extract "$BUILD/m4.tar.gz" "$BUILD/m4-$arch"
+        if [ ! -f "$prefix/bin/m4" ]; then
+            (cd "$BUILD/m4-$arch" && ./configure --prefix="$prefix" && \
+                make -j"$(sysctl -n hw.ncpu)" && make install)
+        fi
+        export PATH="$prefix/bin:$PATH"
+        download "https://ftp.gnu.org/gnu/autoconf/autoconf-$AUTOCONF_VERSION.tar.gz" \
+                 "$BUILD/autoconf.tar.gz"
+        extract "$BUILD/autoconf.tar.gz" "$BUILD/autoconf-$arch"
+        if [ ! -f "$prefix/bin/autoconf" ]; then
+            (cd "$BUILD/autoconf-$arch" && ./configure --prefix="$prefix" && \
+                make -j"$(sysctl -n hw.ncpu)" && make install)
+        fi
+        download "https://ftp.gnu.org/gnu/automake/automake-$AUTOMAKE_VERSION.tar.gz" \
+                 "$BUILD/automake.tar.gz"
+        extract "$BUILD/automake.tar.gz" "$BUILD/automake-$arch"
+        if [ ! -f "$prefix/bin/automake" ]; then
+            (cd "$BUILD/automake-$arch" && ./configure --prefix="$prefix" && \
+                make -j"$(sysctl -n hw.ncpu)" && make install)
+        fi
+        download "https://ftp.gnu.org/gnu/libtool/libtool-$LIBTOOL_VERSION.tar.gz" \
+                 "$BUILD/libtool.tar.gz"
+        extract "$BUILD/libtool.tar.gz" "$BUILD/libtool-$arch"
+        if [ ! -f "$prefix/bin/libtoolize" ]; then
+            (cd "$BUILD/libtool-$arch" && ./configure --prefix="$prefix" && \
+                make -j"$(sysctl -n hw.ncpu)" && make install)
+        fi
+        # YARA references PKG_CHECK_MODULES only inside its opt-in protobuf test
+        # module. Stock macOS has neither pkg-config nor pkg.m4; provide the
+        # macro so autoconf can expand that disabled branch.
+        cat > "$BUILD/yara-$arch/m4/pkg.m4" <<'PKGM4'
+AC_DEFUN([PKG_CHECK_MODULES], [
+  $1_CFLAGS=""
+  $1_LIBS=""
+  AC_SUBST([$1_CFLAGS])
+  AC_SUBST([$1_LIBS])
+])
+PKGM4
+        (cd "$BUILD/yara-$arch" && \
+            ./bootstrap.sh && \
+            ./configure --host="$host" --prefix="$prefix" \
+                --enable-static --disable-shared --without-crypto \
+                --disable-proc-scan --disable-magic --disable-cuckoo && \
+            make -j"$(sysctl -n hw.ncpu)" && \
+            make install)
+    fi
 
     # libewf
     download "https://github.com/libyal/libewf/releases/download/$LIBEWF_VERSION/libewf-experimental-$LIBEWF_VERSION.tar.gz" \

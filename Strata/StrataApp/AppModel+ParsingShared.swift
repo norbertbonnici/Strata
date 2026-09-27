@@ -320,7 +320,9 @@ extension AppModel {
                 state.timeline.sort { $0.date < $1.date }
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
-                    try? CaseStore.writeBrowserHistory(collected, forHostID: evidence.id, in: bundleURL)
+                    _ = persistArtifact("browser history for \(evidence.displayName)") {
+                        try CaseStore.writeBrowserHistory(collected, forHostID: evidence.id, in: bundleURL)
+                    }
                 }
             }
             progress = ProgressInfo(current: completed, total: totalCandidates,

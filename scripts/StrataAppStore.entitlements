@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Entitlements for the SANDBOXED Mac App Store build (the read-only case viewer +
+  Private Cloud Compute analysis SKU). This is a DIFFERENT product from the
+  Developer-ID forensic tool: the App Sandbox blocks raw-disk reads and spawning
+  the vendored TSK/libyal CLIs, so this build compiles out the whole ingest/parse
+  pipeline (STRATA_VIEWER flag) and only opens already-built .strata bundles.
+
+  Do NOT use this for the Developer-ID build — that one is intentionally empty
+  (scripts/StrataRelease.entitlements) and non-sandboxed for real forensic ingest.
+-->
+<plist version="1.0">
+<dict>
+    <!-- App Store requires the sandbox. -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+
+    <!-- The viewer can open .strata bundles / loose folders the user picks in an
+         NSOpenPanel, and write exports the user picks. Nothing else is reachable. -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+
+    <!-- Persist app-scoped security-scoped bookmarks (Open Recent + Case Library)
+         so a user-selected bundle stays reachable across launches under the sandbox. -->
+    <key>com.apple.security.files.bookmarks.app-scope</key>
+    <true/>
+
+    <!--
+      Private Cloud Compute (native FoundationModels PrivateCloudComputeLanguageModel).
+      The exact entitlement key is ASSIGNED BY APPLE after you request it via the
+      App Store Small Business Program (team 96ZD8RMB92) — it is not a public,
+      self-declarable key. Add the assigned key here once granted, e.g.:
+
+        <key>com.apple.developer.???.private-cloud-compute</key>
+        <true/>
+
+      Until then this build's PCC backend reports unavailable (its #available and
+      availability() guards already handle that path gracefully).
+    -->
+</dict>
+</plist>

@@ -80,7 +80,9 @@ extension AppModel {
             var updated = state
             updated.iocMatches = matches
             states[evidence.id] = updated
-            try? CaseStore.writeIOCMatches(matches, forHostID: evidence.id, in: bundleURL)
+            guard persistArtifact("IOC matches for \(evidence.displayName)", {
+                try CaseStore.writeIOCMatches(matches, forHostID: evidence.id, in: bundleURL)
+            }) else { return }
             total += matches.count
         }
         statusMessage = total == 0
@@ -129,7 +131,9 @@ extension AppModel {
         var merged = Dictionary(enrichmentVerdicts.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
         for v in fresh { merged[v.id] = v }
         enrichmentVerdicts = Array(merged.values)
-        try? CaseStore.writeEnrichment(enrichmentVerdicts, in: bundleURL)
+        guard persistArtifact("CTI enrichment", {
+            try CaseStore.writeEnrichment(enrichmentVerdicts, in: bundleURL)
+        }) else { return }
 
         let bad = fresh.filter { $0.verdict == .malicious || $0.verdict == .suspicious }.count
         let good = fresh.filter { $0.verdict == .knownGood }.count

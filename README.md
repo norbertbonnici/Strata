@@ -9,14 +9,22 @@ graph, and IOC matching — and can write an **on-device, evidence-validated AI
 case summary**.
 
 All forensic file handling is a self-contained, vendored build of
-[The Sleuth Kit](https://www.sleuthkit.org/) + the
+[The Sleuth Kit](https://www.sleuthkit.org/), the
 [libyal](https://github.com/libyal) toolchain (`libevtx`, `libregf`, `libscca`,
-`liblnk`, `libolecf`, `libesedb`, `libfsapfs`, `libewf`, `libvhdi`, `libvmdk`),
-statically linked. **There is no Homebrew or runtime dependency.**
+`liblnk`, `libolecf`, `libesedb`, `libfsapfs`, `libewf`, `libvhdi`, `libvmdk`)
+and [YARA](https://github.com/VirusTotal/yara), statically linked.
+**There is no Homebrew or runtime dependency** — `build-tsk.sh` bootstraps even
+its own autotools.
 
 - **macOS app** = the full pipeline (ingest + analyze). Non-sandboxed; reads raw
   disk images via Full Disk Access.
 - **iOS app** = a read-only viewer for already-built `.strata` cases.
+
+<p align="center">
+  <img src="docs/screenshots/strata-tour.gif"
+       alt="Strata tour: overview, super-timeline, kill chain, event logs, prefetch, registry explorer"
+       width="900">
+</p>
 
 ## What it does
 
@@ -69,11 +77,16 @@ locked FileVault volumes).
   (registry writes, prefetch, USN, SRUM, browser, `$MFT`, messages, mail,
   powerlog, …), a drag-to-select histogram usable on million-row datasets, and
   **gap / session analysis** that surfaces quiet periods and operator bursts.
-- **61 detection analyzers** emitting ATT&CK-tagged `Finding`s into the
+- **62 detection analyzers** emitting ATT&CK-tagged `Finding`s into the
   **Cyber Kill Chain**, with analyst **annotations** (bookmarks, tags, narrative).
 - **Interactive lateral-movement graph** from remote-logon events.
 - **IOC matching** (IPs / domains / URLs / hashes) and **global search** across
   files, events, registry, timeline, and findings.
+- **YARA scanning** — point Strata at your own ruleset. Rules are compiled once
+  (invalid rules fail before anything is extracted), then every allocated file
+  is scanned under file-size and file-count caps. A match becomes a finding that
+  deliberately carries **no ATT&CK technique and no timestamp** — a content
+  match is not execution, and the finding says so.
 - **Multi-host correlation** — shared IOC / pivoting source IP / reused account
   across two or more hosts.
 - **Tiered CTI enrichment** — a **NSRL → MISP / OpenCTI → VirusTotal** waterfall
@@ -96,6 +109,19 @@ and recorded in the chain of custody, and only finding summaries ever leave.
 Examiner report (HTML / Markdown) and CSV/JSON data exports; a paginated
 **chain-of-custody PDF** with acquisition metadata, source hashes + verification,
 and an append-only custody ledger.
+
+## Screenshots
+
+Captured on a Windows 10 22H2 E01 — 505,652 files, 2,592,726 timeline events,
+559,421 registry values, 3,786 findings.
+
+|  |  |
+|---|---|
+| <img src="docs/screenshots/overview.png" width="430" alt="Overview tab"><br>**Overview** — host profile, evidence counts, and the on-device AI case summary | <img src="docs/screenshots/kill-chain.png" width="430" alt="Kill chain tab"><br>**Cyber Kill Chain** — ATT&CK-tagged findings laid out by phase and severity |
+| <img src="docs/screenshots/timeline.png" width="430" alt="Timeline tab"><br>**Super-timeline** — MACB plus ~30 artifact sources, drag-to-select histogram | <img src="docs/screenshots/events.png" width="430" alt="Event log tab"><br>**Event logs** — 44,199 `.evtx` records with the raw EventData payload |
+| <img src="docs/screenshots/prefetch.png" width="430" alt="Prefetch tab"><br>**Prefetch** — run counts, every recorded run time, referenced files | <img src="docs/screenshots/registry.png" width="430" alt="Registry explorer"><br>**Registry explorer** — hive→key→value browser with search across 559,421 values |
+| <img src="docs/screenshots/mft.png" width="430" alt="MFT tab"><br>**`$MFT`** — per-volume record tree with `$SI`/`$FN` timestomping anomalies | <img src="docs/screenshots/custody.png" width="430" alt="Chain of custody tab"><br>**Chain of custody** — acquisition metadata, source hashes, append-only ledger |
+
 
 ## Requirements
 

@@ -119,7 +119,9 @@ extension AppModel {
                 state.timeline.sort { $0.date < $1.date }
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
-                    try? CaseStore.writeEvents(collected, forHostID: evidence.id, in: bundleURL)
+                    _ = persistArtifact("event logs for \(evidence.displayName)") {
+                        try CaseStore.writeEvents(collected, forHostID: evidence.id, in: bundleURL)
+                    }
                 }
             }
             progress = ProgressInfo(current: completed, total: totalCandidates,
@@ -238,7 +240,9 @@ extension AppModel {
                 state.timeline.sort { $0.date < $1.date }
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
-                    try? CaseStore.writeLnk(collected, forHostID: evidence.id, in: bundleURL)
+                    _ = persistArtifact("LNK artifacts for \(evidence.displayName)") {
+                        try CaseStore.writeLnk(collected, forHostID: evidence.id, in: bundleURL)
+                    }
                 }
             }
             progress = ProgressInfo(current: completed, total: totalCandidates,
@@ -379,7 +383,9 @@ extension AppModel {
                 state.timeline.sort { $0.date < $1.date }
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
-                    try? CaseStore.writeJumpList(collected, forHostID: evidence.id, in: bundleURL)
+                    _ = persistArtifact("Jump Lists for \(evidence.displayName)") {
+                        try CaseStore.writeJumpList(collected, forHostID: evidence.id, in: bundleURL)
+                    }
                 }
             }
             progress = ProgressInfo(current: completed, total: totalCandidates,
@@ -528,7 +534,9 @@ extension AppModel {
                 state.timeline.sort { $0.date < $1.date }
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
-                    try? CaseStore.writeUsn(collected, forHostID: evidence.id, in: bundleURL)
+                    _ = persistArtifact("USN journal for \(evidence.displayName)") {
+                        try CaseStore.writeUsn(collected, forHostID: evidence.id, in: bundleURL)
+                    }
                 }
             }
             progress = ProgressInfo(current: completed, total: totalCandidates,
@@ -655,7 +663,9 @@ extension AppModel {
                 state.timeline.sort { $0.date < $1.date }
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
-                    try? CaseStore.writeSrum(collected, forHostID: evidence.id, in: bundleURL)
+                    _ = persistArtifact("SRUM artifacts for \(evidence.displayName)") {
+                        try CaseStore.writeSrum(collected, forHostID: evidence.id, in: bundleURL)
+                    }
                 }
             }
             progress = ProgressInfo(current: completed, total: totalCandidates,
@@ -802,7 +812,9 @@ extension AppModel {
                 }
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
-                    try? CaseStore.writeMft(collected, forHostID: evidence.id, in: bundleURL)
+                    _ = persistArtifact("MFT artifacts for \(evidence.displayName)") {
+                        try CaseStore.writeMft(collected, forHostID: evidence.id, in: bundleURL)
+                    }
                 }
             }
             progress = ProgressInfo(current: completed, total: totalCandidates,
@@ -924,7 +936,9 @@ extension AppModel {
                 state.wmi = collected
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
-                    try? CaseStore.writeWmi(collected, forHostID: evidence.id, in: bundleURL)
+                    _ = persistArtifact("WMI artifacts for \(evidence.displayName)") {
+                        try CaseStore.writeWmi(collected, forHostID: evidence.id, in: bundleURL)
+                    }
                 }
             }
             progress = ProgressInfo(current: completed, total: totalCandidates,
@@ -1106,9 +1120,11 @@ extension AppModel {
                 state.timeline.sort { $0.date < $1.date }
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
-                    try? CaseStore.writeRegistry(collected, forHostID: evidence.id, in: bundleURL)
-                    try? CaseStore.writeAmcache(amcache, forHostID: evidence.id, in: bundleURL)
-                    try? CaseStore.writeShimcache(shimcache, forHostID: evidence.id, in: bundleURL)
+                    _ = persistArtifact("registry artifacts for \(evidence.displayName)") {
+                        try CaseStore.writeRegistry(collected, forHostID: evidence.id, in: bundleURL)
+                        try CaseStore.writeAmcache(amcache, forHostID: evidence.id, in: bundleURL)
+                        try CaseStore.writeShimcache(shimcache, forHostID: evidence.id, in: bundleURL)
+                    }
                 }
                 // Count the host only if THIS run gained values (not the ones
                 // carried in from a prior run), so an all-failed partial re-run
@@ -1279,7 +1295,9 @@ extension AppModel {
                 state.recycleBin = collected
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
-                    try? CaseStore.writeRecycleBin(collected, forHostID: evidence.id, in: bundleURL)
+                    _ = persistArtifact("Recycle Bin artifacts for \(evidence.displayName)") {
+                        try CaseStore.writeRecycleBin(collected, forHostID: evidence.id, in: bundleURL)
+                    }
                 }
             }
             progress = ProgressInfo(current: completed, total: total, label: "Recycle Bin parse complete")
@@ -1397,7 +1415,9 @@ extension AppModel {
                 state.timeline.sort { $0.date < $1.date }
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
-                    try? CaseStore.writePrefetch(collected, forHostID: evidence.id, in: bundleURL)
+                    _ = persistArtifact("Prefetch artifacts for \(evidence.displayName)") {
+                        try CaseStore.writePrefetch(collected, forHostID: evidence.id, in: bundleURL)
+                    }
                 }
             }
             progress = ProgressInfo(current: completed, total: totalCandidates,

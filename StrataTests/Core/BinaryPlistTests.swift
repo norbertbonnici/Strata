@@ -63,4 +63,24 @@ struct BinaryPlistTests {
         }
         #expect(Bool(true))
     }
+
+    @Test func rejectsTrailerValuesThatDoNotFitInt() {
+        var bytes = [UInt8](repeating: 0, count: 41)
+        bytes.replaceSubrange(0..<8, with: Array("bplist00".utf8))
+        let trailer = bytes.count - 32
+        bytes[trailer + 6] = 8
+        bytes[trailer + 7] = 8
+        for i in 0..<8 { bytes[trailer + 8 + i] = 0xff }
+        #expect(BinaryPlist.parse(Data(bytes)) == nil)
+    }
+
+    @Test func rejectsExtendedObjectLengthThatDoesNotFitInt() throws {
+        let encoded = try PropertyListSerialization.data(
+            fromPropertyList: String(repeating: "x", count: 500), format: .binary, options: 0)
+        var bytes = [UInt8](encoded)
+        let marker = try #require(bytes.firstIndex(of: 0x5f))
+        bytes[marker + 1] = 0x13 // eight-byte integer length
+        for i in 0..<8 { bytes[marker + 2 + i] = 0xff }
+        #expect(BinaryPlist.parse(Data(bytes)) == nil)
+    }
 }

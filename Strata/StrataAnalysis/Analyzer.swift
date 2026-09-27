@@ -52,6 +52,7 @@ public nonisolated struct AnalysisContext: Sendable {
     public let config: [MacConfigSetting]
     public let installHistory: [MacInstallEntry]
     public let whereFroms: [MacWhereFrom]
+    public let yaraMatches: [YaraMatch]
     /// Per-extension entropy verdict for files caught in a ransomware
     /// mass-encryption burst, sampled from real bytes at the AppModel level
     /// (analyzers are pure / no I/O). Keyed by lowercased extension; absent for
@@ -86,6 +87,7 @@ public nonisolated struct AnalysisContext: Sendable {
                 config: [MacConfigSetting] = [],
                 installHistory: [MacInstallEntry] = [],
                 whereFroms: [MacWhereFrom] = [],
+                yaraMatches: [YaraMatch] = [],
                 encryptionEntropy: [String: EncryptionEntropyStat] = [:]) {
         self.files = files
         self.events = events
@@ -133,6 +135,7 @@ public nonisolated struct AnalysisContext: Sendable {
         self.config = config
         self.installHistory = installHistory
         self.whereFroms = whereFroms
+        self.yaraMatches = yaraMatches
         self.encryptionEntropy = encryptionEntropy
     }
 }

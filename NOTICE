@@ -28,6 +28,10 @@ Vendor/tsk/ (not checked into this repository, downloaded at build time):
     libfsapfs (LGPL-3.0-or-later) and is distributed under the terms of
     that license.
 
+  * YARA (https://github.com/VirusTotal/yara), licensed under the
+    BSD 3-Clause License. The bundled `yara` and `yarac` executables are built
+    from the pinned upstream source by scripts/build-tsk.sh.
+
 As required by LGPL-3.0 for statically-linked binary distributions, object
 files enabling relinking against modified versions of the above libyal
 libraries are available on request; see the corresponding source archives

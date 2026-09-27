@@ -28,6 +28,8 @@
 		09C6AC3330077C99007FE2FC /* esedbexport in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1F30077C98007FE2FC /* esedbexport */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		09C6AC3430077C99007FE2FC /* ewfinfo in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC2030077C98007FE2FC /* ewfinfo */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		09C6AC3530077C99007FE2FC /* icat in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC2130077C98007FE2FC /* icat */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09C6AC3630077C99007FE2FC /* yara in Copy Files (22 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC3830077C99007FE2FC /* yara */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09C6AC3730077C99007FE2FC /* yarac in Copy Files (22 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC3930077C99007FE2FC /* yarac */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -48,7 +50,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		099DBE0D2FCF68040042FE85 /* Copy Files (20 items) */ = {
+		099DBE0D2FCF68040042FE85 /* Copy Files (22 items) */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = tsk/bin;
@@ -74,8 +76,10 @@
 				09C6AC3330077C99007FE2FC /* esedbexport in Copy Files (20 items) */,
 				09C6AC3430077C99007FE2FC /* ewfinfo in Copy Files (20 items) */,
 				09C6AC3530077C99007FE2FC /* icat in Copy Files (20 items) */,
+				09C6AC3630077C99007FE2FC /* yara in Copy Files (22 items) */,
+				09C6AC3730077C99007FE2FC /* yarac in Copy Files (22 items) */,
 			);
-			name = "Copy Files (20 items)";
+			name = "Copy Files (22 items)";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -105,6 +109,8 @@
 		09C6AC1F30077C98007FE2FC /* esedbexport */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = esedbexport; path = Vendor/tsk/bin/arm64/esedbexport; sourceTree = "<group>"; };
 		09C6AC2030077C98007FE2FC /* ewfinfo */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = ewfinfo; path = Vendor/tsk/bin/arm64/ewfinfo; sourceTree = "<group>"; };
 		09C6AC2130077C98007FE2FC /* icat */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = icat; path = Vendor/tsk/bin/arm64/icat; sourceTree = "<group>"; };
+		09C6AC3830077C99007FE2FC /* yara */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = yara; path = Vendor/tsk/bin/arm64/yara; sourceTree = "<group>"; };
+		09C6AC3930077C99007FE2FC /* yarac */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = yarac; path = Vendor/tsk/bin/arm64/yarac; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -187,6 +193,8 @@
 				09C6AC1B30077C98007FE2FC /* regfinfo */,
 				09C6AC1C30077C98007FE2FC /* sccainfo */,
 				09C6AC1030077C98007FE2FC /* tsk_loaddb */,
+				09C6AC3830077C99007FE2FC /* yara */,
+				09C6AC3930077C99007FE2FC /* yarac */,
 				099DBDB12FCF54B80042FE85 /* Strata */,
 				099DBDC32FCF54B90042FE85 /* StrataTests */,
 				099DBDCD2FCF54B90042FE85 /* StrataUITests */,

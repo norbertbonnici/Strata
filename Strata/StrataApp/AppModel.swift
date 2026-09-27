@@ -70,6 +70,7 @@ nonisolated struct EvidenceState: Sendable {
     var macInfo: MacHostInfo?
     var findings: [Finding] = []
     var iocMatches: [IOCMatch] = []
+    var yaraMatches: [YaraMatch] = []
     /// OS families detected for this host (from volume fs-types, or a file-tree
     /// sniff for loose folders). Empty = couldn't tell. Drives per-OS tab
     /// hiding. Computed once when the working set is assembled.
@@ -319,6 +320,17 @@ final class AppModel: ObservableObject {
     /// total (TSK ingest, analyzers) leave it nil and rely on isWorking
     /// driving an indeterminate spinner.
     @Published var progress: ProgressInfo?
+    /// Examiner-selected YARA rules. The Mac app is intentionally non-sandboxed;
+    /// storing the path avoids persisting rule content inside an evidence case.
+    @Published var yaraRulesPath: String = UserDefaults.standard.string(forKey: "yaraRulesPath") ?? ""
+    @Published var yaraMaximumFileMB: Int = {
+        let value = UserDefaults.standard.integer(forKey: "yaraMaximumFileMB")
+        return value > 0 ? value : 100
+    }()
+    @Published var yaraMaximumFiles: Int = {
+        let value = UserDefaults.standard.integer(forKey: "yaraMaximumFiles")
+        return value > 0 ? value : 10_000
+    }()
 
     let analysisEngine = AnalysisEngine()
 
@@ -703,6 +715,10 @@ final class AppModel: ObservableObject {
         return evidenceList.reduce(0) { $0 + (states[$1.id]?.linuxAccess?.sshKeys.count ?? 0) }
     }
     var iocMatches: [IOCMatch] { derived().iocMatches }
+    var yaraMatches: [YaraMatch] {
+        if let id = activeEvidenceID { return states[id]?.yaraMatches ?? [] }
+        return evidenceList.flatMap { states[$0.id]?.yaraMatches ?? [] }
+    }
 
     // Count-only accessors: sum per-host counts without building or sorting the
     // rolled-up arrays. For stat tiles / titles that only need a number.

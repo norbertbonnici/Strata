@@ -134,8 +134,10 @@ extension AppModel {
                                       sovereignty: backend.sovereignty,
                                       claims: validated.claims,
                                       validation: validated.report)
+            guard persistArtifact("case summary", {
+                try CaseStore.writeSummary(summary, in: bundleURL)
+            }) else { return }
             caseSummary = summary
-            try? CaseStore.writeSummary(summary, in: bundleURL)
             statusMessage = "Generated summary of \(allFindings.count) finding(s) via \(backend.label)."
             // Custody records the provenance (and whether evidence-derived data
             // left the host) + what the evidence-ref validation actually did -

@@ -111,11 +111,18 @@ public nonisolated struct InferenceConfiguration: Codable, Hashable, Sendable {
             guard let token = store.load(for: Self.keychainService)?.token,
                   !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   let base = URL(string: cloudBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)),
-                  base.scheme != nil
+                  Self.isSecureCloudEndpoint(base)
             else { return OnDeviceBackend(contextWindowTokens: onDeviceContextWindow) }
             return CloudInferenceBackend(baseURL: base, model: cloudModel, apiKey: token,
                                          contextWindowTokens: cloudContextWindow)
         }
+    }
+
+    static func isSecureCloudEndpoint(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), url.host != nil else { return false }
+        if scheme == "https" { return true }
+        guard scheme == "http" else { return false }
+        return url.host == "localhost" || url.host == "127.0.0.1" || url.host == "::1"
     }
 
     /// PCC availability, surfaced in the settings sheet even when PCC isn't the

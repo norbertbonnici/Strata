@@ -10,7 +10,7 @@ import Foundation
 /// `terminationStatus` is the exit code when `terminationReason == .exit`, or the
 /// *signal number* when `.uncaughtSignal` (a crash) — the two are reported
 /// distinctly so a SIGSEGV isn't mislabelled as "exit 11".
-public struct ProcessCapture: Sendable {
+public nonisolated struct ProcessCapture: Sendable {
     public let stdout: Data
     public let stderr: Data
     public let terminationStatus: Int32
@@ -149,7 +149,7 @@ public enum ProcessRunner {
 
 /// Thread-safe byte accumulator: the readability handler fires on an arbitrary
 /// dispatch queue, so the shared buffer is guarded by a lock.
-private final class ByteBuffer: @unchecked Sendable {
+private nonisolated final class ByteBuffer: @unchecked Sendable {
     private let lock = NSLock()
     private var storage = Data()
     func append(_ chunk: Data) { lock.lock(); storage.append(chunk); lock.unlock() }
@@ -160,7 +160,7 @@ private final class ByteBuffer: @unchecked Sendable {
 /// every captured pipe has reached EOF. The pipe/termination callbacks and the
 /// `attach` from the awaiting task all race on arbitrary queues, so every field
 /// is lock-guarded and the resume is latched by `resumed`.
-private final class RunCoordinator: @unchecked Sendable {
+private nonisolated final class RunCoordinator: @unchecked Sendable {
     private let lock = NSLock()
     private var pendingEOFs: Int
     private var exited = false

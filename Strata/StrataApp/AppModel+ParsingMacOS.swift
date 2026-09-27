@@ -147,7 +147,9 @@ extension AppModel {
                 state.timeline.sort { $0.date < $1.date }
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
-                    try? CaseStore.writeMessages(collected, forHostID: evidence.id, in: bundleURL)
+                    _ = persistArtifact("Messages artifacts for \(evidence.displayName)") {
+                        try CaseStore.writeMessages(collected, forHostID: evidence.id, in: bundleURL)
+                    }
                 }
             }
             progress = ProgressInfo(current: completed, total: totalCandidates, label: "Messages parse complete")
@@ -306,7 +308,9 @@ extension AppModel {
                 state.timeline.sort { $0.date < $1.date }
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
-                    try? CaseStore.writeMail(collected, forHostID: evidence.id, in: bundleURL)
+                    _ = persistArtifact("Mail artifacts for \(evidence.displayName)") {
+                        try CaseStore.writeMail(collected, forHostID: evidence.id, in: bundleURL)
+                    }
                 }
             }
             progress = ProgressInfo(current: completed, total: totalCandidates, label: "Mail parse complete")
@@ -1047,65 +1051,67 @@ extension AppModel {
                 }
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
-                    if !foundPlists.isEmpty {
-                        try? CaseStore.writeLaunchItems(launch, forHostID: evidence.id, in: bundleURL)
-                    }
-                    if !foundQuar.isEmpty {
-                        try? CaseStore.writeQuarantine(quar, forHostID: evidence.id, in: bundleURL)
-                    }
-                    if !foundPersist.isEmpty {
-                        try? CaseStore.writeMacPersistence(persist, forHostID: evidence.id, in: bundleURL)
-                    }
-                    if !foundFSE.isEmpty {
-                        try? CaseStore.writeFSEvents(fsEvents, forHostID: evidence.id, in: bundleURL)
-                    }
-                    if !foundTCC.isEmpty {
-                        try? CaseStore.writeTCC(tcc, forHostID: evidence.id, in: bundleURL)
-                    }
-                    if !foundKnowledge.isEmpty {
-                        try? CaseStore.writeKnowledgeC(knowledge, forHostID: evidence.id, in: bundleURL)
-                    }
-                    if !foundRecent.isEmpty {
-                        try? CaseStore.writeMacRecentItems(recentItems, forHostID: evidence.id, in: bundleURL)
-                    }
-                    if !foundSecurity.isEmpty {
-                        try? CaseStore.writeMacSecurityEvents(securityEvents, forHostID: evidence.id, in: bundleURL)
-                    }
-                    if !foundKexts.isEmpty {
-                        try? CaseStore.writeKexts(kexts, forHostID: evidence.id, in: bundleURL)
-                    }
-                    if !foundBTM.isEmpty {
-                        try? CaseStore.writeBackgroundItems(backgroundItems, forHostID: evidence.id, in: bundleURL)
-                    }
-                    if !foundNetwork.isEmpty {
-                        try? CaseStore.writeNetwork(network, forHostID: evidence.id, in: bundleURL)
-                    }
-                    if !foundQuickLook.isEmpty || !foundTrash.isEmpty {
-                        try? CaseStore.writeUserActivity(userActivity, forHostID: evidence.id, in: bundleURL)
-                    }
-                    if !foundDocRev.isEmpty {
-                        try? CaseStore.writeDocumentVersions(documentVersions, forHostID: evidence.id, in: bundleURL)
-                    }
-                    if !foundNotif.isEmpty {
-                        try? CaseStore.writeNotifications(notifications, forHostID: evidence.id, in: bundleURL)
-                    }
-                    if !foundPowerlog.isEmpty {
-                        try? CaseStore.writePowerlog(powerlog, forHostID: evidence.id, in: bundleURL)
-                    }
-                    if !foundConfig.isEmpty {
-                        try? CaseStore.writeMacConfig(macConfig, forHostID: evidence.id, in: bundleURL)
-                    }
-                    if !foundInstall.isEmpty {
-                        try? CaseStore.writeInstallHistory(installHistory, forHostID: evidence.id, in: bundleURL)
-                    }
-                    if !foundWhereFrom.isEmpty {
-                        try? CaseStore.writeWhereFroms(whereFroms, forHostID: evidence.id, in: bundleURL)
-                    }
-                    if !macShell.isEmpty {
-                        try? CaseStore.writeShellHistory(state.shellHistory, forHostID: evidence.id, in: bundleURL)
-                    }
-                    if !foundInfo.isEmpty, let info = state.macInfo {
-                        try? CaseStore.writeMacInfo(info, forHostID: evidence.id, in: bundleURL)
+                    _ = persistArtifact("macOS artifacts for \(evidence.displayName)") {
+                        if !foundPlists.isEmpty {
+                            try CaseStore.writeLaunchItems(launch, forHostID: evidence.id, in: bundleURL)
+                        }
+                        if !foundQuar.isEmpty {
+                            try CaseStore.writeQuarantine(quar, forHostID: evidence.id, in: bundleURL)
+                        }
+                        if !foundPersist.isEmpty {
+                            try CaseStore.writeMacPersistence(persist, forHostID: evidence.id, in: bundleURL)
+                        }
+                        if !foundFSE.isEmpty {
+                            try CaseStore.writeFSEvents(fsEvents, forHostID: evidence.id, in: bundleURL)
+                        }
+                        if !foundTCC.isEmpty {
+                            try CaseStore.writeTCC(tcc, forHostID: evidence.id, in: bundleURL)
+                        }
+                        if !foundKnowledge.isEmpty {
+                            try CaseStore.writeKnowledgeC(knowledge, forHostID: evidence.id, in: bundleURL)
+                        }
+                        if !foundRecent.isEmpty {
+                            try CaseStore.writeMacRecentItems(recentItems, forHostID: evidence.id, in: bundleURL)
+                        }
+                        if !foundSecurity.isEmpty {
+                            try CaseStore.writeMacSecurityEvents(securityEvents, forHostID: evidence.id, in: bundleURL)
+                        }
+                        if !foundKexts.isEmpty {
+                            try CaseStore.writeKexts(kexts, forHostID: evidence.id, in: bundleURL)
+                        }
+                        if !foundBTM.isEmpty {
+                            try CaseStore.writeBackgroundItems(backgroundItems, forHostID: evidence.id, in: bundleURL)
+                        }
+                        if !foundNetwork.isEmpty {
+                            try CaseStore.writeNetwork(network, forHostID: evidence.id, in: bundleURL)
+                        }
+                        if !foundQuickLook.isEmpty || !foundTrash.isEmpty {
+                            try CaseStore.writeUserActivity(userActivity, forHostID: evidence.id, in: bundleURL)
+                        }
+                        if !foundDocRev.isEmpty {
+                            try CaseStore.writeDocumentVersions(documentVersions, forHostID: evidence.id, in: bundleURL)
+                        }
+                        if !foundNotif.isEmpty {
+                            try CaseStore.writeNotifications(notifications, forHostID: evidence.id, in: bundleURL)
+                        }
+                        if !foundPowerlog.isEmpty {
+                            try CaseStore.writePowerlog(powerlog, forHostID: evidence.id, in: bundleURL)
+                        }
+                        if !foundConfig.isEmpty {
+                            try CaseStore.writeMacConfig(macConfig, forHostID: evidence.id, in: bundleURL)
+                        }
+                        if !foundInstall.isEmpty {
+                            try CaseStore.writeInstallHistory(installHistory, forHostID: evidence.id, in: bundleURL)
+                        }
+                        if !foundWhereFrom.isEmpty {
+                            try CaseStore.writeWhereFroms(whereFroms, forHostID: evidence.id, in: bundleURL)
+                        }
+                        if !macShell.isEmpty {
+                            try CaseStore.writeShellHistory(state.shellHistory, forHostID: evidence.id, in: bundleURL)
+                        }
+                        if !foundInfo.isEmpty, let info = state.macInfo {
+                            try CaseStore.writeMacInfo(info, forHostID: evidence.id, in: bundleURL)
+                        }
                     }
                 }
             }
@@ -1270,7 +1276,9 @@ extension AppModel {
                 state.timeline.sort { $0.date < $1.date }
                 states[evidence.id] = state
                 if let bundleURL = currentCaseBundleURL {
-                    try? CaseStore.writeUnifiedLog(entries, forHostID: evidence.id, in: bundleURL)
+                    _ = persistArtifact("unified log for \(evidence.displayName)") {
+                        try CaseStore.writeUnifiedLog(entries, forHostID: evidence.id, in: bundleURL)
+                    }
                 }
             }
             progress = ProgressInfo(current: completed, total: totalWork, label: "Unified-log decode complete")

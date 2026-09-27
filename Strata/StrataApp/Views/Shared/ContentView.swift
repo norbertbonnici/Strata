@@ -54,6 +54,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case lateral = "Lateral"
     case killChain = "Kill Chain"
     case iocs = "IOCs"
+    case yara = "YARA Matches"
     case annotations = "Annotations"
     case designUI = "Design UI"
     case activity = "Activity"
@@ -114,6 +115,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .lateral:   return "point.3.connected.trianglepath.dotted"
         case .killChain: return "link"
         case .iocs:      return "scope"
+        case .yara:      return "shield.checkered"
         case .annotations: return "bookmark"
         case .designUI:  return "rectangle.3.group"
         case .activity:  return "waveform.path.ecg"
@@ -136,7 +138,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .launchItems, .quarantine, .macPersistence, .fsEvents, .unifiedLog, .tcc, .knowledgeC, .macRecentItems, .macSecurity, .carvedFiles, .kexts, .backgroundItems, .messages, .mail, .network, .quickLookTrash, .documentVersions, .notifications, .powerlog, .macConfig, .installHistory, .whereFroms:
             return .macos
         case .overview, .search, .evidence, .timeline, .browser, .lateral,
-             .killChain, .iocs, .annotations, .designUI, .activity, .custody:
+             .killChain, .iocs, .yara, .annotations, .designUI, .activity, .custody:
             return nil
         }
     }
@@ -309,6 +311,7 @@ struct ContentView: View {
                 case .lateral:   LateralMovementView()
                 case .killChain: KillChainView()
                 case .iocs:      IOCView()
+                case .yara:      YaraMatchesView()
                 case .annotations: AnnotationsView()
                 case .designUI:  DesignSurfacesView()
                 case .activity:  ActivityLifecycleView()
