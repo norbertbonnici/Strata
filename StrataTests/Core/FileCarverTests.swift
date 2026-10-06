@@ -84,6 +84,26 @@ struct FileCarverTests {
         #expect(out[0].sizeExact)
     }
 
+    @Test func incrementallyUpdatedPDFKeepsItsLastEOF() {
+        let updated = Data(Array("%PDF-1.4\n%%EOF\nupdate\n%%EOF".utf8))   // 2 revisions
+        let out = FileCarver.carve(pad + updated + pad)
+        #expect(out.count == 1)
+        #expect(out.first?.size == Int64(updated.count))
+        #expect(out.first?.sizeExact == true)
+    }
+
+    @Test func pdfCarveStopsAtTheNextPDFHeader() {
+        // PDF A, then a SQLite DB, then PDF B: A must end at its own %%EOF, not
+        // swallow B and the DB between them (which would then be dropped as
+        // nested inside an exact carve).
+        let db = sqliteDB(pageSize: 512, pageCount: 1)
+        let buf = pad + pdf + pad + db + pad + pdf + pad
+        let out = FileCarver.carve(buf)
+        #expect(out.map(\.kind) == [.pdf, .sqlite, .pdf])
+        #expect(out.first?.size == Int64(pdf.count))
+        #expect(out.last?.offset == Int64(pad.count * 3 + pdf.count + db.count))
+    }
+
     @Test func carvesZIPToEOCD() {
         let out = FileCarver.carve(pad + zip)
         #expect(out.count == 1)

@@ -58,16 +58,20 @@ public nonisolated struct IOCMatcher: Sendable {
                     context: "Structured logon source \(ip)",
                     timestamp: event.writtenAt))
             }
-            let haystack = event.payloadXML.lowercased()
+            // Entity-decode the payload: evtxexport escapes `&`/`<`/`>`/quotes,
+            // so a URL IOC with a query string (`?a=1&b=2`) would never match
+            // the raw `&amp;` text.
+            let haystack = XMLEntityDecoder.decode(event.payloadXML).lowercased()
             guard !haystack.isEmpty else { continue }
-            for needle in needles where haystack.contains(needle.lowered) {
+            for needle in needles {
+                guard let range = Self.matchRange(of: needle, in: haystack) else { continue }
                 matches.append(IOCMatch(
                     iocValue: needle.ioc.value, iocKind: needle.ioc.kind,
                     location: .event(eventID: event.eventID,
                                      recordNumber: event.recordNumber,
                                      channel: event.channel,
                                      sourceFile: event.sourceFile),
-                    context: snippet(around: needle.lowered, in: haystack),
+                    context: snippet(around: range, in: haystack),
                     timestamp: event.writtenAt))
             }
         }
@@ -75,7 +79,7 @@ public nonisolated struct IOCMatcher: Sendable {
         for value in registry {
             let haystack = (value.data + " " + value.fullPath).lowercased()
             guard !haystack.isEmpty else { continue }
-            for needle in needles where haystack.contains(needle.lowered) {
+            for needle in needles where Self.matchRange(of: needle, in: haystack) != nil {
                 matches.append(IOCMatch(
                     iocValue: needle.ioc.value, iocKind: needle.ioc.kind,
                     location: .registry(hive: value.hive,
@@ -88,7 +92,7 @@ public nonisolated struct IOCMatcher: Sendable {
 
         for file in files {
             let haystack = file.fullPath.lowercased()
-            for needle in needles where haystack.contains(needle.lowered) {
+            for needle in needles where Self.matchRange(of: needle, in: haystack) != nil {
                 matches.append(IOCMatch(
                     iocValue: needle.ioc.value, iocKind: needle.ioc.kind,
                     location: .file(path: file.fullPath),
@@ -99,8 +103,46 @@ public nonisolated struct IOCMatcher: Sendable {
         return matches
     }
 
-    private func snippet(around needle: String, in haystack: String, span: Int = 80) -> String {
-        guard let range = haystack.range(of: needle) else { return "" }
+    /// Where `needle` occurs in `haystack` (both lowercased), or nil. Domains,
+    /// hashes and URLs match as plain substrings; an IP must stand on its own —
+    /// a bare substring test would let `10.0.0.1` hit `10.0.0.15`, `10.0.0.123`
+    /// or `110.0.0.1`, inventing IOC hits (and cross-host "shared indicator"
+    /// correlations) from unrelated addresses.
+    private static func matchRange(of needle: Needle, in haystack: String) -> Range<String.Index>? {
+        guard needle.ioc.kind == .ip else { return haystack.range(of: needle.lowered) }
+        let ipv6 = needle.lowered.contains(":")
+        var from = haystack.startIndex
+        while let range = haystack.range(of: needle.lowered, range: from..<haystack.endIndex) {
+            if isStandaloneAddress(range, in: haystack, ipv6: ipv6) { return range }
+            from = haystack.index(after: range.lowerBound)
+        }
+        return nil
+    }
+
+    /// True when the address at `range` isn't the middle of a longer address:
+    /// no adjoining digit (IPv4) or hex digit / colon (IPv6), and for IPv4 no
+    /// adjoining `.<digit>` octet. A sentence-ending "10.0.0.1." still matches.
+    private static func isStandaloneAddress(_ range: Range<String.Index>, in s: String, ipv6: Bool) -> Bool {
+        func continuesAddress(_ c: Character) -> Bool {
+            ipv6 ? (c.isHexDigit || c == ":") : (c.isASCII && c.isNumber)
+        }
+        if range.lowerBound > s.startIndex {
+            let beforeIndex = s.index(before: range.lowerBound)
+            let before = s[beforeIndex]
+            if continuesAddress(before) { return false }
+            if !ipv6, before == ".", beforeIndex > s.startIndex,
+               continuesAddress(s[s.index(before: beforeIndex)]) { return false }
+        }
+        if range.upperBound < s.endIndex {
+            let after = s[range.upperBound]
+            if continuesAddress(after) { return false }
+            let next = s.index(after: range.upperBound)
+            if !ipv6, after == ".", next < s.endIndex, continuesAddress(s[next]) { return false }
+        }
+        return true
+    }
+
+    private func snippet(around range: Range<String.Index>, in haystack: String, span: Int = 80) -> String {
         let lower = haystack.index(range.lowerBound,
                                     offsetBy: -span,
                                     limitedBy: haystack.startIndex) ?? haystack.startIndex

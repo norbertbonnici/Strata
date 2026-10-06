@@ -247,8 +247,11 @@ public nonisolated enum FileCarver {
 
     private static func pdfSize(_ b: UnsafeBufferPointer<UInt8>, _ i: Int, _ n: Int,
                                 _ maxFileSize: Int) -> (size: Int, exact: Bool) {
-        // The last %%EOF within the window ends the (possibly incrementally
-        // updated) document.
+        // The last %%EOF ends the (possibly incrementally updated) document —
+        // but only up to the next `%PDF-` header. Scanning the whole window for
+        // the last %%EOF let one PDF swallow every later PDF in it (and every
+        // file between them); since the carve is exact, the scan skipped that
+        // body and mergeNested dropped everything inside it.
         let eof: [UInt8] = [0x25, 0x25, 0x45, 0x4F, 0x46]
         let limit = min(n - eof.count, i + maxFileSize)
         var last = -1
@@ -256,6 +259,8 @@ public nonisolated enum FileCarver {
         while j <= limit {
             if b[j] == eof[0], b[j + 1] == eof[1], b[j + 2] == eof[2], b[j + 3] == eof[3], b[j + 4] == eof[4] {
                 last = j
+            } else if matches(b, j, n, pdfMagic) {
+                break                                    // the next document starts here
             }
             j += 1
         }

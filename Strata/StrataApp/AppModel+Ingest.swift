@@ -174,32 +174,47 @@ extension AppModel {
                 for: &evidence, environment: environment, hostDir: hostDir,
                 bundleURL: bundleURL, credential: credential)
             state.osFamilies = OSFamily.detect(volumes: state.volumes, files: state.files)
+            // The re-ingest rebuilds the file tree, so the tree-derived buckets
+            // start empty and the parsers below repopulate them. Results that
+            // don't come from those parsers carry over — carves are raw-image
+            // offsets, YARA/IOC matches are the examiner's earlier passes —
+            // otherwise they'd vanish from the session while still on disk.
+            if let previous = states[evidenceID] {
+                state.carvedFiles = previous.carvedFiles
+                state.yaraMatches = previous.yaraMatches
+                state.iocMatches = previous.iocMatches
+            }
             // The kind / apfsRawURL may have changed; replace the host record too.
             if let idx = evidenceList.firstIndex(where: { $0.id == evidenceID }) {
                 evidenceList[idx] = evidence
             }
             states[evidenceID] = state
             saveHosts()
+            let stillLocked = lockedApfsVolumes[evidenceID]?.count ?? 0
             appendCustody(.analysed,
-                          detail: "Unlocked FileVault volume and re-ingested \(evidence.displayName)",
+                          detail: stillLocked == 0
+                              ? "Unlocked FileVault volume and re-ingested \(evidence.displayName)"
+                              : "Re-ingested \(evidence.displayName) with the supplied FileVault secret; \(stillLocked) volume(s) still locked",
                           evidenceID: evidenceID)
-            if let locked = lockedApfsVolumes[evidenceID], !locked.isEmpty {
-                statusMessage = "Some volumes are still locked — verify the password / recovery key."
-            } else {
-                statusMessage = "Unlocked \(state.files.count) files from \(evidence.displayName). Re-running analysis…"
-                // Release the single-flight guard before the re-analysis parsers:
-                // parseMac / parseBrowserHistory open with `guard !isWorking`, so
-                // while unlock still holds it they would silently no-op — defeating
-                // the entire point of unlocking. Each parser re-asserts isWorking
-                // itself (as in a normal parse pass); the outer `defer` restores it.
-                isWorking = false
-                await parseMac()
-                await parseBrowserHistory()
-                await parseMessages()
-                await parseMail()
-                await parseUnifiedLog()
-                statusMessage = "Unlocked and analysed \(evidence.displayName)."
-            }
+            statusMessage = "Re-ingested \(state.files.count) files from \(evidence.displayName). Re-running analysis…"
+            // Re-parse even when some volumes stay locked: the state was rebuilt,
+            // so without this its artifacts would be missing from the session.
+            // Release the single-flight guard first — parseMac / parseBrowserHistory
+            // open with `guard !isWorking`, so while unlock still holds it they
+            // would silently no-op. Each parser re-asserts isWorking itself (as in
+            // a normal parse pass); the outer `defer` restores it.
+            isWorking = false
+            await parseMac()
+            await parseBrowserHistory()
+            await parseMessages()
+            await parseMail()
+            await parseUnifiedLog()
+            // The rebuilt state has no findings; regenerate them (and persist
+            // findings.json) from the newly readable artifacts.
+            await runAnalyzers()
+            statusMessage = stillLocked == 0
+                ? "Unlocked and analysed \(evidence.displayName)."
+                : "Some volumes are still locked — verify the password / recovery key."
         } catch {
             errorMessage = error.localizedDescription
             statusMessage = ""
@@ -252,18 +267,22 @@ extension AppModel {
     }
 
     /// Re-read a carved file's bytes from its source image (offset + length), for
-    /// the macOS view's Save action. Matches the host by the carve's source name.
+    /// the macOS view's Save action. The owning host is the one whose carve set
+    /// holds this carve (by its persisted id) — never matched by the raw's file
+    /// name, which every E01-derived APFS host shares (`image_raw.raw`), so a name
+    /// match would read another host's bytes at this offset.
     func carvedFileData(_ carved: CarvedFile) -> Data? {
-        for evidence in evidenceList where evidence.kind == .apfs {
-            guard let raw = evidence.apfsRawURL, raw.lastPathComponent == carved.source,
-                  let handle = try? FileHandle(forReadingFrom: raw) else { continue }
-            defer { try? handle.close() }
-            do {
-                try handle.seek(toOffset: UInt64(carved.offset))
-                return try handle.read(upToCount: Int(carved.size))
-            } catch { return nil }
-        }
-        return nil
+        guard let evidence = evidenceList.first(where: { evidence in
+                  states[evidence.id]?.carvedFiles.contains { $0.id == carved.id } ?? false
+              }),
+              evidence.kind == .apfs,
+              let raw = evidence.apfsRawURL,
+              let handle = try? FileHandle(forReadingFrom: raw) else { return nil }
+        defer { try? handle.close() }
+        do {
+            try handle.seek(toOffset: UInt64(carved.offset))
+            return try handle.read(upToCount: Int(carved.size))
+        } catch { return nil }
     }
 
     #endif

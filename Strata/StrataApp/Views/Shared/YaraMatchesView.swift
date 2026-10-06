@@ -79,7 +79,11 @@ struct YaraMatchesView: View {
     private func chooseRules() {
         let panel = NSOpenPanel()
         panel.title = "Choose YARA Rules"
+        // `.yar` / `.yara` have no system UTI — they resolve to dynamic types
+        // that don't conform to plain text — so list them explicitly or the
+        // panel greys out every conventionally named rules file.
         panel.allowedContentTypes = [.plainText]
+            + ["yar", "yara"].compactMap { UTType(filenameExtension: $0) }
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
