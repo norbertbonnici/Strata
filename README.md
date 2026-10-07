@@ -18,7 +18,8 @@ its own autotools.
 
 - **macOS app** = the full pipeline (ingest + analyze). Non-sandboxed; reads raw
   disk images via Full Disk Access.
-- **iOS app** = a read-only viewer for already-built `.strata` cases.
+- **iOS app** = a read-only viewer for already-built `.strata` cases, in public
+  beta on [TestFlight](https://testflight.apple.com/join/TRrNKbTu).
 
 <p align="center">
   <img src="docs/screenshots/strata-tour.gif"
@@ -147,7 +148,12 @@ need to build from source to run the app.
 The image is signed, notarized, and stapled, so it opens through Gatekeeper with
 no right-click-Open workaround. Requires an Apple Silicon Mac on macOS 26.6 or
 later (see [Requirements](#requirements)). Building from source, below, is only
-needed to develop Strata or to run the iOS viewer.
+needed to develop Strata.
+
+**iOS / iPadOS viewer.** The read-only viewer is in public beta on TestFlight:
+open the [Strata TestFlight invite](https://testflight.apple.com/join/TRrNKbTu)
+on an iPhone or iPad running iOS / iPadOS 26.6 or later, and it will walk you
+through installing Apple's TestFlight app if you don't have it.
 
 ## Building
 

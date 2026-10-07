@@ -286,7 +286,10 @@ implemented but has never run against a real encrypted image.
   tier + `KnownBadHashAnalyzer`); config UI + pipeline wiring still pending.
 - **Universal / Intel support** — currently arm64-only (`build-tsk.sh universal`
   builds the fat binaries).
-- **iOS distribution** (TestFlight / App Store) — currently build-from-source.
+- **iOS App Store release** — the viewer is in public TestFlight beta
+  (https://testflight.apple.com/join/TRrNKbTu, uploaded via
+  `scripts/ios-testflight.sh`; builds expire after 90 days, so re-upload at
+  least that often). No App Store listing yet.
 - **Dynamic Type** on the iOS layer — deferred to preserve mockup fidelity.
 - **Phase-D iCloud hardening** — `NSFileCoordinator` + robust package
   download-completion; needs on-device validation.
