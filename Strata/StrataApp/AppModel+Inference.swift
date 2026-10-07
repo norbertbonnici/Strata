@@ -164,10 +164,19 @@ extension AppModel {
             }
             appendCustody(.summarized, detail: custodyDetail)
         } catch {
-            errorMessage = "Summary generation failed: "
-                + (FindingsSummarizer.describeGenerationFailure(error, backendLabel: backend.label)
-                   ?? error.localizedDescription)
+            let reason = FindingsSummarizer.describeGenerationFailure(error, backendLabel: backend.label)
+                ?? error.localizedDescription
+            errorMessage = "Summary generation failed: " + reason
             statusMessage = ""
+            // An off-device run can fail *after* finding summaries were sent (an
+            // HTTP error, a refusal, an undecodable reply, or a later call of a
+            // multi-step run), so the egress must still reach the ledger — only
+            // the success path used to record it.
+            if backend.sovereignty != .onDevice {
+                appendCustody(.summarized,
+                              detail: "AI executive summary via \(backend.label) failed (\(reason)). "
+                                  + "Evidence-derived finding summaries may have left the host before the failure.")
+            }
         }
     }
 

@@ -68,6 +68,24 @@ struct FileCarverTests {
         #expect(out[0].sizeExact)
     }
 
+    @Test func jpegWithExifThumbnailCarvesToTheRealEOI() {
+        // APP1 carries an EXIF thumbnail — a whole JPEG with its own FFD9. The
+        // carve must step over the segment and end at the main image's EOI, not
+        // truncate to the thumbnail.
+        let thumbnail: [UInt8] = [0xFF, 0xD8, 0xFF, 0xD9]
+        let exif = Array("Exif".utf8) + [0x00, 0x00] + thumbnail
+        var photo: [UInt8] = [0xFF, 0xD8]                                  // SOI
+        photo += [0xFF, 0xE1, 0x00, UInt8(exif.count + 2)] + exif          // APP1 (EXIF)
+        photo += [0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00] // SOS header
+        photo += [0x12, 0xFF, 0x00, 0x34, 0xFF, 0xD0, 0x56]                // scan: stuffed FF00 + RST0
+        photo += [0xFF, 0xD9]                                              // EOI
+        let out = FileCarver.carve(pad + Data(photo) + pad)
+        #expect(out.count == 1)
+        #expect(out.first?.kind == .jpeg)
+        #expect(out.first?.size == Int64(photo.count))
+        #expect(out.first?.sizeExact == true)
+    }
+
     @Test func carvesPNGToIEND() {
         let out = FileCarver.carve(pad + png)
         #expect(out.count == 1)

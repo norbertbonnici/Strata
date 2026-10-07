@@ -142,7 +142,7 @@ extension AppModel {
         statusMessage = "Running analyzers..."
         var total = 0
         for evidence in evidenceList {
-            guard var state = states[evidence.id] else { continue }
+            guard let state = states[evidence.id] else { continue }
             // Verify any ransomware mass-encryption burst by sampling real file
             // bytes (no-op / no I/O unless a burst is actually present).
             let encryptionEntropy = await sampleEncryptionEntropy(for: evidence, state: state)
@@ -195,8 +195,13 @@ extension AppModel {
                                           yaraMatches: state.yaraMatches,
                                           encryptionEntropy: encryptionEntropy)
             let results = await analysisEngine.run(on: context)
-            state.findings = results
-            states[evidence.id] = state
+            // Write back only the findings. `state` was captured before the awaits
+            // above, and runAnalyzers doesn't hold the isWorking single-flight
+            // guard, so a parse / IOC / YARA pass may have updated this host
+            // meanwhile — storing the whole snapshot would silently revert it.
+            // (A host removed mid-run is skipped rather than resurrected on disk.)
+            guard states[evidence.id] != nil else { continue }
+            states[evidence.id]?.findings = results
             if let bundleURL = currentCaseBundleURL {
                 _ = persistArtifact("findings for \(evidence.displayName)") {
                     try CaseStore.writeFindings(results, forHostID: evidence.id, in: bundleURL)

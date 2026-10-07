@@ -78,13 +78,24 @@ public nonisolated struct NotificationParser: Sendable {
                 findString(root, keys: ["body", "mesg", "subt"]))
     }
 
+    /// Node budget for the recursive search. A bplist's shared references decode
+    /// to a DAG, so a crafted blob that is small on disk can expand into an
+    /// exponentially large tree when walked; real notification payloads are tiny.
+    private static let findStringBudget = 10_000
+
     private static func findString(_ node: PlistValue?, keys: Set<String>) -> String? {
-        guard let node else { return nil }
+        var budget = findStringBudget
+        return findString(node, keys: keys, budget: &budget)
+    }
+
+    private static func findString(_ node: PlistValue?, keys: Set<String>, budget: inout Int) -> String? {
+        guard let node, budget > 0 else { return nil }
+        budget -= 1
         if let dict = node.dictValue {
             for k in keys { if let s = dict[k]?.stringValue, !s.isEmpty { return s } }
-            for v in dict.values { if let found = findString(v, keys: keys) { return found } }
+            for v in dict.values { if let found = findString(v, keys: keys, budget: &budget) { return found } }
         } else if let arr = node.arrayValue {
-            for v in arr { if let found = findString(v, keys: keys) { return found } }
+            for v in arr { if let found = findString(v, keys: keys, budget: &budget) { return found } }
         }
         return nil
     }

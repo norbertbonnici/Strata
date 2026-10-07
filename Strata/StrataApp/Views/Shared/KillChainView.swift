@@ -16,7 +16,9 @@ struct KillChainView: View {
         let findings = model.findings
         let groupsByPhase = Self.groupByPhase(findings)
         let selected = Self.group(withID: selectedGroupID, in: groupsByPhase)
-        let eventsEmpty = model.eventCount == 0
+        // Analyzers cover every OS (event logs are Windows-only), so gate on
+        // having evidence at all, not on EVTX events.
+        let noEvidence = model.evidenceList.isEmpty
         return VStack(alignment: .leading, spacing: 0) {
             SummaryBar(findings: findings)
                 .padding(.horizontal).padding(.top)
@@ -49,9 +51,9 @@ struct KillChainView: View {
                     Label("Run analyzers", systemImage: "play.fill")
                 }
                 .controlSize(.small)
-                .disabled(model.isWorking || eventsEmpty)
-                .help(eventsEmpty
-                      ? "Parse event logs first (Events tab)."
+                .disabled(model.isWorking || noEvidence)
+                .help(noEvidence
+                      ? "Add evidence to the case first."
                       : "Run the detection analyzers on the loaded evidence.")
             }
             .padding(.horizontal).padding(.bottom, 8)

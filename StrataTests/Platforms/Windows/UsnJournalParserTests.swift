@@ -67,6 +67,8 @@ struct UsnJournalParserTests {
         #expect(r.fileName == "x.ps1")
         #expect(r.isDelete)
         #expect(r.mftEntry == 42)
+        #expect(r.parentMftEntry == 9)         // V3 parent ref is at 0x18, not 0x20
+        #expect(r.timestamp == Self.knownDate)
     }
 
     @Test func directoryFlagDecoded() throws {

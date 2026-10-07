@@ -56,6 +56,24 @@ struct XMLEntityDecoderTests {
         #expect(event.data("CommandLine") == "cmd.exe /Q /c whoami 2>&1")
     }
 
+    @Test func dataKeepsTheRegexSemantics() {
+        func record(_ xml: String) -> EventLogRecord {
+            EventLogRecord(recordNumber: 1, writtenAt: Date(timeIntervalSince1970: 0), eventID: 1,
+                           level: 4, channel: "c", provider: "p", computer: "h",
+                           payloadXML: xml, sourceFile: "f")
+        }
+        // Absent, empty and self-closing fields are nil.
+        #expect(record("<EventData></EventData>").data("X") == nil)
+        #expect(record("<Data Name=\"X\"></Data>").data("X") == nil)
+        #expect(record("<Data Name=\"X\"/>").data("X") == nil)
+        // The name matches exactly — no prefix match on a longer field name.
+        #expect(record("<Data Name=\"XY\">no</Data><Data Name=\"X\">yes</Data>").data("X") == "yes")
+        // A value interrupted by markup is skipped in favour of a later clean one.
+        #expect(record("<Data Name=\"X\">a<b/>c</Data><Data Name=\"X\">ok</Data>").data("X") == "ok")
+        // Multi-line values come through intact.
+        #expect(record("<Data Name=\"X\">line1\nline2</Data>").data("X") == "line1\nline2")
+    }
+
     // MARK: - Detections that depend on the decoded text
 
     private func impacket(_ events: [EventLogRecord]) -> [Finding] {

@@ -221,12 +221,52 @@ public nonisolated enum FileCarver {
     private static func jpegSize(_ b: UnsafeBufferPointer<UInt8>, _ i: Int, _ n: Int,
                                  _ maxFileSize: Int) -> (size: Int, exact: Bool) {
         let limit = min(n - 1, i + maxFileSize)
+        if let end = jpegStructuredEnd(b, i, limit) { return (end - i, true) }
+        // Not a well-formed marker stream: fall back to the first EOI.
         var j = i + 2
         while j < limit {
             if b[j] == 0xFF, b[j + 1] == 0xD9 { return (j + 2 - i, true) }
             j += 1
         }
         return (min(maxFileSize, n - i), false)
+    }
+
+    /// End offset (one past EOI) found by walking the JPEG marker segments.
+    /// Skipping each segment by its length is what steps over the EXIF thumbnail
+    /// embedded in APP1 — a complete JPEG with its own FFD9 that a naive "first
+    /// FFD9" search stops at, truncating nearly every camera/phone photo to its
+    /// thumbnail. Entropy-coded scan data is scanned for the next real marker
+    /// (stuffed `FF 00` and RSTn don't count). nil when the stream doesn't parse.
+    private static func jpegStructuredEnd(_ b: UnsafeBufferPointer<UInt8>, _ i: Int, _ limit: Int) -> Int? {
+        var j = i + 2                                    // past SOI
+        while j < limit {
+            guard b[j] == 0xFF else { return nil }
+            let marker = b[j + 1]
+            switch marker {
+            case 0xFF:                                   // fill byte before a marker
+                j += 1
+            case 0xD9:                                   // EOI
+                return j + 2
+            case 0x01, 0xD0...0xD8:                      // standalone markers (no length)
+                j += 2
+            default:
+                guard j + 3 < limit else { return nil }
+                let length = (Int(b[j + 2]) << 8) | Int(b[j + 3])
+                guard length >= 2 else { return nil }
+                j += 2 + length
+                if marker == 0xDA {                      // SOS: entropy-coded data follows
+                    while j < limit {
+                        if b[j] == 0xFF {
+                            let next = b[j + 1]
+                            if next == 0x00 || (0xD0...0xD7).contains(next) { j += 2; continue }
+                            break                        // a real marker
+                        }
+                        j += 1
+                    }
+                }
+            }
+        }
+        return nil
     }
 
     private static func pngSize(_ b: UnsafeBufferPointer<UInt8>, _ i: Int, _ n: Int,

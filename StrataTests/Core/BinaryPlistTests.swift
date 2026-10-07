@@ -74,6 +74,34 @@ struct BinaryPlistTests {
         #expect(BinaryPlist.parse(Data(bytes)) == nil)
     }
 
+    @Test func sharedReferencesDecodeOncePerObject() throws {
+        // Object k is the array [k+1, k+1]; the last object is the int 7. As a
+        // tree that's 2^39 leaves — a re-decoding parser hangs on these ~200
+        // bytes. Memoized, each object decodes once.
+        let depth = 40
+        var bytes = Array("bplist00".utf8)
+        var offsets: [UInt8] = []
+        for k in 0..<(depth - 1) {
+            offsets.append(UInt8(bytes.count))
+            bytes += [0xA2, UInt8(k + 1), UInt8(k + 1)]   // 2-element array, 1-byte refs
+        }
+        offsets.append(UInt8(bytes.count))
+        bytes += [0x10, 0x07]                              // 1-byte int 7
+        let tableOffset = bytes.count
+        bytes += offsets
+        func be64(_ v: Int) -> [UInt8] { (0..<8).reversed().map { UInt8((v >> ($0 * 8)) & 0xFF) } }
+        bytes += [0, 0, 0, 0, 0, 0, 1, 1]                  // unused ×6, offsetSize, refSize
+        bytes += be64(depth) + be64(0) + be64(tableOffset)
+
+        var node = try #require(BinaryPlist.parse(Data(bytes)))
+        for _ in 0..<(depth - 1) {
+            let pair = try #require(node.arrayValue)
+            #expect(pair.count == 2)
+            node = pair[1]
+        }
+        #expect(node.intValue == 7)
+    }
+
     @Test func rejectsExtendedObjectLengthThatDoesNotFitInt() throws {
         let encoded = try PropertyListSerialization.data(
             fromPropertyList: String(repeating: "x", count: 500), format: .binary, options: 0)
