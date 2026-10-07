@@ -226,6 +226,12 @@ skipped.
 
 Please file issues at <https://github.com/norbertbonnici/Strata/issues>.
 
+## Privacy
+
+Strata collects no personal data and sends nothing to the developer. Evidence
+stays on your Mac unless you turn on an optional network feature. See
+[PRIVACY.md](PRIVACY.md) for the details.
+
 ## License
 
 Strata's own source is licensed under the [Apache License, Version 2.0](LICENSE).
