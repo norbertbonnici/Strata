@@ -283,6 +283,20 @@ struct LinuxHostInfoTests {
         #expect(profile.primaryUser == "jane")   // lowest human UID with a shell
         #expect(profile.hasAnyData)
     }
+
+    @Test func humanAccountExcludesServiceAndSystemAccounts() {
+        // Only human accounts feed cross-host credential-reuse correlation, so
+        // stock service accounts shared by every install must not qualify.
+        func user(_ name: String, _ uid: Int, _ shell: String) -> LinuxUser {
+            LinuxUser(name: name, uid: uid, gid: uid, home: "/home/\(name)", shell: shell)
+        }
+        #expect(user("jane", 1000, "/bin/bash").isHumanAccount)
+        #expect(!user("root", 0, "/bin/bash").isHumanAccount)
+        #expect(!user("systemd-coredump", 999, "/usr/sbin/nologin").isHumanAccount)
+        #expect(!user("lxd", 999, "/bin/false").isHumanAccount)
+        #expect(!user("svc", 1005, "/usr/sbin/nologin").isHumanAccount)   // no login shell
+        #expect(!user("nobody", 65534, "/bin/sh").isHumanAccount)         // overflow UID
+    }
 }
 
 // MARK: - Timeline projections

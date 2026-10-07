@@ -76,11 +76,7 @@ extension AppModel {
             recentCases = RecentCases.load()
             currentCase = theCase
             currentCaseBundleURL = bundleURL
-            evidenceList = []
-            states = [:]
-            iocs = []
-            custodyLog = []
-            activeEvidenceID = nil
+            resetCaseScopedState()
             statusMessage = "Created case '\(name)'."
         } catch {
             errorMessage = "Failed to create case: \(error.localizedDescription)"
@@ -121,10 +117,12 @@ extension AppModel {
             previousScope?.stopAccessingSecurityScopedResource()
             currentCase = theCase
             currentCaseBundleURL = bundleURL
+            // Open Recent can switch cases without a closeCase, so drop every
+            // case-scoped value here too — otherwise the previous case's
+            // correlation findings (hostnames, IPs, accounts) would surface in
+            // this case's "All" findings, report, and AI-summary input.
+            resetCaseScopedState()
             evidenceList = hosts
-            states = [:]
-            loadFaults = [:]
-            caseWideLoadFaults = []
             // Show the first host's (briefly empty) scope right away; its
             // working set streams in below.
             activeEvidenceID = hosts.first?.id
@@ -567,10 +565,23 @@ extension AppModel {
         caseSecurityScopeURL = nil
         currentCase = nil
         currentCaseBundleURL = nil
+        resetCaseScopedState()
+        progress = nil
+        statusMessage = ""
+        errorMessage = nil
+        refreshLibrary()   // pick up any case added/synced while one was open
+    }
+
+    /// Clear every value that belongs to one case. The single funnel shared by
+    /// create / open / close, so a case switch that skips `closeCase` (File ▸
+    /// Open Recent) can't carry the previous case's state across. Includes the
+    /// in-memory FileVault secrets and locked-volume list, which are keyed by the
+    /// closed case's evidence IDs and must not outlive it.
+    private func resetCaseScopedState() {
         evidenceList = []
+        states = [:]
         loadFaults = [:]
         caseWideLoadFaults = []
-        states = [:]
         iocs = []
         custodyLog = []
         annotations = []
@@ -579,11 +590,9 @@ extension AppModel {
         caseSummary = nil
         correlationFindings = []
         timelinePivot = nil
+        fileVaultCredentials = [:]
+        lockedApfsVolumes = [:]
         activeEvidenceID = nil
-        progress = nil
-        statusMessage = ""
-        errorMessage = nil
-        refreshLibrary()   // pick up any case added/synced while one was open
     }
 
     func saveHosts() {

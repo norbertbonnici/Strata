@@ -194,26 +194,25 @@ private struct EvidenceIntegrityCard: View {
 
     @ViewBuilder
     private var hashActions: some View {
-        switch evidence.kind {
-        case .kapeLooseFolder:
+        if evidence.kind == .kapeLooseFolder {
             EmptyView()
-        case .e01:
+        } else if AppModel.isEWFSource(evidence) {
+            // Includes an E01 reclassified `.apfs` by the libfsapfs fallback: its
+            // embedded acquisition hashes are verified by ewfverify, not rehashed.
             Button("Verify (ewfverify)") {
                 Task { await model.verifyEWF(for: evidence.id) }
             }
             .controlSize(.small).disabled(model.isWorking)
-        case .raw, .kapeVHD, .apfs:
-            if evidence.sourceHashes.contains(where: { $0.origin == .computed }) {
-                Button("Re-verify") {
-                    Task { await model.verifyComputedHashes(for: evidence.id) }
-                }
-                .controlSize(.small).disabled(model.isWorking)
-            } else {
-                Button("Compute hashes") {
-                    Task { await model.computeSourceHashes(for: evidence.id) }
-                }
-                .controlSize(.small).disabled(model.isWorking)
+        } else if evidence.sourceHashes.contains(where: { $0.origin == .computed }) {
+            Button("Re-verify") {
+                Task { await model.verifyComputedHashes(for: evidence.id) }
             }
+            .controlSize(.small).disabled(model.isWorking)
+        } else {
+            Button("Compute hashes") {
+                Task { await model.computeSourceHashes(for: evidence.id) }
+            }
+            .controlSize(.small).disabled(model.isWorking)
         }
     }
 

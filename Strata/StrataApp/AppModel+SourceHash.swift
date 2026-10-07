@@ -145,13 +145,21 @@ extension AppModel {
         saveHosts()
     }
 
+    /// Whether the host's source is an EWF (E01) container: an E01 TSK read
+    /// (`.e01`) *and* one the libfsapfs fallback reclassified as `.apfs`, which
+    /// still carries the E01's embedded acquisition hashes. Gating on `kind`
+    /// alone left every macOS E01's embedded hashes permanently unverifiable.
+    static func isEWFSource(_ evidence: Evidence) -> Bool {
+        evidence.kind == .e01 || TSKImageIngestor.imageType(for: evidence.sourceURL) == "ewf"
+    }
+
     /// Re-run `ewfverify` over an E01 and flip its embedded hashes to verified /
     /// mismatch. Expensive (reads the whole image) so it is explicit, never
     /// automatic.
     func verifyEWF(for evidenceID: UUID) async {
         guard !isWorking else { return }
         guard let evidence = evidenceList.first(where: { $0.id == evidenceID }),
-              evidence.kind == .e01 else { return }
+              Self.isEWFSource(evidence) else { return }
         let src = evidence.sourceURL
         guard FileManager.default.fileExists(atPath: src.path) else {
             errorMessage = "Source missing for \(evidence.displayName) at \(src.path)."

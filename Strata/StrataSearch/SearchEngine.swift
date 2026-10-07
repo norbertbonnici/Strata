@@ -206,7 +206,7 @@ public nonisolated struct SearchEngine: Sendable {
                     snippet: payloadSnippet(e, needle: needle),
                     score: best + Score.kindBias(.event),
                     reference: .event(id: e.id)))
-            } else if e.payloadXML.lowercased().contains(needle)
+            } else if XMLEntityDecoder.decode(e.payloadXML).lowercased().contains(needle)
                         || e.computer.lowercased().contains(needle) {
                 hits.append(SearchHit(
                     kind: .event, title: title, subtitle: subtitle,
@@ -302,7 +302,7 @@ public nonisolated struct SearchEngine: Sendable {
     /// Build the event snippet: prefer a window around the needle in the
     /// payload; fall back to the (collapsed) payload head.
     private static func payloadSnippet(_ e: EventLogRecord, needle: String) -> String {
-        let xml = collapseWhitespace(e.payloadXML)
+        let xml = collapseWhitespace(XMLEntityDecoder.decode(e.payloadXML))
         if xml.lowercased().contains(needle) {
             return excerpt(xml, around: needle)
         }

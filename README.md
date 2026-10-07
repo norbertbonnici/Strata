@@ -139,7 +139,7 @@ need to build from source to run the app.
 
 1. Download the newest `Strata-<version>.dmg` from the
    [Releases](https://github.com/norbertbonnici/Strata/releases) page
-   (currently **Strata 0.2.0**).
+   (currently **Strata 0.2.1**).
 2. Open the DMG and drag **Strata** into your **Applications** folder.
 3. On first launch, grant **Full Disk Access** (System Settings ▸ Privacy &
    Security ▸ Full Disk Access) so Strata can read raw disk images.
@@ -181,7 +181,7 @@ Because Strata reads raw disk images it can't be sandboxed or shipped through th
 App Store; the only clean distribution path is Developer ID + notarization:
 
 ```sh
-scripts/release.sh 0.2.0   # archive → sign → notarize → staple → dmg
+scripts/release.sh 0.2.1   # archive → sign → notarize → staple → dmg
 ```
 
 Prereqs: a Developer ID Application certificate and a notarytool keychain profile
@@ -204,10 +204,11 @@ the "where does this go?" decision tree):
 
 ## Status & known limits
 
-Four public betas shipped during development; **0.2.0** is the current release —
-the first non-prerelease, a security & robustness hardening of the ingest
-pipeline (26 verified findings remediated across the three OS ingest paths and
-the case load/save layer, after an earlier 56-issue view-layer review). The full
+Four public betas shipped during development; **0.2.1** is the current release —
+YARA scanning plus an 18-fix code-review pass — on top of **0.2.0**, the first
+non-prerelease, a security & robustness hardening of the ingest pipeline (26
+verified findings remediated across the three OS ingest paths and the case
+load/save layer, after an earlier 56-issue view-layer review). The full
 pipeline is in use across Windows, Linux, and macOS evidence, validated against
 real images. Some decoders are still validated against synthetic fixtures only
 (Shimcache, parts of SRUM/USN/JumpList) — see `CHANGELOG.md` and per-release

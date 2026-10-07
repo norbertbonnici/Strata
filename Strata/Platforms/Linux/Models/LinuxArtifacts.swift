@@ -251,6 +251,13 @@ public nonisolated struct LinuxUser: Hashable, Sendable, Codable {
     public var hasLoginShell: Bool {
         !(shell.hasSuffix("nologin") || shell.hasSuffix("/false") || shell.isEmpty)
     }
+
+    /// A regular (human) account: a non-system UID (1000 up to the nobody /
+    /// overflow range) with a real login shell. Distro service accounts
+    /// (systemd-coredump, lxd, postfix, …) sit below 1000 or use nologin.
+    public var isHumanAccount: Bool {
+        uid >= 1000 && uid < 65_000 && hasLoginShell
+    }
 }
 
 /// What `/etc/os-release` + `/etc/hostname` + `/etc/passwd` + `/etc/timezone`

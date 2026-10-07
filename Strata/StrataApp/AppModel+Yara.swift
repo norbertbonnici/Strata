@@ -81,6 +81,7 @@ extension AppModel {
                 }
 
                 var matches: [YaraMatch] = []
+                var hostScanned = 0
                 for (index, entry) in candidates.enumerated() {
                     try Task.checkCancellation()
                     progress = ProgressInfo(current: index, total: candidates.count,
@@ -118,6 +119,7 @@ extension AppModel {
                                       fileSize: entry.size)
                         })
                         totalScanned += 1
+                        hostScanned += 1
                     } catch is CancellationError {
                         throw CancellationError()
                     } catch {
@@ -132,7 +134,7 @@ extension AppModel {
                 try CaseStore.writeYaraMatches(matches, forHostID: evidence.id, in: bundleURL)
                 totalMatches += matches.count
                 appendCustody(.analysed,
-                              detail: "YARA scanned \(totalScanned) file(s) with \(rulesURL.lastPathComponent); \(matches.count) match(es).",
+                              detail: "YARA scanned \(hostScanned) file(s) with \(rulesURL.lastPathComponent); \(matches.count) match(es).",
                               evidenceID: evidence.id)
             }
 

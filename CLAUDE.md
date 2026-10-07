@@ -56,7 +56,7 @@ swiftlint                            # .swiftlint.yml — warn-only, signal not 
 `#if !os(macOS)` and won't compile-check in a macOS build (or vice-versa).
 
 **`-only-testing` is safe only down to the *suite*.** Tests are Swift Testing
-(`import Testing`; ~950 `@Test`s across 92 files, no XCTest). A per-test filter
+(`import Testing`; ~980 `@Test`s across 96 files, no XCTest). A per-test filter
 (`…/SomeTests/someTest`) **silently matches nothing** — xcodebuild still prints
 `** TEST SUCCEEDED **` with zero tests run. A suite is the bare type name
 (`MftParserTests`). Confirm "Test case … passed" lines before trusting a pass.
@@ -87,7 +87,7 @@ notarytool keychain profile named **`strata-notary`** (`xcrun notarytool
 store-credentials`). It **overrides** `CODE_SIGN_ENTITLEMENTS` to the empty
 `scripts/StrataRelease.entitlements`, so the notarized build carries no
 entitlements. `scripts/ios-testflight.sh` is the iOS counterpart.
-Released so far: **v0.1.0-beta.1 … v0.1.0-beta.4, v0.2.0**.
+Released so far: **v0.1.0-beta.1 … v0.1.0-beta.4, v0.2.0, v0.2.1**.
 Per-release notes live in `docs/releases/`; keep `CHANGELOG.md` updated.
 
 **Licensing constrains distribution.** Strata's own source is Apache-2.0

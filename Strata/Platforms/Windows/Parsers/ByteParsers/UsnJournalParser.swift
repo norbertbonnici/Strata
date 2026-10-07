@@ -42,10 +42,13 @@ public nonisolated enum UsnJournalParser {
     /// Decode a V2 (64-bit refs) or V3 (128-bit refs) record.
     private static func decode(_ b: [UInt8], off: Int, recLen: Int, major: UInt16,
                                sourceFile: String) -> UsnRecord? {
-        // Field base offsets shift by +16 for V3's 128-bit file references.
+        // V3's two 128-bit file references widen the header: the parent ref sits
+        // 8 bytes later (right after the 16-byte FRN, at 0x18) and every field
+        // after it 16 bytes later. Both refs are read as their low 64 bits, which
+        // is the whole NTFS reference (the high half is zero on NTFS).
         let shift = major == 3 ? 16 : 0
         guard let frn = u64(b, off + 0x08),
-              let parent = u64(b, off + 0x10 + shift),
+              let parent = u64(b, off + (major == 3 ? 0x18 : 0x10)),
               let usn = u64(b, off + 0x18 + shift),
               let reason = u32(b, off + 0x28 + shift),
               let attrs = u32(b, off + 0x34 + shift),

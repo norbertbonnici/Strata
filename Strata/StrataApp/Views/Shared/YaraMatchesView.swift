@@ -8,15 +8,14 @@ import AppKit
 struct YaraMatchesView: View {
     @EnvironmentObject private var model: AppModel
     @State private var query = ""
+    /// Filtered + sorted rows and whether any match exists at all, rebuilt in
+    /// `.task(id:)` when the data or the query changes — not in `body`, which
+    /// used to filter and sort the full match set twice per render.
+    @State private var matches: [YaraMatch] = []
+    @State private var hasAnyMatch = false
 
-    private var matches: [YaraMatch] {
-        let values = model.yaraMatches
-        guard !query.isEmpty else { return values.sorted { $0.rule < $1.rule } }
-        return values.filter {
-            $0.rule.localizedCaseInsensitiveContains(query)
-                || $0.path.localizedCaseInsensitiveContains(query)
-        }.sorted { $0.rule < $1.rule }
-    }
+    private struct Key: Equatable { let query: String; let version: Int }
+    private var key: Key { Key(query: query, version: model.dataVersion) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,11 +25,11 @@ struct YaraMatchesView: View {
             #endif
             if matches.isEmpty {
                 ContentUnavailableView(
-                    model.yaraMatches.isEmpty ? "No YARA Matches" : "No Matching Results",
+                    hasAnyMatch ? "No Matching Results" : "No YARA Matches",
                     systemImage: "shield.checkered",
-                    description: Text(model.yaraMatches.isEmpty
-                                      ? "Choose a rules file and scan the evidence."
-                                      : "Try a different search."))
+                    description: Text(hasAnyMatch
+                                      ? "Try a different search."
+                                      : "Choose a rules file and scan the evidence."))
             } else {
                 Table(matches) {
                     TableColumn("Rule", value: \.rule).width(min: 180, ideal: 240)
@@ -44,6 +43,17 @@ struct YaraMatchesView: View {
         }
         .navigationTitle("YARA Matches")
         .searchable(text: $query, prompt: "Rule or path")
+        .task(id: key) { refresh() }
+    }
+
+    private func refresh() {
+        let all = model.yaraMatches
+        let filtered = query.isEmpty ? all : all.filter {
+            $0.rule.localizedCaseInsensitiveContains(query)
+                || $0.path.localizedCaseInsensitiveContains(query)
+        }
+        matches = filtered.sorted { $0.rule < $1.rule }
+        hasAnyMatch = !all.isEmpty
     }
 
     #if os(macOS)
@@ -79,7 +89,11 @@ struct YaraMatchesView: View {
     private func chooseRules() {
         let panel = NSOpenPanel()
         panel.title = "Choose YARA Rules"
+        // `.yar` / `.yara` have no system UTI — they resolve to dynamic types
+        // that don't conform to plain text — so list them explicitly or the
+        // panel greys out every conventionally named rules file.
         panel.allowedContentTypes = [.plainText]
+            + ["yar", "yara"].compactMap { UTType(filenameExtension: $0) }
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         guard panel.runModal() == .OK, let url = panel.url else { return }

@@ -55,7 +55,8 @@ public enum BinaryPlist {
             offsets.append(value)
         }
         var building = Set<Int>()
-        return decode(topIndex, b, offsets, refSize, &building, depth: 0)
+        var cache: [Int: PlistValue] = [:]
+        return decode(topIndex, b, offsets, refSize, &building, &cache, depth: 0)
     }
 
     private static func readBE(_ b: [UInt8], _ off: Int, _ size: Int) -> UInt64 {
@@ -64,8 +65,25 @@ public enum BinaryPlist {
         return v
     }
 
+    /// Decode object `index`, memoized. The object table is a DAG: one object may
+    /// be referenced from many containers, so without the cache a crafted bplist
+    /// (object k = `[k+1, k+1]`, a few dozen deep) re-decodes shared subtrees
+    /// exponentially and hangs ingest. Each object now decodes once; the cached
+    /// value is reused (copy-on-write, so memory stays linear too).
     private static func decode(_ index: Int, _ b: [UInt8], _ offsets: [Int], _ refSize: Int,
-                               _ building: inout Set<Int>, depth: Int) -> PlistValue? {
+                               _ building: inout Set<Int>, _ cache: inout [Int: PlistValue],
+                               depth: Int) -> PlistValue? {
+        // A reference back into a container still being built is a cycle.
+        if building.contains(index) { return .null }
+        if let hit = cache[index] { return hit }
+        let value = decodeObject(index, b, offsets, refSize, &building, &cache, depth: depth)
+        if let value { cache[index] = value }
+        return value
+    }
+
+    private static func decodeObject(_ index: Int, _ b: [UInt8], _ offsets: [Int], _ refSize: Int,
+                                     _ building: inout Set<Int>, _ cache: inout [Int: PlistValue],
+                                     depth: Int) -> PlistValue? {
         guard depth < 512, index >= 0, index < offsets.count else { return nil }
         let off = offsets[index]
         guard off >= 0, off < b.count else { return nil }
@@ -121,7 +139,7 @@ public enum BinaryPlist {
                 guard let relative = multiplied(k, refSize),
                       let position = added(start, relative),
                       let ref = intExact(readBE(b, position, refSize)) else { return nil }
-                out.append(decode(ref, b, offsets, refSize, &building, depth: depth + 1) ?? .null)
+                out.append(decode(ref, b, offsets, refSize, &building, &cache, depth: depth + 1) ?? .null)
             }
             return .array(out)
         case 0xD:                                   // dict
@@ -138,9 +156,9 @@ public enum BinaryPlist {
                       let valuePosition = added(valuesStart, relative),
                       let keyRef = intExact(readBE(b, keyPosition, refSize)),
                       let valRef = intExact(readBE(b, valuePosition, refSize)) else { return nil }
-                guard let key = decode(keyRef, b, offsets, refSize, &building,
+                guard let key = decode(keyRef, b, offsets, refSize, &building, &cache,
                                        depth: depth + 1)?.stringValue else { continue }
-                out[key] = decode(valRef, b, offsets, refSize, &building,
+                out[key] = decode(valRef, b, offsets, refSize, &building, &cache,
                                   depth: depth + 1) ?? .null
             }
             return .dict(out)
