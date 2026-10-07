@@ -5,6 +5,12 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+### Added
+
+- The iOS / iPadOS viewer is now in public beta on
+  [TestFlight](https://testflight.apple.com/join/TRrNKbTu); the README's Install
+  section links it, so the viewer no longer needs a build from source.
+
 ## [0.2.1] — 2026-10-07
 
 Headline: **YARA scanning**, plus a full code review of the source tree — 18
