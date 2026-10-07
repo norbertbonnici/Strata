@@ -5,6 +5,82 @@ All notable changes to Strata are documented here. The format loosely follows
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-10-07
+
+Headline: **YARA scanning**, plus a full code review of the source tree — 18
+findings fixed, several of them evidence-integrity or detection-accuracy bugs.
+
+### Added
+
+- **YARA scanning** against an examiner-supplied ruleset, via vendored upstream
+  YARA 4.5.8 (`yara` + `yarac`, built by `build-tsk.sh` with no Homebrew).
+  Rules compile once per scan, so an invalid ruleset fails before anything is
+  extracted. Scans allocated files under configurable size and count caps,
+  scoped to the active host or all hosts. Matches persist per host (`yara.json`)
+  and become findings that deliberately carry no ATT&CK technique and no
+  timestamp — a content match is not execution. New cross-platform
+  **YARA Matches** view; `NOTICE` records YARA's BSD-3-Clause terms.
+
+### Security & evidence integrity
+
+- **Carved-file Save could write another host's bytes.** The source image was
+  matched by file name, and every E01-derived APFS host's raw is named
+  `image_raw.raw`; the owner is now resolved from the carve's persisted id.
+- **Case switch leaked state.** File ▸ Open Recent switched cases without
+  clearing cross-host correlation findings, which then appeared in the new
+  case's findings, report and AI-summary input. Create / open / close now share
+  one reset, which also drops in-memory FileVault secrets on close.
+- **macOS E01 hashes could never be verified.** `ewfverify` was gated on the
+  `.e01` kind, but an E01 that takes the APFS path is reclassified `.apfs`.
+- **PDF carves swallowed later files.** Sizing ran to the last `%%EOF` in a
+  256 MB window, absorbing every later PDF and everything between them; it now
+  stops at the next `%PDF-` header.
+- A failed off-device AI summary now writes a custody entry — finding summaries
+  may already have been sent before the failure.
+- Per-host YARA custody entries reported the cumulative scan count across hosts.
+- A crafted binary plist with shared references (a few hundred bytes) could
+  force exponential decoding and hang ingest; objects are now decoded once.
+
+### Fixed — detection accuracy
+
+- **Event data was matched XML-escaped.** evtxexport escapes `<`, `>`, `&` in
+  `<Data>` values, so analyzers, IOC matching and search saw `2&gt;&amp;1`: the
+  Impacket `2>&1` and loopback-redirect signatures could never fire, and URL
+  IOCs containing `&` never matched. New `XMLEntityDecoder`.
+- **IP IOCs matched longer addresses** (`10.0.0.1` hit `10.0.0.15`, `110.0.0.1`),
+  inventing hits and cross-host "shared indicator" correlations.
+- **Credential-reuse correlation false positives.** It was fed every
+  `/etc/passwd` account plus wtmp's `reboot`, btmp failures and invalid-user SSH
+  probes, so stock Linux hosts produced medium-to-critical findings for shared
+  service accounts. Now limited to human accounts and real logins.
+- JPEG carves stopped at the embedded EXIF thumbnail's end marker, truncating
+  most camera photos; the carver now walks the marker segments.
+- USN V3 records read the parent reference from the wrong offset (always 0).
+
+### Fixed — app
+
+- FileVault unlock rebuilt the host, dropped its findings / IOC / YARA matches
+  and carves, and never re-ran the analyzers despite reporting "analysed".
+- `runAnalyzers` wrote back a stale host snapshot, reverting a parse / IOC /
+  YARA pass that finished while it ran.
+- The YARA rules picker greyed out `.yar` / `.yara` files.
+- Kill Chain "Run analyzers" was disabled for every case without Windows event
+  logs.
+
+### Performance
+
+- EVTX parsing compiled 8 regexes and allocated 2 date formatters per record;
+  regexes now compile once and `SystemTime` uses an allocation-free parser,
+  bit-identical to the formatter. `EventLogRecord.data()` no longer builds a
+  regex per call.
+- The YARA Matches view no longer filters and sorts in `body`.
+
+### Docs
+
+- README hero GIF and screenshot grid; `docs/artifacts.md` holds the per-parser
+  macOS detail; CLAUDE.md gains "Validation status & known limits" and
+  "Pending / deferred".
+
 ## [0.2.0] — 2026-09-15
 
 Headline: a full **ingest-pipeline security & robustness review** — the three OS
