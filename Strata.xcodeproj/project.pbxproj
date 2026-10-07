@@ -8,28 +8,28 @@
 
 /* Begin PBXBuildFile section */
 		099DBE0B2FCF60530042FE85 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 099DBE0A2FCF60530042FE85 /* GRDB */; };
-		09C6AC2230077C99007FE2FC /* blkstat in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC0E30077C98007FE2FC /* blkstat */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09C6AC2330077C99007FE2FC /* fsapfscat in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC0F30077C98007FE2FC /* fsapfscat */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09C6AC2430077C99007FE2FC /* tsk_loaddb in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1030077C98007FE2FC /* tsk_loaddb */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09C6AC2530077C99007FE2FC /* lnkinfo in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1130077C98007FE2FC /* lnkinfo */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09C6AC2630077C99007FE2FC /* olecfexport in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1230077C98007FE2FC /* olecfexport */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09C6AC2730077C99007FE2FC /* fsstat in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1330077C98007FE2FC /* fsstat */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09C6AC2830077C99007FE2FC /* evtxinfo in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1430077C98007FE2FC /* evtxinfo */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09C6AC2930077C99007FE2FC /* ewfexport in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1530077C98007FE2FC /* ewfexport */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09C6AC2A30077C99007FE2FC /* fls in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1630077C98007FE2FC /* fls */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09C6AC2B30077C99007FE2FC /* istat in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1730077C98007FE2FC /* istat */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09C6AC2C30077C99007FE2FC /* mmls in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1830077C98007FE2FC /* mmls */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09C6AC2D30077C99007FE2FC /* regfexport in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1930077C98007FE2FC /* regfexport */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09C6AC2E30077C99007FE2FC /* ewfverify in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1A30077C98007FE2FC /* ewfverify */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09C6AC2F30077C99007FE2FC /* regfinfo in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1B30077C98007FE2FC /* regfinfo */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09C6AC3030077C99007FE2FC /* sccainfo in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1C30077C98007FE2FC /* sccainfo */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09C6AC3130077C99007FE2FC /* fsapfsinfo in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1D30077C98007FE2FC /* fsapfsinfo */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09C6AC3230077C99007FE2FC /* evtxexport in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1E30077C98007FE2FC /* evtxexport */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09C6AC3330077C99007FE2FC /* esedbexport in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1F30077C98007FE2FC /* esedbexport */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09C6AC3430077C99007FE2FC /* ewfinfo in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC2030077C98007FE2FC /* ewfinfo */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09C6AC3530077C99007FE2FC /* icat in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC2130077C98007FE2FC /* icat */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09C6AC3630077C99007FE2FC /* yara in Copy Files (22 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC3830077C99007FE2FC /* yara */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		09C6AC3730077C99007FE2FC /* yarac in Copy Files (22 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC3930077C99007FE2FC /* yarac */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09C6AC2230077C99007FE2FC /* blkstat in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC0E30077C98007FE2FC /* blkstat */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09C6AC2330077C99007FE2FC /* fsapfscat in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC0F30077C98007FE2FC /* fsapfscat */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09C6AC2430077C99007FE2FC /* tsk_loaddb in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1030077C98007FE2FC /* tsk_loaddb */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09C6AC2530077C99007FE2FC /* lnkinfo in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1130077C98007FE2FC /* lnkinfo */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09C6AC2630077C99007FE2FC /* olecfexport in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1230077C98007FE2FC /* olecfexport */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09C6AC2730077C99007FE2FC /* fsstat in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1330077C98007FE2FC /* fsstat */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09C6AC2830077C99007FE2FC /* evtxinfo in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1430077C98007FE2FC /* evtxinfo */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09C6AC2930077C99007FE2FC /* ewfexport in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1530077C98007FE2FC /* ewfexport */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09C6AC2A30077C99007FE2FC /* fls in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1630077C98007FE2FC /* fls */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09C6AC2B30077C99007FE2FC /* istat in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1730077C98007FE2FC /* istat */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09C6AC2C30077C99007FE2FC /* mmls in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1830077C98007FE2FC /* mmls */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09C6AC2D30077C99007FE2FC /* regfexport in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1930077C98007FE2FC /* regfexport */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09C6AC2E30077C99007FE2FC /* ewfverify in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1A30077C98007FE2FC /* ewfverify */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09C6AC2F30077C99007FE2FC /* regfinfo in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1B30077C98007FE2FC /* regfinfo */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09C6AC3030077C99007FE2FC /* sccainfo in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1C30077C98007FE2FC /* sccainfo */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09C6AC3130077C99007FE2FC /* fsapfsinfo in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1D30077C98007FE2FC /* fsapfsinfo */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09C6AC3230077C99007FE2FC /* evtxexport in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1E30077C98007FE2FC /* evtxexport */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09C6AC3330077C99007FE2FC /* esedbexport in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC1F30077C98007FE2FC /* esedbexport */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09C6AC3430077C99007FE2FC /* ewfinfo in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC2030077C98007FE2FC /* ewfinfo */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09C6AC3530077C99007FE2FC /* icat in Copy Files (20 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC2130077C98007FE2FC /* icat */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09C6AC3630077C99007FE2FC /* yara in Copy Files (22 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC3830077C99007FE2FC /* yara */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		09C6AC3730077C99007FE2FC /* yarac in Copy Files (22 items) */ = {isa = PBXBuildFile; fileRef = 09C6AC3930077C99007FE2FC /* yarac */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
